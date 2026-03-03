@@ -1,0 +1,17 @@
+{
+  "user1": {
+    "email": "emoji_test_user1_1772555103@example.com",
+    "password": "TestPass123!",
+    "name": "Emoji User 1 1772555103",
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoidXNlcl9hYzBmZDBiZmNjYzEiLCJleHAiOjE3NzMxNTk5MDR9.mG9JP_1ra3Zo7lSP4dJ1OG1bDicuPwEZSt7NkKKAIPk",
+    "user_id": "user_ac0fd0bfccc1"
+  },
+  "user2": {
+    "email": "emoji_test_user2_1772555103@example.com",
+    "password": "TestPass456!",
+    "name": "Emoji User 2 1772555103",
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoidXNlcl9jMWZlZTJkZGViOWEiLCJleHAiOjE3NzMxNTk5MDR9.DPhhiKz3v4_JcHwy3055FX3EqxZB_qgw6FQ42_uWdgE",
+    "user_id": "user_c1fee2ddeb9a"
+  },
+  "conversation_id": "conv_aa323dc68152"
+}
