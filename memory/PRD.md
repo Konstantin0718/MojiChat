@@ -15,6 +15,11 @@
   - Interactive emojis, stickers, GIFs
   - Auto-translation (16 languages)
   - Language preference settings
+- **Additional features (Phase 3)**:
+  - Video/Audio calls (WebRTC) - 1-to-1 + group up to 6
+  - Message search
+  - Push notifications
+  - PWA (Progressive Web App) - installable on mobile/desktop
 
 ---
 
@@ -28,6 +33,10 @@
   - `conversations`: Chat conversations (1-to-1 & groups)
   - `messages`: Messages with emoji content, translations, reactions
   - `typing_status`: Real-time typing indicators
+  - `calls`: Video/audio call sessions
+  - `call_signals`: WebRTC signaling data
+  - `notifications`: Push notifications
+  - `push_subscriptions`: Push subscription endpoints
 
 ### Frontend (React + Tailwind + Shadcn/UI)
 - **Contexts**: ThemeContext, AuthContext
@@ -40,50 +49,22 @@
   - `FileUploader`: Multi-type file upload
   - `EmojiPicker`: Emojis, Stickers, GIFs tabs
   - `LanguageSelector`: 16 language options
+  - `VideoCall`: WebRTC video/audio call interface
+  - `SearchDialog`: Message and conversation search
+  - `InstallPrompt`: PWA install prompt
+  - `NotificationManager`: Push notification settings
+
+### PWA Features
+- Service Worker for offline support
+- Web App Manifest for installation
+- Push notification infrastructure
+- 8 app icons (72-512px)
+- Installable on Android, iOS, Desktop
 
 ### Integrations
 - **Emergent Auth**: Google OAuth
 - **Emergent LLM (GPT-4o)**: Text-to-emoji conversion & translation
-
----
-
-## User Personas
-
-1. **Privacy-Conscious User**: Wants fun messaging but doesn't want text visible at a glance
-2. **International User**: Communicates with people in different languages
-3. **Social Group Admin**: Creates and manages group chats
-4. **Media Sharer**: Sends photos, videos, voice messages
-
----
-
-## Core Requirements (Static)
-
-### Must Have (P0)
-- [x] User registration & login (email/password)
-- [x] Google OAuth integration
-- [x] 1-to-1 private messaging
-- [x] Group chat creation
-- [x] AI text-to-emoji conversion
-- [x] Tap to reveal original text
-- [x] Online/offline status
-- [x] Dark/Light theme toggle
-
-### Should Have (P1)
-- [x] Read receipts
-- [x] Typing indicators
-- [x] Voice messages
-- [x] File/image/video upload
-- [x] Message reactions
-- [x] Auto-translation
-- [x] Language preferences
-
-### Nice to Have (P2)
-- [x] Interactive animated emojis
-- [x] Stickers & GIF-like emojis
-- [ ] Phone number registration (requires Twilio)
-- [ ] End-to-end encryption
-- [ ] Message search
-- [ ] User blocking
+- **WebRTC**: Peer-to-peer video/audio calls
 
 ---
 
@@ -105,48 +86,62 @@
 - Language preference settings per user
 - Animated emoji display
 
+### January 5, 2026 - Phase 3 Features
+- Video calls (WebRTC) - 1-to-1 + group
+- Audio calls
+- Message search (Cmd+K shortcut)
+- Conversation search
+- Push notification infrastructure
+- PWA support (manifest, service worker, icons)
+- Install prompt for mobile/desktop
+
 ---
 
-## API Endpoints
+## API Endpoints (60+ endpoints)
 
 ### Authentication
-- `POST /api/auth/register` - Create account
-- `POST /api/auth/login` - Email login
-- `POST /api/auth/session` - Google OAuth callback
-- `GET /api/auth/me` - Get current user
-- `POST /api/auth/logout` - Logout
+- `POST /api/auth/register`, `/login`, `/session`, `/logout`
+- `GET /api/auth/me`
 
-### Users
-- `GET /api/users/search?q=` - Search users
-- `GET /api/users/{id}` - Get user profile
-- `PUT /api/users/language` - Update language preference
-- `POST /api/users/heartbeat` - Online status heartbeat
+### Users & Settings
+- `GET /api/users/search`, `/api/users/{id}`
+- `PUT /api/users/language`
+- `POST /api/users/heartbeat`
 
 ### Conversations
-- `POST /api/conversations` - Create conversation/group
-- `GET /api/conversations` - List conversations
-- `GET /api/conversations/{id}` - Get conversation details
-- `POST /api/conversations/{id}/members` - Add group member
+- `POST /api/conversations`
+- `GET /api/conversations`, `/api/conversations/{id}`
+- `POST /api/conversations/{id}/members`
 
 ### Messages
-- `POST /api/conversations/{id}/messages` - Send message
-- `GET /api/conversations/{id}/messages` - Get messages
-- `POST /api/conversations/{id}/typing` - Set typing status
-- `GET /api/conversations/{id}/typing` - Get typing users
+- `POST /api/conversations/{id}/messages`
+- `GET /api/conversations/{id}/messages`
+- `POST /api/conversations/{id}/typing`
 
-### Reactions & Media
-- `POST /api/messages/{id}/reactions` - Add reaction
-- `DELETE /api/messages/{id}/reactions/{emoji}` - Remove reaction
-- `POST /api/upload` - Upload file
-- `POST /api/voice/upload` - Upload voice message
-- `GET /api/files/{id}` - Get uploaded file
+### Media & Files
+- `POST /api/upload`, `/api/voice/upload`
+- `GET /api/files/{id}`
+- `POST /api/messages/{id}/reactions`
+
+### Search
+- `GET /api/search/messages?q=`
+- `GET /api/search/conversations?q=`
+
+### Video Calls
+- `POST /api/calls/initiate`
+- `POST /api/calls/{id}/join`, `/signal`, `/end`
+- `GET /api/calls/{id}/signals`
+- `GET /api/calls/active`
+
+### Notifications
+- `POST /api/notifications/subscribe`
+- `DELETE /api/notifications/unsubscribe`
+- `GET /api/notifications`, `/unread-count`
+- `POST /api/notifications/{id}/read`
 
 ### Utilities
-- `GET /api/languages` - Supported languages
-- `GET /api/stickers` - Sticker packs
-- `GET /api/animated-emojis` - Animated emoji sets
-- `POST /api/translate` - Translate text
-- `POST /api/emoji/convert` - Convert text to emoji
+- `GET /api/languages`, `/stickers`, `/animated-emojis`
+- `POST /api/translate`, `/emoji/convert`
 
 ---
 
@@ -156,16 +151,15 @@
 - [ ] Phone number registration with SMS verification (Twilio)
 
 ### P1 - High Priority
-- [ ] Message search functionality
-- [ ] User blocking/muting
-- [ ] Push notifications
 - [ ] Message forwarding
+- [ ] User blocking/muting
+- [ ] End-to-end encryption
 
 ### P2 - Medium Priority
 - [ ] Voice message transcription (Whisper)
-- [ ] Video calls (WebRTC)
 - [ ] Story/Status feature
 - [ ] Custom sticker upload
+- [ ] Firebase push notifications (production keys)
 
 ### P3 - Low Priority
 - [ ] Message scheduling
@@ -177,8 +171,8 @@
 
 ## Next Tasks
 
-1. **Phone Registration**: Integrate Twilio for SMS verification
-2. **Search**: Add message and conversation search
-3. **Notifications**: Browser push notifications for new messages
-4. **Performance**: Add message pagination and lazy loading
-5. **Security**: Implement rate limiting and input sanitization
+1. **Firebase Setup**: Add production Firebase keys for push notifications
+2. **Phone Registration**: Integrate Twilio for SMS verification
+3. **E2E Encryption**: Add Signal Protocol for message encryption
+4. **Performance**: Message pagination and lazy loading
+5. **Testing**: Comprehensive WebRTC testing across browsers

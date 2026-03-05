@@ -1175,8 +1175,8 @@ async def search_conversations(q: str, request: Request):
         ).to_list(100)
         
         # Check if query matches conversation name or participant names
-        conv_name = conv.get("name", "")
-        participant_names = " ".join([p.get("name", "") for p in participants])
+        conv_name = conv.get("name") or ""
+        participant_names = " ".join([p.get("name", "") or "" for p in participants])
         
         if q.lower() in conv_name.lower() or q.lower() in participant_names.lower():
             results.append({
@@ -1401,13 +1401,23 @@ async def subscribe_push(subscription: PushSubscription, request: Request):
 async def unsubscribe_push(request: Request):
     """Unsubscribe from push notifications"""
     current_user = await get_current_user(request)
-    body = await request.json()
-    endpoint = body.get("endpoint")
     
-    await db.push_subscriptions.delete_one({
-        "user_id": current_user["user_id"],
-        "endpoint": endpoint
-    })
+    try:
+        body = await request.json()
+        endpoint = body.get("endpoint")
+    except:
+        endpoint = None
+    
+    if endpoint:
+        await db.push_subscriptions.delete_one({
+            "user_id": current_user["user_id"],
+            "endpoint": endpoint
+        })
+    else:
+        # Delete all subscriptions for user
+        await db.push_subscriptions.delete_many({
+            "user_id": current_user["user_id"]
+        })
     
     return {"status": "unsubscribed"}
 
