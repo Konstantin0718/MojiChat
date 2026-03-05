@@ -3,29 +3,42 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, 
-  Search, 
-  Plus, 
   Users, 
   MessageCircle, 
-  Settings, 
   LogOut,
   Menu,
   X,
   UserPlus,
-  ChevronLeft
+  Paperclip,
+  Smile,
+  Globe,
+  Settings,
+  Image,
+  Mic,
+  Play,
+  Pause,
+  FileText,
+  Film
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { ThemeToggle } from '../ui/ThemeToggle';
 import { EmojiRevealCard } from './EmojiRevealCard';
 import { TypingIndicator } from './TypingIndicator';
+import { VoiceRecorder } from './VoiceRecorder';
+import { FileUploader } from './FileUploader';
+import { EmojiPicker } from './EmojiPicker';
+import { LanguageSelector, LANGUAGES } from './LanguageSelector';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { ScrollArea } from '../ui/scroll-area';
-import { Sheet, SheetContent, SheetTrigger } from '../ui/sheet';
+import { Sheet, SheetContent } from '../ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { cn } from '../../lib/utils';
 import { Toaster, toast } from 'sonner';
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 export const ChatLayout = () => {
   const { user, logout, api } = useAuth();
@@ -45,6 +58,11 @@ export const ChatLayout = () => {
   const [groupName, setGroupName] = useState('');
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [sending, setSending] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showFileUploader, setShowFileUploader] = useState(false);
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [userLanguage, setUserLanguage] = useState(user?.preferred_language || 'en');
   
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -126,6 +144,13 @@ export const ChatLayout = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Update user language
+  useEffect(() => {
+    if (user?.preferred_language) {
+      setUserLanguage(user.preferred_language);
+    }
+  }, [user]);
+
   // Search users
   const searchUsers = async (query) => {
     if (!query.trim()) {
@@ -162,15 +187,16 @@ export const ChatLayout = () => {
     }, 3000);
   };
 
-  // Send message
+  // Send text message
   const sendMessage = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (!newMessage.trim() || !conversationId || sending) return;
 
     setSending(true);
     try {
       await api.post(`/conversations/${conversationId}/messages`, {
-        content: newMessage.trim()
+        content: newMessage.trim(),
+        message_type: 'text'
       });
       setNewMessage('');
       await fetchMessages();
@@ -179,6 +205,78 @@ export const ChatLayout = () => {
       toast.error('Failed to send message');
     } finally {
       setSending(false);
+    }
+  };
+
+  // Send file message
+  const sendFileMessage = async (fileData) => {
+    if (!conversationId || sending) return;
+
+    setSending(true);
+    try {
+      await api.post(`/conversations/${conversationId}/messages`, {
+        content: fileData.file_name || 'File',
+        message_type: fileData.file_type,
+        file_url: fileData.file_url,
+        file_name: fileData.file_name,
+        file_size: fileData.file_size
+      });
+      setShowFileUploader(false);
+      await fetchMessages();
+    } catch (error) {
+      toast.error('Failed to send file');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Send voice message
+  const sendVoiceMessage = async (audioData, duration) => {
+    if (!conversationId || sending) return;
+
+    setSending(true);
+    try {
+      // Upload voice
+      const uploadResponse = await api.post('/voice/upload', {
+        audio_data: audioData,
+        duration: duration
+      });
+
+      // Send message
+      await api.post(`/conversations/${conversationId}/messages`, {
+        content: 'Voice message',
+        message_type: 'audio',
+        file_url: uploadResponse.data.file_url,
+        duration: duration
+      });
+      
+      setShowVoiceRecorder(false);
+      await fetchMessages();
+    } catch (error) {
+      toast.error('Failed to send voice message');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Add reaction to message
+  const addReaction = async (messageId, emoji) => {
+    try {
+      await api.post(`/messages/${messageId}/reactions`, { emoji });
+      await fetchMessages();
+    } catch (error) {
+      console.error('Failed to add reaction:', error);
+    }
+  };
+
+  // Update language preference
+  const updateLanguage = async (langCode) => {
+    try {
+      await api.put('/users/language', { preferred_language: langCode });
+      setUserLanguage(langCode);
+      toast.success(`Language changed to ${LANGUAGES[langCode]?.name || langCode}`);
+    } catch (error) {
+      toast.error('Failed to update language');
     }
   };
 
@@ -240,6 +338,132 @@ export const ChatLayout = () => {
     navigate('/');
   };
 
+  // Render message based on type
+  const renderMessage = (msg) => {
+    const isOwn = msg.sender_id === user?.user_id;
+    
+    // For file/media messages
+    if (msg.message_type === 'image' && msg.file_url) {
+      return (
+        <motion.div
+          key={msg.message_id}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={cn("flex", isOwn ? "justify-end" : "justify-start")}
+        >
+          <div className={cn(
+            "max-w-[80%] rounded-2xl overflow-hidden",
+            isOwn ? "rounded-br-sm" : "rounded-bl-sm"
+          )}>
+            <img 
+              src={`${API_URL}${msg.file_url}`} 
+              alt="Shared image" 
+              className="max-w-full max-h-64 object-cover cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => window.open(`${API_URL}${msg.file_url}`, '_blank')}
+            />
+            <div className={cn(
+              "px-3 py-1 text-xs",
+              isOwn ? "bg-primary text-primary-foreground" : "bg-muted"
+            )}>
+              {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
+            </div>
+          </div>
+        </motion.div>
+      );
+    }
+
+    if (msg.message_type === 'video' && msg.file_url) {
+      return (
+        <motion.div
+          key={msg.message_id}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={cn("flex", isOwn ? "justify-end" : "justify-start")}
+        >
+          <div className={cn(
+            "max-w-[80%] rounded-2xl overflow-hidden",
+            isOwn ? "rounded-br-sm bg-primary" : "rounded-bl-sm bg-muted"
+          )}>
+            <video 
+              src={`${API_URL}${msg.file_url}`} 
+              controls 
+              className="max-w-full max-h-64"
+            />
+          </div>
+        </motion.div>
+      );
+    }
+
+    if (msg.message_type === 'audio' && msg.file_url) {
+      return (
+        <motion.div
+          key={msg.message_id}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={cn("flex", isOwn ? "justify-end" : "justify-start")}
+        >
+          <div className={cn(
+            "max-w-[80%] p-3 rounded-2xl",
+            isOwn ? "rounded-br-sm bg-primary text-primary-foreground" : "rounded-bl-sm bg-muted"
+          )}>
+            <div className="flex items-center gap-3">
+              <Mic className="w-5 h-5" />
+              <audio src={`${API_URL}${msg.file_url}`} controls className="h-8" />
+              {msg.duration && (
+                <span className="text-xs opacity-70">
+                  {Math.floor(msg.duration / 60)}:{(msg.duration % 60).toString().padStart(2, '0')}
+                </span>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      );
+    }
+
+    if (msg.message_type === 'file' && msg.file_url) {
+      return (
+        <motion.div
+          key={msg.message_id}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={cn("flex", isOwn ? "justify-end" : "justify-start")}
+        >
+          <a
+            href={`${API_URL}${msg.file_url}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              "max-w-[80%] p-4 rounded-2xl flex items-center gap-3 hover:opacity-90 transition-opacity",
+              isOwn ? "rounded-br-sm bg-primary text-primary-foreground" : "rounded-bl-sm bg-muted"
+            )}
+          >
+            <FileText className="w-8 h-8" />
+            <div className="min-w-0">
+              <p className="font-medium truncate">{msg.file_name || 'File'}</p>
+              {msg.file_size && (
+                <p className="text-xs opacity-70">
+                  {(msg.file_size / 1024).toFixed(1)} KB
+                </p>
+              )}
+            </div>
+          </a>
+        </motion.div>
+      );
+    }
+
+    // Default: text message with emoji reveal
+    return (
+      <EmojiRevealCard
+        key={msg.message_id}
+        message={msg}
+        isOwn={isOwn}
+        currentUserId={user?.user_id}
+        userLanguage={userLanguage}
+        onReaction={(emoji) => addReaction(msg.message_id, emoji)}
+      />
+    );
+  };
+
   // Sidebar content
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-card">
@@ -249,7 +473,9 @@ export const ChatLayout = () => {
           <h1 className="text-2xl font-heading font-bold gradient-brand bg-clip-text text-transparent">
             MojiChat
           </h1>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+          </div>
         </div>
         
         {/* User info */}
@@ -264,6 +490,34 @@ export const ChatLayout = () => {
             <p className="font-medium truncate">{user?.name}</p>
             <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
           </div>
+          <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="icon" data-testid="settings-btn">
+                <Settings className="w-4 h-4" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="font-heading">Settings</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-6">
+                <div>
+                  <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                    <Globe className="w-4 h-4" />
+                    Preferred Language
+                  </h4>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Messages will be translated to your preferred language
+                  </p>
+                  <LanguageSelector
+                    currentLanguage={userLanguage}
+                    onLanguageChange={updateLanguage}
+                    variant="inline"
+                  />
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -455,7 +709,9 @@ export const ChatLayout = () => {
                   </div>
                   {conv.last_message && (
                     <p className="text-sm text-muted-foreground truncate">
-                      {conv.last_message.emoji_content?.slice(0, 20) || '🔮'}
+                      {conv.last_message.message_type !== 'text' 
+                        ? `📎 ${conv.last_message.message_type}`
+                        : conv.last_message.emoji_content?.slice(0, 20) || '🔮'}
                     </p>
                   )}
                 </div>
@@ -549,6 +805,10 @@ export const ChatLayout = () => {
                   </p>
                 )}
               </div>
+              <LanguageSelector
+                currentLanguage={userLanguage}
+                onLanguageChange={updateLanguage}
+              />
             </>
           ) : (
             <div className="flex-1">
@@ -563,14 +823,7 @@ export const ChatLayout = () => {
             <ScrollArea className="flex-1 p-4">
               <div className="space-y-4 max-w-3xl mx-auto">
                 <AnimatePresence>
-                  {messages.map((msg) => (
-                    <EmojiRevealCard
-                      key={msg.message_id}
-                      message={msg}
-                      isOwn={msg.sender_id === user?.user_id}
-                      currentUserId={user?.user_id}
-                    />
-                  ))}
+                  {messages.map((msg) => renderMessage(msg))}
                 </AnimatePresence>
                 
                 {typingUsers.length > 0 && (
@@ -581,30 +834,130 @@ export const ChatLayout = () => {
               </div>
             </ScrollArea>
 
+            {/* File Uploader */}
+            <AnimatePresence>
+              {showFileUploader && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="border-t border-border bg-card overflow-hidden"
+                >
+                  <div className="p-4 max-w-3xl mx-auto">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-medium">Send File</h4>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setShowFileUploader(false)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <FileUploader
+                      api={api}
+                      onUpload={sendFileMessage}
+                      onCancel={() => setShowFileUploader(false)}
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Message Input */}
             <div className="p-4 border-t border-border bg-card">
-              <form onSubmit={sendMessage} className="flex gap-3 max-w-3xl mx-auto">
-                <Input
-                  ref={inputRef}
-                  value={newMessage}
-                  onChange={(e) => {
-                    setNewMessage(e.target.value);
-                    handleTyping();
-                  }}
-                  placeholder="Type a message... (will be converted to emojis!)"
-                  className="flex-1 rounded-full bg-muted border-none focus:ring-2 focus:ring-primary/50 px-6"
-                  data-testid="message-input"
-                />
+              <div className="flex items-center gap-2 max-w-3xl mx-auto relative">
+                {/* Attachment button */}
                 <Button
-                  type="submit"
+                  type="button"
+                  variant="ghost"
                   size="icon"
-                  disabled={!newMessage.trim() || sending}
-                  className="rounded-full w-12 h-12 shadow-neon"
-                  data-testid="send-message-btn"
+                  onClick={() => setShowFileUploader(!showFileUploader)}
+                  className="rounded-full"
+                  data-testid="attachment-btn"
                 >
-                  <Send className="w-5 h-5" />
+                  <Paperclip className="w-5 h-5" />
                 </Button>
-              </form>
+
+                {/* Voice recorder or input */}
+                {showVoiceRecorder ? (
+                  <div className="flex-1">
+                    <VoiceRecorder
+                      onSend={sendVoiceMessage}
+                      onCancel={() => setShowVoiceRecorder(false)}
+                    />
+                  </div>
+                ) : (
+                  <form onSubmit={sendMessage} className="flex-1 flex items-center gap-2">
+                    <div className="flex-1 relative">
+                      <Input
+                        ref={inputRef}
+                        value={newMessage}
+                        onChange={(e) => {
+                          setNewMessage(e.target.value);
+                          handleTyping();
+                        }}
+                        placeholder="Type a message... (will be translated!)"
+                        className="pr-10 rounded-full bg-muted border-none focus:ring-2 focus:ring-primary/50 px-6"
+                        data-testid="message-input"
+                      />
+                      
+                      {/* Emoji picker */}
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                        <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 rounded-full"
+                              data-testid="emoji-picker-btn"
+                            >
+                              <Smile className="w-5 h-5" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-80 p-0" align="end">
+                            <EmojiPicker
+                              onSelect={(emoji) => {
+                                setNewMessage(prev => prev + emoji);
+                                setShowEmojiPicker(false);
+                              }}
+                              onClose={() => setShowEmojiPicker(false)}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    </div>
+
+                    {/* Voice button */}
+                    {!newMessage.trim() && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setShowVoiceRecorder(true)}
+                        className="rounded-full"
+                        data-testid="voice-btn"
+                      >
+                        <Mic className="w-5 h-5" />
+                      </Button>
+                    )}
+
+                    {/* Send button */}
+                    {newMessage.trim() && (
+                      <Button
+                        type="submit"
+                        size="icon"
+                        disabled={!newMessage.trim() || sending}
+                        className="rounded-full w-10 h-10 shadow-neon"
+                        data-testid="send-message-btn"
+                      >
+                        <Send className="w-5 h-5" />
+                      </Button>
+                    )}
+                  </form>
+                )}
+              </div>
             </div>
           </>
         ) : (
@@ -617,6 +970,8 @@ export const ChatLayout = () => {
               </p>
               <p className="text-sm text-muted-foreground">
                 Your messages will be transformed into emojis 🎉
+                <br />
+                and translated automatically! 🌍
               </p>
             </div>
           </div>
