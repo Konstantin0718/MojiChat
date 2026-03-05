@@ -18,7 +18,12 @@ import {
   Play,
   Pause,
   FileText,
-  Film
+  Film,
+  Search,
+  Video,
+  Phone,
+  PhoneOff,
+  Bell
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { ThemeToggle } from '../ui/ThemeToggle';
@@ -28,6 +33,8 @@ import { VoiceRecorder } from './VoiceRecorder';
 import { FileUploader } from './FileUploader';
 import { EmojiPicker } from './EmojiPicker';
 import { LanguageSelector, LANGUAGES } from './LanguageSelector';
+import { SearchDialog } from './SearchDialog';
+import { VideoCall } from './VideoCall';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -35,6 +42,8 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Sheet, SheetContent } from '../ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { InstallPrompt } from '../pwa/InstallPrompt';
+import { NotificationManager, NotificationSettings } from '../pwa/NotificationManager';
 import { cn } from '../../lib/utils';
 import { Toaster, toast } from 'sonner';
 
@@ -63,6 +72,9 @@ export const ChatLayout = () => {
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [userLanguage, setUserLanguage] = useState(user?.preferred_language || 'en');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [activeCall, setActiveCall] = useState(null);
+  const [incomingCall, setIncomingCall] = useState(null);
   
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -150,6 +162,44 @@ export const ChatLayout = () => {
       setUserLanguage(user.preferred_language);
     }
   }, [user]);
+
+  // Check for active/incoming calls
+  useEffect(() => {
+    const checkCalls = async () => {
+      try {
+        const response = await api.get('/calls/active');
+        const calls = response.data;
+        
+        if (calls.length > 0) {
+          const call = calls[0];
+          if (call.initiator_id !== user?.user_id && call.status === 'ringing') {
+            setIncomingCall(call);
+          }
+        }
+      } catch (error) {
+        // Ignore
+      }
+    };
+    
+    const interval = setInterval(checkCalls, 3000);
+    return () => clearInterval(interval);
+  }, [api, user]);
+
+  // Keyboard shortcut for search
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsSearchOpen(true);
+      }
+      if (e.key === 'Escape') {
+        setIsSearchOpen(false);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Search users
   const searchUsers = async (query) => {
@@ -278,6 +328,54 @@ export const ChatLayout = () => {
     } catch (error) {
       toast.error('Failed to update language');
     }
+  };
+
+  // Start video/audio call
+  const startCall = async (isVideo = true) => {
+    if (!conversationId) return;
+    
+    try {
+      const response = await api.post('/calls/initiate', {
+        conversation_id: conversationId,
+        is_video: isVideo
+      });
+      
+      setActiveCall({
+        ...response.data,
+        is_video: isVideo,
+        isInitiator: true
+      });
+      
+      toast.success(`${isVideo ? 'Video' : 'Voice'} call started`);
+    } catch (error) {
+      toast.error('Failed to start call');
+    }
+  };
+
+  // Answer incoming call
+  const answerCall = () => {
+    if (incomingCall) {
+      setActiveCall({
+        ...incomingCall,
+        isInitiator: false
+      });
+      setIncomingCall(null);
+    }
+  };
+
+  // Decline incoming call
+  const declineCall = async () => {
+    if (incomingCall) {
+      try {
+        await api.post(`/calls/${incomingCall.call_id}/end`);
+      } catch (e) {}
+      setIncomingCall(null);
+    }
+  };
+
+  // End active call
+  const endCall = () => {
+    setActiveCall(null);
   };
 
   // Start new conversation
@@ -515,10 +613,31 @@ export const ChatLayout = () => {
                     variant="inline"
                   />
                 </div>
+                <div>
+                  <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                    <Bell className="w-4 h-4" />
+                    Notifications
+                  </h4>
+                  <NotificationSettings api={api} />
+                </div>
               </div>
             </DialogContent>
           </Dialog>
         </div>
+      </div>
+
+      {/* Search button */}
+      <div className="px-3 pb-2">
+        <Button
+          variant="outline"
+          className="w-full justify-start gap-2 text-muted-foreground"
+          onClick={() => setIsSearchOpen(true)}
+          data-testid="search-btn"
+        >
+          <Search className="w-4 h-4" />
+          Search messages...
+          <kbd className="ml-auto text-xs bg-muted px-1.5 py-0.5 rounded">⌘K</kbd>
+        </Button>
       </div>
 
       {/* Action buttons */}
@@ -764,6 +883,80 @@ export const ChatLayout = () => {
         </SheetContent>
       </Sheet>
 
+      {/* Search Dialog */}
+      <SearchDialog
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        api={api}
+        onSelectConversation={(convId) => navigate(`/chat/${convId}`)}
+        onSelectMessage={(msg) => navigate(`/chat/${msg.conversation_id}`)}
+      />
+
+      {/* Video Call */}
+      <AnimatePresence>
+        {activeCall && (
+          <VideoCall
+            callId={activeCall.call_id}
+            conversationId={activeCall.conversation_id}
+            participants={currentConversation?.participants || []}
+            currentUser={user}
+            isInitiator={activeCall.isInitiator}
+            isVideo={activeCall.is_video}
+            api={api}
+            onEnd={endCall}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Incoming Call Notification */}
+      <AnimatePresence>
+        {incomingCall && !activeCall && (
+          <motion.div
+            initial={{ opacity: 0, y: -100 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -100 }}
+            className="fixed top-4 left-4 right-4 md:left-auto md:right-4 md:w-80 z-50"
+          >
+            <div className="bg-card border border-border rounded-2xl shadow-lg p-4">
+              <div className="flex items-center gap-3 mb-4">
+                <Avatar className="w-12 h-12">
+                  <AvatarFallback className="bg-primary text-white">
+                    {incomingCall.initiator_name?.[0]?.toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="font-medium">{incomingCall.initiator_name}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {incomingCall.is_video ? 'Video' : 'Voice'} call...
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={declineCall}
+                  variant="destructive"
+                  className="flex-1 rounded-full"
+                >
+                  <PhoneOff className="w-4 h-4 mr-2" />
+                  Decline
+                </Button>
+                <Button
+                  onClick={answerCall}
+                  className="flex-1 rounded-full bg-green-500 hover:bg-green-600"
+                >
+                  <Phone className="w-4 h-4 mr-2" />
+                  Answer
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* PWA Components */}
+      <InstallPrompt />
+      <NotificationManager api={api} user={user} />
+
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Chat Header */}
@@ -805,6 +998,29 @@ export const ChatLayout = () => {
                   </p>
                 )}
               </div>
+              
+              {/* Call buttons */}
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => startCall(false)}
+                  className="rounded-full"
+                  data-testid="voice-call-btn"
+                >
+                  <Phone className="w-5 h-5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => startCall(true)}
+                  className="rounded-full"
+                  data-testid="video-call-btn"
+                >
+                  <Video className="w-5 h-5" />
+                </Button>
+              </div>
+              
               <LanguageSelector
                 currentLanguage={userLanguage}
                 onLanguageChange={updateLanguage}

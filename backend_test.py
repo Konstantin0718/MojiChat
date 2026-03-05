@@ -418,6 +418,150 @@ class MojiChatAPITester:
         success, status, data = self.make_request('DELETE', f'messages/{self.message_id}/reactions/👍', expect_status=200)
         self.log_test("Remove message reaction", success, f"Status: {status}")
 
+    def test_search_functionality(self):
+        """Test message and conversation search endpoints"""
+        print("\n🔍 Testing Search Functionality...")
+        
+        if not self.token:
+            self.log_test("Search functionality", False, "No token available")
+            return
+            
+        # Test message search
+        success, status, data = self.make_request('GET', 'search/messages?q=test')
+        is_list = isinstance(data, list)
+        self.log_test("Search messages endpoint responds", success and is_list, f"Status: {status}, Type: {type(data)}")
+        
+        # Test conversation search
+        success, status, data = self.make_request('GET', 'search/conversations?q=test')
+        is_list = isinstance(data, list)
+        self.log_test("Search conversations endpoint responds", success and is_list, f"Status: {status}, Type: {type(data)}")
+
+    def test_video_call_apis(self):
+        """Test video call WebRTC signaling endpoints"""
+        print("\n🔍 Testing Video Call APIs...")
+        
+        if not self.token or not self.conversation_id:
+            self.log_test("Video call APIs", False, "Missing prerequisites (token or conversation)")
+            return
+        
+        call_id = None
+        
+        # Test call initiation
+        call_data = {
+            "conversation_id": self.conversation_id,
+            "is_video": True
+        }
+        success, status, data = self.make_request('POST', 'calls/initiate', call_data)
+        if success and data.get("call_id"):
+            call_id = data["call_id"]
+            self.log_test("Initiate video call", True, f"Call ID: {call_id}")
+        else:
+            self.log_test("Initiate video call", False, f"Status: {status}, Response: {data}")
+        
+        # Test get active calls
+        success, status, data = self.make_request('GET', 'calls/active')
+        is_list = isinstance(data, list)
+        self.log_test("Get active calls", success and is_list, f"Status: {status}, Active calls: {len(data) if is_list else 0}")
+        
+        if call_id:
+            # Test join call
+            success, status, data = self.make_request('POST', f'calls/{call_id}/join')
+            self.log_test("Join call", success, f"Status: {status}")
+            
+            # Test send signal
+            signal_data = {
+                "type": "offer",
+                "data": {"sdp": "mock-sdp-data", "type": "offer"},
+                "target_user_id": self.other_user_id
+            }
+            success, status, data = self.make_request('POST', f'calls/{call_id}/signal', signal_data)
+            self.log_test("Send WebRTC signal", success, f"Status: {status}")
+            
+            # Test get signals
+            success, status, data = self.make_request('GET', f'calls/{call_id}/signals')
+            is_list = isinstance(data, list)
+            self.log_test("Get WebRTC signals", success and is_list, f"Status: {status}, Signals: {len(data) if is_list else 0}")
+            
+            # Test end call
+            success, status, data = self.make_request('POST', f'calls/{call_id}/end')
+            self.log_test("End call", success, f"Status: {status}")
+
+    def test_push_notifications(self):
+        """Test push notification endpoints"""
+        print("\n🔍 Testing Push Notifications...")
+        
+        if not self.token:
+            self.log_test("Push notifications", False, "No token available")
+            return
+            
+        # Test subscribe to notifications
+        subscription_data = {
+            "endpoint": "https://fcm.googleapis.com/fcm/send/mock-endpoint",
+            "keys": {
+                "p256dh": "mock-p256dh-key",
+                "auth": "mock-auth-key"
+            }
+        }
+        success, status, data = self.make_request('POST', 'notifications/subscribe', subscription_data)
+        self.log_test("Subscribe to push notifications", success, f"Status: {status}")
+        
+        # Test get notifications
+        success, status, data = self.make_request('GET', 'notifications')
+        is_list = isinstance(data, list)
+        self.log_test("Get user notifications", success and is_list, f"Status: {status}, Notifications: {len(data) if is_list else 0}")
+        
+        # Test get unread count
+        success, status, data = self.make_request('GET', 'notifications/unread-count')
+        has_count = success and "count" in data
+        self.log_test("Get unread notifications count", has_count, f"Status: {status}, Count: {data.get('count', 'N/A')}")
+        
+        # Test unsubscribe from notifications
+        unsubscribe_data = {"endpoint": "https://fcm.googleapis.com/fcm/send/mock-endpoint"}
+        success, status, data = self.make_request('DELETE', 'notifications/unsubscribe', unsubscribe_data)
+        self.log_test("Unsubscribe from push notifications", success, f"Status: {status}")
+
+    def test_pwa_support(self):
+        """Test PWA manifest and service worker accessibility"""
+        print("\n🔍 Testing PWA Support...")
+        
+        # Test manifest.json accessibility
+        manifest_url = f"{self.base_url}/manifest.json"
+        try:
+            response = requests.get(manifest_url, timeout=10)
+            manifest_success = response.status_code == 200
+            if manifest_success:
+                manifest_data = response.json()
+                has_required_fields = all(field in manifest_data for field in ["name", "short_name", "start_url", "icons"])
+                self.log_test("PWA manifest.json valid and accessible", has_required_fields, f"Fields: {list(manifest_data.keys()) if manifest_success else 'Failed'}")
+            else:
+                self.log_test("PWA manifest.json accessible", False, f"Status: {response.status_code}")
+        except Exception as e:
+            self.log_test("PWA manifest.json accessible", False, f"Error: {str(e)}")
+        
+        # Test service worker accessibility
+        sw_url = f"{self.base_url}/sw.js"
+        try:
+            response = requests.get(sw_url, timeout=10)
+            sw_success = response.status_code == 200 and 'service worker' in response.text.lower()
+            self.log_test("Service worker sw.js accessible", sw_success, f"Status: {response.status_code}")
+        except Exception as e:
+            self.log_test("Service worker sw.js accessible", False, f"Error: {str(e)}")
+        
+        # Test app icons accessibility
+        icon_sizes = ["72x72", "96x96", "128x128", "144x144", "152x152", "192x192", "384x384", "512x512"]
+        icons_found = 0
+        for size in icon_sizes:
+            icon_url = f"{self.base_url}/icons/icon-{size}.png"
+            try:
+                response = requests.get(icon_url, timeout=5)
+                if response.status_code == 200:
+                    icons_found += 1
+            except:
+                pass
+        
+        icons_success = icons_found >= 6  # At least 6 out of 8 icons should be accessible
+        self.log_test("PWA app icons present in /icons/ folder", icons_success, f"Found {icons_found}/{len(icon_sizes)} icons")
+
     def test_logout(self):
         """Test user logout"""
         print("\n🔍 Testing Logout...")
@@ -460,6 +604,13 @@ class MojiChatAPITester:
         self.test_file_upload()
         self.test_voice_upload()
         self.test_message_reactions()
+        
+        # LATEST NEW FEATURES (Video calls, search, notifications, PWA)
+        print("\n🔥 Testing Latest New Features (Video Calls, Search, Notifications)...")
+        self.test_search_functionality()
+        self.test_video_call_apis()
+        self.test_push_notifications()
+        self.test_pwa_support()
         
         # Logout last
         self.test_logout()

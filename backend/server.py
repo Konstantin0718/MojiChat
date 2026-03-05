@@ -1110,11 +1110,342 @@ async def get_animated_emojis():
 
 @api_router.get("/")
 async def root():
-    return {"message": "MojiChat API is running", "version": "1.0.0"}
+    return {"message": "MojiChat API is running", "version": "2.0.0"}
 
 @api_router.get("/health")
 async def health():
     return {"status": "healthy"}
+
+# ==================== MESSAGE SEARCH ====================
+
+@api_router.get("/search/messages")
+async def search_messages(q: str, request: Request, conversation_id: Optional[str] = None):
+    """Search messages by content"""
+    current_user = await get_current_user(request)
+    
+    if not q.strip():
+        return []
+    
+    # Get user's conversations
+    user_convs = await db.conversations.find(
+        {"participant_ids": current_user["user_id"]},
+        {"conversation_id": 1, "_id": 0}
+    ).to_list(100)
+    conv_ids = [c["conversation_id"] for c in user_convs]
+    
+    # Build query
+    query = {
+        "conversation_id": {"$in": conv_ids},
+        "$or": [
+            {"content": {"$regex": q, "$options": "i"}},
+            {"emoji_content": {"$regex": q, "$options": "i"}}
+        ]
+    }
+    
+    if conversation_id:
+        query["conversation_id"] = conversation_id
+    
+    messages = await db.messages.find(
+        query,
+        {"_id": 0}
+    ).sort("created_at", -1).limit(50).to_list(50)
+    
+    return messages
+
+@api_router.get("/search/conversations")
+async def search_conversations(q: str, request: Request):
+    """Search conversations by name or participant"""
+    current_user = await get_current_user(request)
+    
+    if not q.strip():
+        return []
+    
+    # Get user's conversations
+    conversations = await db.conversations.find(
+        {"participant_ids": current_user["user_id"]},
+        {"_id": 0}
+    ).to_list(100)
+    
+    results = []
+    for conv in conversations:
+        # Get participants
+        participants = await db.users.find(
+            {"user_id": {"$in": conv["participant_ids"]}},
+            {"_id": 0, "password": 0}
+        ).to_list(100)
+        
+        # Check if query matches conversation name or participant names
+        conv_name = conv.get("name", "")
+        participant_names = " ".join([p.get("name", "") for p in participants])
+        
+        if q.lower() in conv_name.lower() or q.lower() in participant_names.lower():
+            results.append({
+                "conversation_id": conv["conversation_id"],
+                "name": conv.get("name"),
+                "is_group": conv.get("is_group", False),
+                "participants": participants
+            })
+    
+    return results
+
+# ==================== VIDEO CALLS (WebRTC Signaling) ====================
+
+class CallSignal(BaseModel):
+    type: str  # offer, answer, ice-candidate
+    data: dict
+    target_user_id: Optional[str] = None
+
+@api_router.post("/calls/initiate")
+async def initiate_call(request: Request):
+    """Initiate a video call"""
+    current_user = await get_current_user(request)
+    body = await request.json()
+    
+    conversation_id = body.get("conversation_id")
+    is_video = body.get("is_video", True)
+    
+    if not conversation_id:
+        raise HTTPException(status_code=400, detail="conversation_id required")
+    
+    # Verify user is in conversation
+    conv = await db.conversations.find_one(
+        {"conversation_id": conversation_id, "participant_ids": current_user["user_id"]},
+        {"_id": 0}
+    )
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    call_id = f"call_{uuid.uuid4().hex[:12]}"
+    call_doc = {
+        "call_id": call_id,
+        "conversation_id": conversation_id,
+        "initiator_id": current_user["user_id"],
+        "initiator_name": current_user["name"],
+        "participants": [current_user["user_id"]],
+        "is_video": is_video,
+        "status": "ringing",  # ringing, active, ended
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "ended_at": None
+    }
+    
+    await db.calls.insert_one(call_doc)
+    
+    # Create notification for other participants
+    for participant_id in conv["participant_ids"]:
+        if participant_id != current_user["user_id"]:
+            await db.notifications.insert_one({
+                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                "user_id": participant_id,
+                "type": "incoming_call",
+                "title": f"{'Video' if is_video else 'Voice'} Call",
+                "body": f"{current_user['name']} is calling...",
+                "data": {
+                    "call_id": call_id,
+                    "conversation_id": conversation_id,
+                    "caller_name": current_user["name"],
+                    "is_video": is_video
+                },
+                "read": False,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
+    
+    return {
+        "call_id": call_id,
+        "conversation_id": conversation_id,
+        "status": "ringing"
+    }
+
+@api_router.post("/calls/{call_id}/join")
+async def join_call(call_id: str, request: Request):
+    """Join an existing call"""
+    current_user = await get_current_user(request)
+    
+    call = await db.calls.find_one({"call_id": call_id}, {"_id": 0})
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+    
+    if call["status"] == "ended":
+        raise HTTPException(status_code=400, detail="Call has ended")
+    
+    # Add user to participants
+    await db.calls.update_one(
+        {"call_id": call_id},
+        {
+            "$addToSet": {"participants": current_user["user_id"]},
+            "$set": {"status": "active"}
+        }
+    )
+    
+    return {"call_id": call_id, "status": "joined"}
+
+@api_router.post("/calls/{call_id}/signal")
+async def send_signal(call_id: str, signal: CallSignal, request: Request):
+    """Send WebRTC signaling data"""
+    current_user = await get_current_user(request)
+    
+    call = await db.calls.find_one({"call_id": call_id}, {"_id": 0})
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+    
+    # Store signal for target user(s)
+    signal_doc = {
+        "signal_id": f"sig_{uuid.uuid4().hex[:12]}",
+        "call_id": call_id,
+        "from_user_id": current_user["user_id"],
+        "target_user_id": signal.target_user_id,
+        "type": signal.type,
+        "data": signal.data,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "processed": False
+    }
+    
+    await db.call_signals.insert_one(signal_doc)
+    
+    return {"status": "sent"}
+
+@api_router.get("/calls/{call_id}/signals")
+async def get_signals(call_id: str, request: Request):
+    """Get pending WebRTC signals for current user"""
+    current_user = await get_current_user(request)
+    
+    # Get unprocessed signals for this user
+    signals = await db.call_signals.find(
+        {
+            "call_id": call_id,
+            "$or": [
+                {"target_user_id": current_user["user_id"]},
+                {"target_user_id": None, "from_user_id": {"$ne": current_user["user_id"]}}
+            ],
+            "processed": False
+        },
+        {"_id": 0}
+    ).to_list(50)
+    
+    # Mark as processed
+    signal_ids = [s["signal_id"] for s in signals]
+    if signal_ids:
+        await db.call_signals.update_many(
+            {"signal_id": {"$in": signal_ids}},
+            {"$set": {"processed": True}}
+        )
+    
+    return signals
+
+@api_router.post("/calls/{call_id}/end")
+async def end_call(call_id: str, request: Request):
+    """End a call"""
+    current_user = await get_current_user(request)
+    
+    await db.calls.update_one(
+        {"call_id": call_id},
+        {"$set": {
+            "status": "ended",
+            "ended_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Clean up signals
+    await db.call_signals.delete_many({"call_id": call_id})
+    
+    return {"status": "ended"}
+
+@api_router.get("/calls/active")
+async def get_active_calls(request: Request):
+    """Get active calls for current user"""
+    current_user = await get_current_user(request)
+    
+    # Get user's conversations
+    user_convs = await db.conversations.find(
+        {"participant_ids": current_user["user_id"]},
+        {"conversation_id": 1, "_id": 0}
+    ).to_list(100)
+    conv_ids = [c["conversation_id"] for c in user_convs]
+    
+    # Find active/ringing calls
+    calls = await db.calls.find(
+        {
+            "conversation_id": {"$in": conv_ids},
+            "status": {"$in": ["ringing", "active"]}
+        },
+        {"_id": 0}
+    ).to_list(10)
+    
+    return calls
+
+# ==================== PUSH NOTIFICATIONS ====================
+
+class PushSubscription(BaseModel):
+    endpoint: str
+    keys: dict
+
+@api_router.post("/notifications/subscribe")
+async def subscribe_push(subscription: PushSubscription, request: Request):
+    """Subscribe to push notifications"""
+    current_user = await get_current_user(request)
+    
+    # Store subscription
+    await db.push_subscriptions.update_one(
+        {"user_id": current_user["user_id"], "endpoint": subscription.endpoint},
+        {"$set": {
+            "user_id": current_user["user_id"],
+            "endpoint": subscription.endpoint,
+            "keys": subscription.keys,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }},
+        upsert=True
+    )
+    
+    return {"status": "subscribed"}
+
+@api_router.delete("/notifications/unsubscribe")
+async def unsubscribe_push(request: Request):
+    """Unsubscribe from push notifications"""
+    current_user = await get_current_user(request)
+    body = await request.json()
+    endpoint = body.get("endpoint")
+    
+    await db.push_subscriptions.delete_one({
+        "user_id": current_user["user_id"],
+        "endpoint": endpoint
+    })
+    
+    return {"status": "unsubscribed"}
+
+@api_router.get("/notifications")
+async def get_notifications(request: Request, limit: int = 20):
+    """Get user notifications"""
+    current_user = await get_current_user(request)
+    
+    notifications = await db.notifications.find(
+        {"user_id": current_user["user_id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    
+    return notifications
+
+@api_router.post("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, request: Request):
+    """Mark notification as read"""
+    current_user = await get_current_user(request)
+    
+    await db.notifications.update_one(
+        {"notification_id": notification_id, "user_id": current_user["user_id"]},
+        {"$set": {"read": True}}
+    )
+    
+    return {"status": "read"}
+
+@api_router.get("/notifications/unread-count")
+async def get_unread_count(request: Request):
+    """Get unread notification count"""
+    current_user = await get_current_user(request)
+    
+    count = await db.notifications.count_documents({
+        "user_id": current_user["user_id"],
+        "read": False
+    })
+    
+    return {"count": count}
 
 # Include router and configure app
 app.include_router(api_router)
