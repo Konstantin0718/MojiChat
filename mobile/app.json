@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "ChatApp",
-    "slug": "chatapp",
+    "name": "MijiChat",
+    "slug": "mijichat",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "chatapp",
+    "scheme": "mijichat",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -70,7 +70,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "your-project-id"
+        "projectId": "mijichat-7d13c"
       }
     }
   }

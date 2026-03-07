@@ -12,11 +12,14 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { api } from '../services/api';
 import { Message, Conversation } from '../types';
 import { MessageBubble } from '../components/MessageBubble';
+import { VoiceRecorder } from '../components/VoiceRecorder';
 
 interface Props {
   route: any;
@@ -33,6 +36,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [typingUsers, setTypingUsers] = useState<any[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -117,6 +122,104 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   };
 
+  const sendVoiceMessage = async (audioData: string, duration: number) => {
+    setSending(true);
+    setIsRecording(false);
+    try {
+      // Upload voice to backend
+      const uploadResult = await api.uploadVoice(audioData, duration);
+      
+      // Send as message
+      await api.sendMessage(conversationId, 'Voice message', 'audio', {
+        file_url: uploadResult.file_url,
+        duration: duration,
+        file_size: uploadResult.file_size,
+      });
+      
+      await fetchMessages();
+      flatListRef.current?.scrollToEnd({ animated: true });
+    } catch (error) {
+      console.error('Voice upload error:', error);
+      Alert.alert('Error', 'Failed to send voice message');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const pickImage = async () => {
+    setShowAttachMenu(false);
+    
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow access to your photos');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: true,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      await uploadAndSendFile(result.assets[0].uri, 'image.jpg', 'image/jpeg', 'image');
+    }
+  };
+
+  const takePhoto = async () => {
+    setShowAttachMenu(false);
+    
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow camera access');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.8,
+      allowsEditing: true,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      await uploadAndSendFile(result.assets[0].uri, 'photo.jpg', 'image/jpeg', 'image');
+    }
+  };
+
+  const pickDocument = async () => {
+    setShowAttachMenu(false);
+    
+    const result = await DocumentPicker.getDocumentAsync({
+      type: '*/*',
+      copyToCacheDirectory: true,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      await uploadAndSendFile(asset.uri, asset.name, asset.mimeType || 'application/octet-stream', 'file');
+    }
+  };
+
+  const uploadAndSendFile = async (uri: string, fileName: string, mimeType: string, type: string) => {
+    setSending(true);
+    try {
+      const uploadResult = await api.uploadFile(uri, fileName, mimeType);
+      
+      await api.sendMessage(conversationId, fileName, type, {
+        file_url: uploadResult.file_url,
+        file_name: uploadResult.file_name,
+        file_size: uploadResult.file_size,
+      });
+      
+      await fetchMessages();
+      flatListRef.current?.scrollToEnd({ animated: true });
+    } catch (error) {
+      console.error('File upload error:', error);
+      Alert.alert('Error', 'Failed to upload file');
+    } finally {
+      setSending(false);
+    }
+  };
+
   const startCall = async (isVideo: boolean) => {
     try {
       const call = await api.initiateCall(conversationId, isVideo);
@@ -196,37 +299,84 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         }
       />
 
+      {/* Attachment Menu */}
+      {showAttachMenu && (
+        <View style={styles.attachMenu}>
+          <TouchableOpacity style={styles.attachOption} onPress={takePhoto}>
+            <View style={[styles.attachIcon, { backgroundColor: colors.primary }]}>
+              <Ionicons name="camera" size={24} color="#fff" />
+            </View>
+            <Text style={styles.attachText}>Camera</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.attachOption} onPress={pickImage}>
+            <View style={[styles.attachIcon, { backgroundColor: colors.secondary }]}>
+              <Ionicons name="image" size={24} color="#fff" />
+            </View>
+            <Text style={styles.attachText}>Gallery</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.attachOption} onPress={pickDocument}>
+            <View style={[styles.attachIcon, { backgroundColor: colors.accent }]}>
+              <Ionicons name="document" size={24} color="#fff" />
+            </View>
+            <Text style={styles.attachText}>Document</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Input */}
       <View style={styles.inputContainer}>
-        <TouchableOpacity style={styles.attachButton}>
-          <Ionicons name="attach" size={24} color={colors.textSecondary} />
-        </TouchableOpacity>
-        
-        <TextInput
-          style={styles.input}
-          placeholder="Type a message..."
-          placeholderTextColor={colors.textSecondary}
-          value={newMessage}
-          onChangeText={(text) => {
-            setNewMessage(text);
-            handleTyping();
-          }}
-          multiline
-          maxLength={2000}
-        />
-
-        {newMessage.trim() ? (
-          <TouchableOpacity
-            style={[styles.sendButton, sending && styles.sendButtonDisabled]}
-            onPress={sendMessage}
-            disabled={sending}
-          >
-            <Ionicons name="send" size={20} color="#fff" />
-          </TouchableOpacity>
+        {isRecording ? (
+          <VoiceRecorder
+            colors={colors}
+            onSend={sendVoiceMessage}
+            onCancel={() => setIsRecording(false)}
+          />
         ) : (
-          <TouchableOpacity style={styles.micButton}>
-            <Ionicons name="mic" size={24} color={colors.primary} />
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity 
+              style={styles.attachButton} 
+              onPress={() => setShowAttachMenu(!showAttachMenu)}
+            >
+              <Ionicons 
+                name={showAttachMenu ? 'close' : 'add-circle'} 
+                size={28} 
+                color={showAttachMenu ? colors.error : colors.primary} 
+              />
+            </TouchableOpacity>
+            
+            <TextInput
+              style={styles.input}
+              placeholder="Type a message..."
+              placeholderTextColor={colors.textSecondary}
+              value={newMessage}
+              onChangeText={(text) => {
+                setNewMessage(text);
+                handleTyping();
+                if (showAttachMenu) setShowAttachMenu(false);
+              }}
+              multiline
+              maxLength={2000}
+            />
+
+            {newMessage.trim() ? (
+              <TouchableOpacity
+                style={[styles.sendButton, sending && styles.sendButtonDisabled]}
+                onPress={sendMessage}
+                disabled={sending}
+              >
+                <Ionicons name="send" size={20} color="#fff" />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity 
+                style={styles.micButton}
+                onPress={() => setIsRecording(true)}
+              >
+                <Ionicons name="mic" size={26} color={colors.primary} />
+              </TouchableOpacity>
+            )}
+          </>
         )}
       </View>
     </KeyboardAvoidingView>
@@ -303,6 +453,30 @@ const createStyles = (colors: any) =>
       color: colors.textSecondary,
       marginLeft: 8,
     },
+    attachMenu: {
+      flexDirection: 'row',
+      justifyContent: 'space-around',
+      paddingVertical: 16,
+      paddingHorizontal: 24,
+      backgroundColor: colors.card,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    attachOption: {
+      alignItems: 'center',
+      gap: 8,
+    },
+    attachIcon: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    attachText: {
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
     inputContainer: {
       flexDirection: 'row',
       alignItems: 'flex-end',
@@ -314,7 +488,7 @@ const createStyles = (colors: any) =>
       gap: 8,
     },
     attachButton: {
-      padding: 8,
+      padding: 6,
     },
     input: {
       flex: 1,
@@ -339,6 +513,6 @@ const createStyles = (colors: any) =>
       opacity: 0.7,
     },
     micButton: {
-      padding: 8,
+      padding: 6,
     },
   });

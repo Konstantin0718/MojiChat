@@ -41,7 +41,7 @@ class NotificationService {
 
       // Get Expo push token
       const tokenData = await Notifications.getExpoPushTokenAsync({
-        projectId: 'your-project-id', // Will be updated with actual project ID
+        projectId: 'mijichat-7d13c',
       });
       
       this.expoPushToken = tokenData.data;

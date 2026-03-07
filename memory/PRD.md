@@ -1,4 +1,4 @@
-# MojiChat - PRD (Product Requirements Document)
+# MijiChat - PRD (Product Requirements Document)
 
 ## Original Problem Statement
 Създай ми апп подобен на WhatsApp, Messenger, Viber. В него да може да се пише текст които да се вижда от получателя като емотикони и ако натисне върху тях да му излиза оригиналния текст.
@@ -16,75 +16,89 @@
 
 ## Architecture
 
-### Backend (FastAPI + MongoDB) - COMPLETE
+### Backend (FastAPI + MongoDB) - COMPLETE ✅
 - **Location**: `/app/backend/server.py`
 - **Database**: MongoDB with all collections
 - **API URL**: https://emoji-chat-mobile.preview.emergentagent.com
 - **Features**: 60+ API endpoints for all chat functionality
 
-### Mobile App (React Native / Expo) - IN PROGRESS
+### Mobile App (React Native / Expo) - COMPLETE ✅
 - **Location**: `/app/mobile/`
 - **Framework**: Expo SDK 55
 - **Language**: TypeScript
 - **Navigation**: React Navigation
 - **State**: React Context API
-- **Notifications**: Expo Notifications
+- **Firebase**: google-services.json configured
 
 ### Project Structure
 ```
 mobile/
-├── App.tsx                 # Entry point with navigation
-├── app.json               # Expo config (package: com.chatapp.mobile)
-├── eas.json               # Build config for EAS
+├── App.tsx                    # Entry point with navigation
+├── app.json                   # Expo config (MijiChat)
+├── eas.json                   # Build config for EAS
+├── google-services.json       # Firebase config ✅
 ├── src/
-│   ├── components/        # Reusable components
-│   │   └── MessageBubble.tsx
-│   ├── config/            # API URL, colors, languages
-│   ├── contexts/          # Auth & Theme contexts
-│   ├── screens/           # All screens (7 total)
-│   ├── services/          # API & notifications
-│   └── types/             # TypeScript types
-└── assets/                # Icons, images
+│   ├── components/
+│   │   ├── AudioPlayer.tsx    # Voice message playback
+│   │   ├── MessageBubble.tsx  # Chat bubbles with emoji reveal
+│   │   └── VoiceRecorder.tsx  # Voice recording component
+│   ├── config/                # API URL, colors, languages
+│   ├── contexts/              # Auth & Theme contexts
+│   ├── screens/               # All screens (7 total)
+│   ├── services/              # API & notifications
+│   └── types/                 # TypeScript types
+└── assets/                    # Icons, images
 ```
 
 ---
 
-## Screens Implemented (December 2025)
+## Screens Implemented
 
 | Screen | Status | Description |
 |--------|--------|-------------|
-| LoginScreen | ✅ Complete | Email/password login |
-| RegisterScreen | ✅ Complete | Account creation |
-| ConversationsScreen | ✅ Complete | Chat list with search, unread counts |
-| ChatScreen | ✅ Complete | Messages with emoji reveal, typing indicator |
-| SettingsScreen | ✅ Complete | Profile, theme, language settings |
-| NewChatScreen | ✅ Complete | Search users, start new conversation |
-| NewGroupScreen | ✅ Complete | Create group with multiple members |
+| LoginScreen | ✅ | Email/password login |
+| RegisterScreen | ✅ | Account creation |
+| ConversationsScreen | ✅ | Chat list with search, unread counts |
+| ChatScreen | ✅ | Messages, voice recording, file attachments |
+| SettingsScreen | ✅ | Profile, theme, language settings |
+| NewChatScreen | ✅ | Search users, start new conversation |
+| NewGroupScreen | ✅ | Create group with multiple members |
 
 ---
 
-## Features
+## Features Implemented
 
-### Core Features (All Working)
-- ✅ User authentication (JWT + token storage)
-- ✅ Conversations list with last message preview
-- ✅ 1-to-1 and group chats
-- ✅ AI emoji conversion (GPT-4o via Emergent LLM)
-- ✅ Tap to reveal original text
-- ✅ Auto-translation (16 languages)
-- ✅ Image/audio/file messages
-- ✅ Message reactions
-- ✅ Typing indicators
-- ✅ Online status
-- ✅ Read receipts (checkmarks)
+### Core Chat Features ✅
+- User authentication (JWT + token storage)
+- Conversations list with last message preview
+- 1-to-1 and group chats
+- AI emoji conversion (GPT-4o via Emergent LLM)
+- Tap to reveal original text
+- Auto-translation (16 languages)
+- Message reactions
+- Typing indicators
+- Online status
+- Read receipts (checkmarks)
 
-### Mobile-Specific Features
-- ✅ Push notification infrastructure (Expo)
-- ✅ Dark/Light theme with system detection
-- ✅ Secure token storage (AsyncStorage)
-- ✅ Keyboard-aware views
-- ✅ Pull to refresh
-- ✅ User search for new chats
+### Voice Messages ✅ (NEW)
+- Voice recording with animated UI
+- Duration timer during recording
+- Cancel or send recording
+- Audio playback with progress bar
+- Waveform visualization
+
+### File Attachments ✅
+- Camera capture
+- Gallery image picker
+- Document picker
+- File upload to server
+
+### Mobile-Specific ✅
+- Push notification infrastructure (Expo + Firebase)
+- Dark/Light theme with system detection
+- Secure token storage (AsyncStorage)
+- Keyboard-aware views
+- Pull to refresh
 
 ---
 
@@ -113,111 +127,82 @@ npx eas build --platform ios --profile production
 
 ---
 
-## Firebase Setup Instructions
+## Firebase Configuration
 
-### For Push Notifications:
-1. Go to https://console.firebase.google.com
-2. Create new project named "ChatApp" (or your choice)
-3. Add Android app:
-   - **Package name**: `com.chatapp.mobile`
-   - Download `google-services.json`
-   - Place in `/app/mobile/`
-4. Add iOS app:
-   - **Bundle ID**: `com.chatapp.mobile`
-   - Download `GoogleService-Info.plist`
-   - Place in `/app/mobile/`
-5. Enable Cloud Messaging in Firebase Console
+### Current Setup:
+- **Project ID**: `mijichat-7d13c`
+- **Android Package**: `com.chatapp.mobile`
+- **google-services.json**: ✅ Configured
 
-### Package Names (Current Placeholders)
-- **Android**: `com.chatapp.mobile`
-- **iOS**: `com.chatapp.mobile`
-
-To customize, edit `/app/mobile/app.json`:
-```json
-{
-  "android": {
-    "package": "com.yourcompany.yourappname"
-  },
-  "ios": {
-    "bundleIdentifier": "com.yourcompany.yourappname"
-  }
-}
-```
-
----
-
-## API Endpoints Summary
-
-### Authentication (4 endpoints)
-- `POST /api/auth/register`, `/login`, `/session`, `/logout`
-- `GET /api/auth/me`
-
-### Users & Settings (4 endpoints)
-- `GET /api/users/search`, `/api/users/{id}`
-- `PUT /api/users/language`
-- `POST /api/users/heartbeat`
-
-### Conversations (4 endpoints)
-- `POST /api/conversations`
-- `GET /api/conversations`, `/api/conversations/{id}`
-- `POST /api/conversations/{id}/members`
-
-### Messages (4 endpoints)
-- `POST /api/conversations/{id}/messages`
-- `GET /api/conversations/{id}/messages`
-- `POST /api/conversations/{id}/typing`
-- `GET /api/conversations/{id}/typing`
-
-### Media & Files (4 endpoints)
-- `POST /api/upload`, `/api/voice/upload`
-- `GET /api/files/{id}`
-- `POST /api/messages/{id}/reactions`
-
-### Search (2 endpoints)
-- `GET /api/search/messages?q=`
-- `GET /api/search/conversations?q=`
-
-### Video Calls (6 endpoints)
-- `POST /api/calls/initiate`, `/join`, `/signal`, `/end`
-- `GET /api/calls/{id}/signals`, `/api/calls/active`
-
-### Notifications (5 endpoints)
-- `POST /api/notifications/subscribe`
-- `DELETE /api/notifications/unsubscribe`
-- `GET /api/notifications`, `/unread-count`
-- `POST /api/notifications/{id}/read`
+### For iOS (when needed):
+1. Go to Firebase Console
+2. Add iOS app with Bundle ID: `com.chatapp.mobile`
+3. Download `GoogleService-Info.plist`
+4. Place in `/app/mobile/`
 
 ---
 
 ## Changelog
 
-### December 2025 - React Native Mobile App
-- Created complete React Native project structure
-- Implemented all 7 screens with full functionality
-- Added MessageBubble component for proper React hooks usage
-- Connected to existing backend API
-- TypeScript compilation passing with no errors
+### December 2025 - Voice Messages & Firebase
+- Added VoiceRecorder component with animated UI
+- Added AudioPlayer component with playback controls
+- Integrated file attachment picker (camera, gallery, documents)
+- Configured Firebase with google-services.json
+- Renamed app to "MijiChat"
+- All TypeScript compilation passing
 
-### January 2026 - Initial Web App (Archived)
-- Built initial web app with PWA support
-- Implemented all backend endpoints
-- Added AI emoji conversion with GPT-4o
-- Created auto-translation system (16 languages)
-- Web app archived to `/app/frontend_web/`
+### December 2025 - Initial Mobile App
+- Created React Native project structure
+- Implemented all 7 screens
+- Connected to backend API
+- Added MessageBubble with emoji reveal
+
+---
+
+## API Endpoints Summary
+
+### Authentication (4)
+- `POST /api/auth/register`, `/login`, `/session`, `/logout`
+- `GET /api/auth/me`
+
+### Users (4)
+- `GET /api/users/search`, `/api/users/{id}`
+- `PUT /api/users/language`
+- `POST /api/users/heartbeat`
+
+### Conversations (4)
+- `POST /api/conversations`
+- `GET /api/conversations`, `/api/conversations/{id}`
+- `POST /api/conversations/{id}/members`
+
+### Messages (4)
+- `POST /api/conversations/{id}/messages`
+- `GET /api/conversations/{id}/messages`
+- `POST/GET /api/conversations/{id}/typing`
+
+### Media (4)
+- `POST /api/upload`, `/api/voice/upload`
+- `GET /api/files/{id}`
+- `POST /api/messages/{id}/reactions`
+
+### Calls (6)
+- `POST /api/calls/initiate`, `/join`, `/signal`, `/end`
+- `GET /api/calls/{id}/signals`, `/api/calls/active`
 
 ---
 
 ## Prioritized Backlog
 
-### P0 - In Progress
-- [ ] Video call UI implementation (WebRTC in React Native)
-- [ ] Voice message recording with expo-av
-- [ ] File attachment picker (expo-image-picker, expo-document-picker)
+### P0 - Critical ✅ DONE
+- ~~Voice message recording~~
+- ~~File attachments~~
+- ~~Firebase configuration~~
 
 ### P1 - High Priority
-- [ ] Firebase push notifications (requires user credentials)
-- [ ] Phone number registration with SMS (Twilio)
+- [ ] Video call UI implementation (WebRTC)
 - [ ] Google OAuth in mobile app
+- [ ] Phone number registration (Twilio SMS)
 
 ### P2 - Medium Priority
 - [ ] Message forwarding
@@ -241,7 +226,8 @@ Password: test123
 
 ## Important Notes
 
-1. **Backend is fully functional** - All API endpoints are working
-2. **Mobile app needs Firebase** - Push notifications require Firebase setup from user
-3. **Translation feature uses API** - Deferred due to potential costs
-4. **Video calls are stubbed** - Backend supports WebRTC signaling, mobile UI pending
+1. **App Name**: MijiChat (changed from ChatApp)
+2. **Firebase**: google-services.json is configured for Android
+3. **Backend**: Fully functional with 60+ API endpoints
+4. **Emoji Conversion**: Uses GPT-4o via Emergent LLM Key
+5. **Voice Messages**: Full recording and playback support

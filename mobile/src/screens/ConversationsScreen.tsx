@@ -141,7 +141,7 @@ export const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>💬 ChatApp</Text>
+        <Text style={styles.title}>💬 MijiChat</Text>
         <View style={styles.headerButtons}>
           <TouchableOpacity onPress={toggleTheme} style={styles.iconButton}>
             <Ionicons

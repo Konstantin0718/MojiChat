@@ -9,6 +9,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Message, User, Conversation } from '../types';
 import { API_URL } from '../config';
+import { AudioPlayer } from './AudioPlayer';
 
 interface MessageBubbleProps {
   message: Message;
@@ -59,23 +60,24 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   if (msg.message_type === 'audio' && msg.file_url) {
     return (
       <View style={[styles.messageRow, isOwn && styles.messageRowOwn]}>
-        <View style={[styles.messageBubble, isOwn ? styles.messageOwn : styles.messageOther]}>
-          <View style={styles.audioMessage}>
-            <Ionicons name="mic" size={20} color={isOwn ? '#fff' : colors.text} />
-            <View style={styles.audioWaveform}>
-              {[...Array(15)].map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.audioBar,
-                    { height: Math.random() * 16 + 8, backgroundColor: isOwn ? '#fff' : colors.primary }
-                  ]}
-                />
-              ))}
-            </View>
-            <Text style={[styles.audioDuration, { color: isOwn ? '#fff' : colors.textSecondary }]}>
-              {msg.duration ? `${Math.floor(msg.duration / 60)}:${(msg.duration % 60).toString().padStart(2, '0')}` : '0:00'}
+        <View style={[styles.messageBubble, styles.audioBubble, isOwn ? styles.messageOwn : styles.messageOther]}>
+          <AudioPlayer
+            uri={`${API_URL}${msg.file_url}`}
+            duration={msg.duration}
+            isOwn={isOwn}
+            colors={colors}
+          />
+          <View style={styles.messageFooter}>
+            <Text style={[styles.messageTime, isOwn && styles.messageTimeOwn]}>
+              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
+            {isOwn && (
+              <Ionicons
+                name={msg.read_by.length > 1 ? 'checkmark-done' : 'checkmark'}
+                size={16}
+                color={msg.read_by.length > 1 ? colors.accent : 'rgba(255,255,255,0.7)'}
+              />
+            )}
           </View>
         </View>
       </View>
@@ -159,6 +161,9 @@ const createStyles = (colors: any) =>
       padding: 12,
       borderRadius: 20,
     },
+    audioBubble: {
+      minWidth: 240,
+    },
     messageOwn: {
       backgroundColor: colors.primary,
       borderBottomRightRadius: 4,
@@ -235,24 +240,6 @@ const createStyles = (colors: any) =>
       width: 200,
       height: 200,
       borderRadius: 12,
-    },
-    audioMessage: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    audioWaveform: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 2,
-      flex: 1,
-    },
-    audioBar: {
-      width: 3,
-      borderRadius: 2,
-    },
-    audioDuration: {
-      fontSize: 12,
     },
     reactionsContainer: {
       flexDirection: 'row',

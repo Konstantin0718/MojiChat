@@ -51,7 +51,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
         {/* Logo */}
         <View style={styles.logoContainer}>
           <Text style={styles.logoEmoji}>💬</Text>
-          <Text style={styles.logoText}>ChatApp</Text>
+          <Text style={styles.logoText}>MijiChat</Text>
         </View>
 
         {/* Title */}

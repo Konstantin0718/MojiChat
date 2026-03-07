@@ -4,7 +4,7 @@ export const API_URL = 'https://emoji-chat-mobile.preview.emergentagent.com';
 
 // App Configuration
 export const APP_CONFIG = {
-  name: 'ChatApp', // Placeholder - will be updated
+  name: 'MijiChat',
   version: '1.0.0',
   defaultLanguage: 'en',
   supportedLanguages: {
