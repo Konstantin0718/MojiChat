@@ -1,0 +1,344 @@
+import React from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  Image,
+  Alert,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
+import { APP_CONFIG } from '../config';
+
+interface Props {
+  navigation: any;
+}
+
+export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
+  const { user, logout, updateUser } = useAuth();
+  const { colors, isDark, toggleTheme, setTheme, theme } = useTheme();
+  const { api } = require('../services/api');
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Logout', style: 'destructive', onPress: logout },
+      ]
+    );
+  };
+
+  const handleLanguageChange = async (langCode: string) => {
+    try {
+      await api.updateLanguage(langCode);
+      updateUser({ preferred_language: langCode });
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update language');
+    }
+  };
+
+  const styles = createStyles(colors);
+
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Ionicons name="chevron-back" size={28} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Settings</Text>
+        <View style={{ width: 44 }} />
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content}>
+        {/* Profile Section */}
+        <View style={styles.section}>
+          <View style={styles.profileCard}>
+            {user?.picture ? (
+              <Image source={{ uri: user.picture }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
+                <Text style={styles.avatarText}>
+                  {user?.name?.[0]?.toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <View style={styles.profileInfo}>
+              <Text style={styles.profileName}>{user?.name}</Text>
+              <Text style={styles.profileEmail}>{user?.email}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Theme Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Appearance</Text>
+          <View style={styles.card}>
+            <TouchableOpacity
+              style={styles.settingItem}
+              onPress={() => setTheme('light')}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name="sunny" size={22} color={colors.warning} />
+              </View>
+              <Text style={styles.settingText}>Light</Text>
+              {theme === 'light' && (
+                <Ionicons name="checkmark" size={22} color={colors.primary} />
+              )}
+            </TouchableOpacity>
+            
+            <View style={styles.divider} />
+            
+            <TouchableOpacity
+              style={styles.settingItem}
+              onPress={() => setTheme('dark')}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name="moon" size={22} color={colors.primary} />
+              </View>
+              <Text style={styles.settingText}>Dark</Text>
+              {theme === 'dark' && (
+                <Ionicons name="checkmark" size={22} color={colors.primary} />
+              )}
+            </TouchableOpacity>
+            
+            <View style={styles.divider} />
+            
+            <TouchableOpacity
+              style={styles.settingItem}
+              onPress={() => setTheme('system')}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name="phone-portrait" size={22} color={colors.text} />
+              </View>
+              <Text style={styles.settingText}>System</Text>
+              {theme === 'system' && (
+                <Ionicons name="checkmark" size={22} color={colors.primary} />
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Language Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Language</Text>
+          <Text style={styles.sectionSubtitle}>
+            Messages will be translated to your preferred language
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.languageScroll}>
+            {Object.entries(APP_CONFIG.supportedLanguages).map(([code, name]) => (
+              <TouchableOpacity
+                key={code}
+                style={[
+                  styles.languageChip,
+                  user?.preferred_language === code && styles.languageChipActive,
+                ]}
+                onPress={() => handleLanguageChange(code)}
+              >
+                <Text
+                  style={[
+                    styles.languageChipText,
+                    user?.preferred_language === code && styles.languageChipTextActive,
+                  ]}
+                >
+                  {name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* Notifications Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Notifications</Text>
+          <View style={styles.card}>
+            <TouchableOpacity style={styles.settingItem}>
+              <View style={styles.settingIcon}>
+                <Ionicons name="notifications" size={22} color={colors.primary} />
+              </View>
+              <Text style={styles.settingText}>Push Notifications</Text>
+              <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* About Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>About</Text>
+          <View style={styles.card}>
+            <View style={styles.settingItem}>
+              <View style={styles.settingIcon}>
+                <Ionicons name="information-circle" size={22} color={colors.accent} />
+              </View>
+              <Text style={styles.settingText}>Version</Text>
+              <Text style={styles.settingValue}>{APP_CONFIG.version}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Logout */}
+        <View style={styles.section}>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Ionicons name="log-out" size={22} color={colors.error} />
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
+
+const createStyles = (colors: any) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingTop: 50,
+      paddingBottom: 12,
+      paddingHorizontal: 8,
+      backgroundColor: colors.card,
+    },
+    backButton: {
+      padding: 8,
+    },
+    headerTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    content: {
+      padding: 16,
+      paddingBottom: 40,
+    },
+    section: {
+      marginBottom: 24,
+    },
+    sectionTitle: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.textSecondary,
+      marginBottom: 8,
+      marginLeft: 4,
+      textTransform: 'uppercase',
+    },
+    sectionSubtitle: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      marginBottom: 12,
+      marginLeft: 4,
+    },
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      overflow: 'hidden',
+    },
+    profileCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.card,
+      padding: 16,
+      borderRadius: 16,
+    },
+    avatar: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    avatarText: {
+      color: '#fff',
+      fontSize: 24,
+      fontWeight: 'bold',
+    },
+    profileInfo: {
+      marginLeft: 16,
+    },
+    profileName: {
+      fontSize: 20,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    profileEmail: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginTop: 4,
+    },
+    settingItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 16,
+    },
+    settingIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 8,
+      backgroundColor: colors.background,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 12,
+    },
+    settingText: {
+      flex: 1,
+      fontSize: 16,
+      color: colors.text,
+    },
+    settingValue: {
+      fontSize: 16,
+      color: colors.textSecondary,
+    },
+    divider: {
+      height: 1,
+      backgroundColor: colors.border,
+      marginLeft: 64,
+    },
+    languageScroll: {
+      marginHorizontal: -16,
+      paddingHorizontal: 16,
+    },
+    languageChip: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      backgroundColor: colors.card,
+      borderRadius: 20,
+      marginRight: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    languageChipActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    languageChipText: {
+      fontSize: 14,
+      color: colors.text,
+    },
+    languageChipTextActive: {
+      color: '#fff',
+      fontWeight: '600',
+    },
+    logoutButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.card,
+      padding: 16,
+      borderRadius: 16,
+      gap: 8,
+    },
+    logoutText: {
+      fontSize: 16,
+      color: colors.error,
+      fontWeight: '600',
+    },
+  });

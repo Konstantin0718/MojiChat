@@ -1,0 +1,141 @@
+<analysis>**original_problem_statement:**
+The user requested the creation of a chat application similar to WhatsApp/Messenger.
+
+**PRODUCT REQUIREMENTS:**
+- **Core Feature:** Text sent by a user should be converted into emojis, and the recipient should see the emojis. Clicking on the emojis reveals the original text.
+- **Authentication:** JWT-based registration/login, Google Social Login, and Phone Number registration.
+- **Chat:** 1-to-1 and group chats.
+- **Real-time Features:** Online status, typing indicators, read receipts.
+- **AI Features:**
+    - AI-based conversion of text to interactive/animated emojis.
+    - Automatic translation of messages based on the recipient's language preference, which is configurable. (This was requested but deferred due to potential API costs).
+- **Media:** Ability to send images, voice messages (recorded in-app), and other file types.
+- **Interactions:** Reactions to messages, stickers, and GIFs.
+- **Advanced Features:**
+    - Video calls (1-to-1 and group).
+    - Search functionality within messages.
+    - Push notifications (via Firebase Cloud Messaging).
+- **Platform:** A native mobile application for Android and iOS using React Native for performance and reliable notifications. The app should have a placeholder name for now.
+
+**User's preferred language**: Bulgarian (български)
+
+**what currently exists?**
+- A comprehensive FastAPI backend in  that supports most of the required features, including user authentication, chat management, file uploads, and placeholder endpoints for video calls, search, and notifications.
+- The original React web application frontend has been developed and moved to  as an archive. **It is now deprecated.**
+- A new project structure for a React Native mobile app has been created in . This includes the basic folder structure (, , , etc.), navigation, and configuration files (, ), but no functional UI has been implemented yet.
+
+**Last working item**:
+- Last item agent was working: The agent was scaffolding a new React Native project to meet the user's demand for a native mobile app instead of a web-based PWA. It created the entire directory structure, component/screen skeletons, navigation, and configuration files.
+- Status: IN PROGRESS
+- Agent Testing Done: N
+- Which testing method agent to use? backend testing agent for the existing API, but the new React Native frontend is not ready for testing.
+- User Testing Done: N
+
+**All Pending/In progress Issue list**:
+There are no pending bugs from the previous implementation. The primary focus is on the new task.
+
+**In progress Task List**:
+- **Task 1: Build the React Native Mobile Application (P0)**
+    - **Description:** Implement the full application functionality within the new React Native project structure located at . This involves translating all features from the web version () into native components for both Android and iOS.
+    - **Where to resume:** Start by building the UI screens defined in , such as , , , and . Connect these screens to the existing backend API endpoints.
+    - **What will be achieved with this?** A functional native mobile chat application that fulfills the user's core requirements.
+    - **Status:** IN PROGRESS
+    - **Should Test frontend/backend/both after fix?** Both. The backend API should be re-verified, and the new mobile frontend will require its first round of testing.
+
+**Upcoming and Future Tasks**
+- **Upcoming Tasks:**
+  - **P0: Port All Web Features to React Native:**
+    - Implement the UI and logic for all existing features in the new mobile app.
+    - **Files to create/modify:** All files under . Key files will be  (for the main chat interface),  (a new native component), , and components for handling file uploads and video calls.
+  - **P1: Implement Full Push Notification Flow:**
+    - Integrate the Firebase Cloud Messaging (FCM) SDK into the React Native app.
+    - Guide the user on how to create a Firebase project and provide the necessary credentials (, etc.).
+    - Update the backend endpoints  and  in  with the actual FCM logic.
+- **Future Tasks:**
+  - **P1: Implement Real-time Translation:**
+    - This feature was requested by the user but deferred due to API costs. The next step would be to select a translation service (like Google Translate API), integrate its SDK, and implement the logic in the backend  within the message sending endpoint. The frontend will need a UI for users to set their preferred language.
+  - **P2: Native Build and Deployment Guidance:**
+    - Guide the user through building the React Native app for Android () and iOS () using Expo Application Services (EAS) and the configured .
+    - Provide the user with the Android package name required for their Firebase setup.
+
+**Completed work in this session**
+- **Backend API:** A robust FastAPI backend was created with endpoints for:
+  - User management (JWT, Google Auth).
+  - Conversations and messaging.
+  - File uploads and voice messages.
+  - Message reactions.
+  - Stubs for video calls, search, and push notifications.
+- **Web Frontend (Archived):** A complete React-based web application was built and is now located in .
+- **Project Restructure:** The project was reorganized to support native mobile development. The web frontend was archived, and a new React Native project was scaffolded in .
+
+**Earlier issues found/mentioned but not fixed**
+- No known issues were left unfixed. The translation feature was not an issue but a deferred feature request.
+
+**Known issue recurrence from previous fork**
+- None.
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+- **Backend:** FastAPI, Python, MongoDB, WebSockets
+- **Frontend (Active):** React Native, TypeScript, Expo
+- **Authentication:** JWT, Google OAuth
+- **Real-time Communication:** WebSockets (backend), WebRTC (for video calls)
+
+**key DB schema**
+- **users:** {username, email, hashed_password, google_id, language_preference}
+- **conversations:** {name, members, is_group_chat}
+- **messages:** {conversation_id, sender_id, content_original, content_emoji, file_url, message_type, reactions, created_at}
+
+**All files of reference**
+- : Contains all backend logic and API endpoints.
+- : Defines the dependencies for the new React Native project.
+- : The entry point for the new mobile application.
+- : Defines the screen navigation flow.
+- : Directory containing all screen components to be built.
+- : The entire directory serves as a reference for UI and logic to be ported to the mobile app.
+
+**Critical Info for New Agent**
+- **The project has pivoted from a Web App to a React Native Mobile App.** All new frontend development must occur in the  directory. The code in  is for reference only and should not be modified.
+- The backend is largely complete and can be reused for the mobile app. The API URL is available in the environment variables.
+- The next major task is to build out the screens and components in the React Native app, connecting them to the backend API.
+- The translation feature was explicitly deferred by the user due to cost concerns. Do not implement it without further confirmation.
+
+**documents and test reports created in this job**
+- 
+
+**Last 10 User Messages and any pending HUMAN messages**
+1.  **User:** Asks for video calls, message search, push notifications, and an installable phone app.
+2.  **Agent:** Clarifies requirements for these features.
+3.  **User:** Confirms choices (WebRTC, demo push notifications, PWA).
+4.  **Agent:** Implements the PWA, video, search, and notification stubs.
+5.  **Agent:** Runs tests and fixes minor backend bugs.
+6.  **User:** Asks how to upload the app to the Play Store and what the Android package name is.
+7.  **Agent:** Asks for clarification via the .
+8.  **User:** Clarifies they want a **Native Android app (React Native/Flutter)** for better performance, not a PWA, and asks to restructure the project.
+9.  **Agent:** Clarifies new requirements (React Native, Android+iOS, placeholder name).
+10. **User:** Confirms choices for the native app.
+
+**Project Health Check:**
+- **Broken:** The frontend is currently non-existent as the new React Native project is just a skeleton.
+- **Mocked:** The backend has mocked/stubbed endpoints for video call token generation and push notifications.
+
+**3rd Party Integrations**
+- **OpenAI GPT-4o:** Used for the text-to-emoji conversion. Uses **Emergent LLM Key**.
+- **Google Auth:** Used for social login.
+- **Firebase Cloud Messaging:** Planned for push notifications. Will require user-provided credentials.
+- **WebRTC:** The underlying technology for video calls.
+
+**Testing status**
+- **Testing agent used after significant changes:** YES
+- **Troubleshoot agent used after agent stuck in loop:** NO
+- **Test files created:** None.
+- **Known regressions:** None.
+
+**Credentials to test flow:**
+- User registration and login can be tested with any dummy email/password combination.
+- Google Auth testing is set up on the backend but may require frontend configuration.
+
+**What agent forgot to execute**
+The agent correctly followed the user's instructions. It finished the last task after scaffolding the new React Native project, which is a logical stopping point before the large task of implementing the mobile UI. The next agent must now begin that implementation.</analysis>
