@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,13 @@ import {
   ScrollView,
   Image,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { APP_CONFIG } from '../config';
+import { notificationService } from '../services/notifications';
 
 interface Props {
   navigation: any;
@@ -21,6 +23,7 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const { user, logout, updateUser } = useAuth();
   const { colors, isDark, toggleTheme, setTheme, theme } = useTheme();
   const { api } = require('../services/api');
+  const [registeringNotifications, setRegisteringNotifications] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
@@ -40,6 +43,32 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     } catch (error) {
       Alert.alert('Error', 'Failed to update language');
     }
+  };
+
+  const handleRegisterNotifications = async () => {
+    setRegisteringNotifications(true);
+    try {
+      const token = await notificationService.registerForPushNotifications();
+      if (token) {
+        Alert.alert(
+          '✅ Registration Complete',
+          'Check your console logs for the FCM token. You can also tap "Show Tokens" to see them.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to register for notifications');
+    } finally {
+      setRegisteringNotifications(false);
+    }
+  };
+
+  const handleShowTokens = () => {
+    notificationService.showTokensAlert();
+  };
+
+  const handleTestNotification = async () => {
+    await notificationService.sendTestNotification();
   };
 
   const styles = createStyles(colors);
@@ -157,11 +186,45 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Notifications</Text>
           <View style={styles.card}>
-            <TouchableOpacity style={styles.settingItem}>
+            <TouchableOpacity 
+              style={styles.settingItem}
+              onPress={handleRegisterNotifications}
+              disabled={registeringNotifications}
+            >
               <View style={styles.settingIcon}>
                 <Ionicons name="notifications" size={22} color={colors.primary} />
               </View>
-              <Text style={styles.settingText}>Push Notifications</Text>
+              <Text style={styles.settingText}>Register for Push</Text>
+              {registeringNotifications ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="refresh" size={22} color={colors.primary} />
+              )}
+            </TouchableOpacity>
+            
+            <View style={styles.divider} />
+            
+            <TouchableOpacity 
+              style={styles.settingItem}
+              onPress={handleShowTokens}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name="key" size={22} color={colors.accent} />
+              </View>
+              <Text style={styles.settingText}>Show Tokens</Text>
+              <Ionicons name="eye" size={22} color={colors.textSecondary} />
+            </TouchableOpacity>
+            
+            <View style={styles.divider} />
+            
+            <TouchableOpacity 
+              style={styles.settingItem}
+              onPress={handleTestNotification}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name="paper-plane" size={22} color={colors.success} />
+              </View>
+              <Text style={styles.settingText}>Send Test Notification</Text>
               <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>

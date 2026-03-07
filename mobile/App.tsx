@@ -62,11 +62,28 @@ const RootNavigator = () => {
   const { isAuthenticated, isLoading } = useAuth();
   const { colors, isDark } = useTheme();
 
-  // Handle notification responses
+  // Register for push notifications when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      console.log('🚀 User authenticated - registering for push notifications...');
+      notificationService.registerForPushNotifications();
+    }
+  }, [isAuthenticated]);
+
+  // Handle notification received while app is open
+  useEffect(() => {
+    const receivedSubscription = notificationService.addNotificationReceivedListener((notification) => {
+      console.log('📬 Notification received:', notification.request.content);
+    });
+
+    return () => receivedSubscription.remove();
+  }, []);
+
+  // Handle notification responses (tapped)
   useEffect(() => {
     const subscription = notificationService.addNotificationResponseListener((response) => {
       const data = response.notification.request.content.data;
-      console.log('Notification tapped:', data);
+      console.log('👆 Notification tapped:', data);
       
       // Navigate based on notification type
       if (data?.type === 'message' && data?.conversation_id) {

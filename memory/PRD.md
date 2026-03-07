@@ -127,12 +127,22 @@ npx eas build --platform ios --profile production
 
 ---
 
-## Firebase Configuration
+### Firebase Configuration
 
 ### Current Setup:
 - **Project ID**: `mijichat-7d13c`
 - **Android Package**: `com.chatapp.mobile`
 - **google-services.json**: ✅ Configured
+
+### Push Notification Testing:
+1. Build the app: `npx eas build --platform android --profile preview`
+2. Install on physical device
+3. Login to the app
+4. Check console logs for:
+   - `🎉 EXPO PUSH TOKEN OBTAINED!`
+   - `🔥 FCM/DEVICE TOKEN OBTAINED!`
+5. Go to Settings > "Show Tokens" to see them
+6. Test via Firebase Console > Cloud Messaging > "Send test message"
 
 ### For iOS (when needed):
 1. Go to Firebase Console
