@@ -127,8 +127,11 @@ class NotificationService {
       // Step 4: Get Expo Push Token
       console.log('\n📋 Step 4: Getting Expo Push Token...');
       
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId || 'mijichat-7d13c';
-      console.log('   Project ID:', projectId);
+      // Use the EAS projectId from app.json
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId || '84867f60-7222-42a4-b8b6-32d381c81e14';
+      const firebaseProjectId = Constants.expoConfig?.extra?.firebaseProjectId || 'mijichat-7d13c';
+      console.log('   EAS Project ID:', projectId);
+      console.log('   Firebase Project ID:', firebaseProjectId);
       
       try {
         const tokenData = await Notifications.getExpoPushTokenAsync({
@@ -144,7 +147,6 @@ class NotificationService {
         console.log('========================================');
         console.log('\n📌 Copy this token to test via:');
         console.log('   - Expo Push Tool: https://expo.dev/notifications');
-        console.log('   - Or Firebase Console > Cloud Messaging');
         console.log('========================================\n');
 
       } catch (tokenError: any) {
