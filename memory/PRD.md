@@ -3,52 +3,17 @@
 ## Original Problem Statement
 Създай ми апп подобен на WhatsApp, Messenger, Viber. В него да може да се пише текст които да се вижда от получателя като емотикони и ако натисне върху тях да му излиза оригиналния текст.
 
-### User Choices:
-- **Authentication**: JWT + Google OAuth
-- **Chat types**: Personal (1-to-1) + Group chats
-- **Features**: Online status, typing indicators, read receipts
-- **Emoji conversion**: AI-powered word-to-emoji + visual encryption
-- **Theme**: Dark/Light mode toggle
-- **Platform**: Native mobile app (React Native / Expo)
-- **Target**: Android + iOS
-
 ---
 
 ## Architecture
 
 ### Backend (FastAPI + MongoDB) - COMPLETE ✅
 - **Location**: `/app/backend/server.py`
-- **Database**: MongoDB with all collections
 - **API URL**: https://emoji-chat-mobile.preview.emergentagent.com
-- **Features**: 60+ API endpoints for all chat functionality
 
 ### Mobile App (React Native / Expo) - COMPLETE ✅
 - **Location**: `/app/mobile/`
-- **Framework**: Expo SDK 55
-- **Language**: TypeScript
-- **Navigation**: React Navigation
-- **State**: React Context API
-- **Firebase**: google-services.json configured
-
-### Project Structure
-```
-mobile/
-├── App.tsx                    # Entry point with navigation
-├── app.json                   # Expo config (MijiChat)
-├── eas.json                   # Build config for EAS
-├── google-services.json       # Firebase config ✅
-├── src/
-│   ├── components/
-│   │   ├── AudioPlayer.tsx    # Voice message playback
-│   │   ├── MessageBubble.tsx  # Chat bubbles with emoji reveal
-│   │   └── VoiceRecorder.tsx  # Voice recording component
-│   ├── config/                # API URL, colors, languages
-│   ├── contexts/              # Auth & Theme contexts
-│   ├── screens/               # All screens (7 total)
-│   ├── services/              # API & notifications
-│   └── types/                 # TypeScript types
-└── assets/                    # Icons, images
-```
+- **Package**: `com.chatapp.mobile`
 
 ---
 
@@ -56,173 +21,121 @@ mobile/
 
 | Screen | Status | Description |
 |--------|--------|-------------|
-| LoginScreen | ✅ | Email/password login |
+| LoginScreen | ✅ | Email login + Phone auth + Forgot password |
 | RegisterScreen | ✅ | Account creation |
-| ConversationsScreen | ✅ | Chat list with search, unread counts |
-| ChatScreen | ✅ | Messages, voice recording, file attachments |
-| SettingsScreen | ✅ | Profile, theme, language settings |
-| NewChatScreen | ✅ | Search users, start new conversation |
-| NewGroupScreen | ✅ | Create group with multiple members |
+| **ForgotPasswordScreen** | ✅ NEW | Password reset via token |
+| **PhoneAuthScreen** | ✅ NEW | Phone number verification/login |
+| ConversationsScreen | ✅ | Chat list |
+| ChatScreen | ✅ | Messages with voice recording |
+| SettingsScreen | ✅ | Profile, theme, push tokens |
+| NewChatScreen | ✅ | Start new conversation |
+| NewGroupScreen | ✅ | Create group chat |
 
 ---
 
-## Features Implemented
+## Authentication Features
 
-### Core Chat Features ✅
-- User authentication (JWT + token storage)
-- Conversations list with last message preview
-- 1-to-1 and group chats
-- AI emoji conversion (GPT-4o via Emergent LLM)
-- Tap to reveal original text
-- Auto-translation (16 languages)
-- Message reactions
-- Typing indicators
-- Online status
-- Read receipts (checkmarks)
+### Email/Password ✅
+- Register with email
+- Login with email
+- **Password Reset** (forgot password → email token → new password)
+- **Email Verification** (send link → verify email)
 
-### Voice Messages ✅ (NEW)
-- Voice recording with animated UI
-- Duration timer during recording
-- Cancel or send recording
-- Audio playback with progress bar
-- Waveform visualization
+### Phone Number ✅
+- Send SMS verification code
+- Verify code and login/register
+- Auto-create account for new phone numbers
 
-### File Attachments ✅
-- Camera capture
-- Gallery image picker
-- Document picker
-- File upload to server
-
-### Mobile-Specific ✅
-- Push notification infrastructure (Expo + Firebase)
-- Dark/Light theme with system detection
-- Secure token storage (AsyncStorage)
-- Keyboard-aware views
-- Pull to refresh
+### Google OAuth ✅
+- Emergent-managed Google Auth integration
 
 ---
 
-## Build & Deploy
+## Push Notifications - Setup
 
-### Development
-```bash
-cd /app/mobile
-npx expo start
+### SHA-1 Fingerprint (добави в Firebase Console):
+```
+76:9D:01:8D:1B:38:3F:CB:60:E8:4E:5A:F3:3F:D9:9D:9E:0B:02:59
 ```
 
-### Build APK (Testing)
+### Стъпки:
+1. Firebase Console → Project Settings → Your apps → Android
+2. Click "Add fingerprint"
+3. Paste SHA-1
+4. Save
+
+---
+
+## API Endpoints
+
+### Auth Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/auth/register` | POST | Create account |
+| `/api/auth/login` | POST | Login |
+| `/api/auth/logout` | POST | Logout |
+| `/api/auth/me` | GET | Get current user |
+| `/api/auth/forgot-password` | POST | Send reset token |
+| `/api/auth/reset-password` | POST | Reset with token |
+| `/api/auth/send-verification` | POST | Send email verification |
+| `/api/auth/verify-email/{token}` | GET | Verify email |
+| `/api/auth/phone/send-code` | POST | Send SMS code |
+| `/api/auth/phone/verify` | POST | Verify & login |
+
+---
+
+## Build Commands
+
 ```bash
+# Development
+cd /app/mobile && npx expo start
+
+# Build APK (testing)
 npx eas build --platform android --profile preview
-```
 
-### Build for Play Store
-```bash
+# Build for Play Store
 npx eas build --platform android --profile production
 ```
 
-### Build for App Store
-```bash
-npx eas build --platform ios --profile production
-```
-
 ---
 
-### Firebase Configuration
-
-### Current Setup:
-- **Project ID**: `mijichat-7d13c`
-- **Android Package**: `com.chatapp.mobile`
-- **google-services.json**: ✅ Configured
-
-### Push Notification Testing:
-1. Build the app: `npx eas build --platform android --profile preview`
-2. Install on physical device
-3. Login to the app
-4. Check console logs for:
-   - `🎉 EXPO PUSH TOKEN OBTAINED!`
-   - `🔥 FCM/DEVICE TOKEN OBTAINED!`
-5. Go to Settings > "Show Tokens" to see them
-6. Test via Firebase Console > Cloud Messaging > "Send test message"
-
-### For iOS (when needed):
-1. Go to Firebase Console
-2. Add iOS app with Bundle ID: `com.chatapp.mobile`
-3. Download `GoogleService-Info.plist`
-4. Place in `/app/mobile/`
+## Current APK
+**URL**: https://expo.dev/artifacts/eas/xhNivpGeA6n4dFQj6o1AL.apk
 
 ---
 
 ## Changelog
 
-### December 2025 - Voice Messages & Firebase
-- Added VoiceRecorder component with animated UI
-- Added AudioPlayer component with playback controls
-- Integrated file attachment picker (camera, gallery, documents)
-- Configured Firebase with google-services.json
-- Renamed app to "MijiChat"
-- All TypeScript compilation passing
+### March 8, 2026 - Auth Improvements
+- Added ForgotPasswordScreen with email reset
+- Added PhoneAuthScreen with SMS verification
+- Added email verification endpoint
+- Updated LoginScreen with phone auth button
+- SHA-1 fingerprint extracted for Firebase
 
-### December 2025 - Initial Mobile App
-- Created React Native project structure
-- Implemented all 7 screens
-- Connected to backend API
-- Added MessageBubble with emoji reveal
-
----
-
-## API Endpoints Summary
-
-### Authentication (4)
-- `POST /api/auth/register`, `/login`, `/session`, `/logout`
-- `GET /api/auth/me`
-
-### Users (4)
-- `GET /api/users/search`, `/api/users/{id}`
-- `PUT /api/users/language`
-- `POST /api/users/heartbeat`
-
-### Conversations (4)
-- `POST /api/conversations`
-- `GET /api/conversations`, `/api/conversations/{id}`
-- `POST /api/conversations/{id}/members`
-
-### Messages (4)
-- `POST /api/conversations/{id}/messages`
-- `GET /api/conversations/{id}/messages`
-- `POST/GET /api/conversations/{id}/typing`
-
-### Media (4)
-- `POST /api/upload`, `/api/voice/upload`
-- `GET /api/files/{id}`
-- `POST /api/messages/{id}/reactions`
-
-### Calls (6)
-- `POST /api/calls/initiate`, `/join`, `/signal`, `/end`
-- `GET /api/calls/{id}/signals`, `/api/calls/active`
+### December 2025 - Push Notifications
+- Added FCM token logging
+- Settings screen with token display
+- Notification permission request (Android 13+)
 
 ---
 
 ## Prioritized Backlog
 
 ### P0 - Critical ✅ DONE
-- ~~Voice message recording~~
-- ~~File attachments~~
-- ~~Firebase configuration~~
+- Password reset ✅
+- Email verification ✅
+- Phone authentication ✅
 
 ### P1 - High Priority
-- [ ] Video call UI implementation (WebRTC)
-- [ ] Google OAuth in mobile app
-- [ ] Phone number registration (Twilio SMS)
+- [ ] Firebase Phone Auth integration (replace mock SMS)
+- [ ] Push notifications working (add SHA-1 to Firebase)
+- [ ] Video calls UI
 
 ### P2 - Medium Priority
+- [ ] Design refresh (user requested)
 - [ ] Message forwarding
-- [ ] User blocking/muting
 - [ ] End-to-end encryption
-
-### P3 - Low Priority
-- [ ] Voice message transcription (Whisper)
-- [ ] Story/Status feature
-- [ ] Custom sticker upload
 
 ---
 
@@ -230,14 +143,7 @@ npx eas build --platform ios --profile production
 ```
 Email: test@example.com
 Password: test123
+
+Phone: +359888123456
+Code: (shown in dev mode)
 ```
-
----
-
-## Important Notes
-
-1. **App Name**: MijiChat (changed from ChatApp)
-2. **Firebase**: google-services.json is configured for Android
-3. **Backend**: Fully functional with 60+ API endpoints
-4. **Emoji Conversion**: Uses GPT-4o via Emergent LLM Key
-5. **Voice Messages**: Full recording and playback support

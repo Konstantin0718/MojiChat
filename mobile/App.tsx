@@ -17,6 +17,8 @@ import { ChatScreen } from './src/screens/ChatScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { NewChatScreen } from './src/screens/NewChatScreen';
 import { NewGroupScreen } from './src/screens/NewGroupScreen';
+import { ForgotPasswordScreen } from './src/screens/ForgotPasswordScreen';
+import { PhoneAuthScreen } from './src/screens/PhoneAuthScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -33,6 +35,8 @@ const AuthStack = () => {
     >
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} />
     </Stack.Navigator>
   );
 };

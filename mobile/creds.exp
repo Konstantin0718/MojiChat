@@ -1,0 +1,36 @@
+#!/usr/bin/expect -f
+
+set timeout 90
+
+cd "/app/mobile"
+
+spawn eas credentials --platform android
+
+expect {
+    "Which build profile" {
+        send "preview\r"
+        exp_continue
+    }
+    "What do you want to do" {
+        send "3\r"
+        exp_continue
+    }
+    -re "SHA-1 Fingerprint\\s+(\[A-F0-9:\]+)" {
+        puts "\n\n========================================\n"
+        puts "SHA-1 FINGERPRINT FOUND!"
+        puts "========================================\n"
+        exp_continue
+    }
+    -re "SHA1:\\s+(\[A-F0-9:\]+)" {
+        puts "\n\n========================================\n"
+        puts "SHA-1: $expect_out(1,string)"
+        puts "========================================\n"
+        exp_continue
+    }
+    timeout {
+        puts "\n=== TIMEOUT ===\n"
+    }
+    eof {
+        puts "\n=== DONE ===\n"
+    }
+}

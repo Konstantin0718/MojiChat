@@ -237,6 +237,51 @@ class ApiService {
     return response.data;
   }
 
+  // Password Reset
+  async forgotPassword(email: string) {
+    const response = await this.api.post('/auth/forgot-password', { email });
+    return response.data;
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const response = await this.api.post('/auth/reset-password', {
+      token,
+      new_password: newPassword,
+    });
+    return response.data;
+  }
+
+  // Email Verification
+  async sendVerificationEmail(email: string) {
+    const response = await this.api.post('/auth/send-verification', { email });
+    return response.data;
+  }
+
+  async verifyEmail(token: string) {
+    const response = await this.api.get(`/auth/verify-email/${token}`);
+    return response.data;
+  }
+
+  // Phone Authentication
+  async sendPhoneCode(phoneNumber: string) {
+    const response = await this.api.post('/auth/phone/send-code', {
+      phone_number: phoneNumber,
+    });
+    return response.data;
+  }
+
+  async verifyPhoneCode(phoneNumber: string, code: string, name?: string) {
+    const response = await this.api.post('/auth/phone/verify', {
+      phone_number: phoneNumber,
+      verification_code: code,
+      name,
+    });
+    if (response.data.token) {
+      this.setToken(response.data.token);
+    }
+    return response.data;
+  }
+
   // Utilities
   async getLanguages() {
     const response = await this.api.get('/languages');

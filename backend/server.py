@@ -170,6 +170,28 @@ class EmojiConvertResponse(BaseModel):
     original: str
     emoji: str
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+class EmailVerificationRequest(BaseModel):
+    email: EmailStr
+
+class PhoneVerificationRequest(BaseModel):
+    phone_number: str
+
+class PhoneVerificationConfirm(BaseModel):
+    phone_number: str
+    verification_code: str
+    name: Optional[str] = None
+
+class PhoneLoginRequest(BaseModel):
+    phone_number: str
+    verification_code: str
+
 # ==================== AUTH HELPERS ====================
 
 def hash_password(password: str) -> str:
@@ -311,7 +333,10 @@ async def register(user_data: UserCreate, response: Response):
         "last_seen": datetime.now(timezone.utc).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "preferred_language": "en",
-        "country_code": None
+        "country_code": None,
+        "email_verified": False,
+        "phone_number": None,
+        "phone_verified": False
     }
     
     await db.users.insert_one(user_doc)
@@ -487,6 +512,250 @@ async def logout(request: Request, response: Response):
     
     response.delete_cookie(key="session_token", path="/")
     return {"message": "Logged out"}
+
+# ==================== PASSWORD RESET ====================
+
+@api_router.post("/auth/forgot-password")
+async def forgot_password(data: PasswordResetRequest):
+    """Send password reset email"""
+    user = await db.users.find_one({"email": data.email}, {"_id": 0})
+    
+    # Always return success to prevent email enumeration
+    if not user:
+        return {"message": "If this email exists, a reset link has been sent"}
+    
+    # Generate reset token
+    reset_token = uuid.uuid4().hex
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    
+    # Store reset token
+    await db.password_resets.delete_many({"email": data.email})
+    await db.password_resets.insert_one({
+        "email": data.email,
+        "token": reset_token,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    # In production, send email here
+    # For now, return token for testing
+    logger.info(f"Password reset token for {data.email}: {reset_token}")
+    
+    return {
+        "message": "If this email exists, a reset link has been sent",
+        "reset_token": reset_token  # Remove in production
+    }
+
+@api_router.post("/auth/reset-password")
+async def reset_password(data: PasswordResetConfirm):
+    """Reset password using token"""
+    reset_request = await db.password_resets.find_one({"token": data.token}, {"_id": 0})
+    
+    if not reset_request:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    
+    expires_at = datetime.fromisoformat(reset_request["expires_at"].replace('Z', '+00:00'))
+    if datetime.now(timezone.utc) > expires_at:
+        await db.password_resets.delete_one({"token": data.token})
+        raise HTTPException(status_code=400, detail="Reset token has expired")
+    
+    # Update password
+    hashed_pwd = hash_password(data.new_password)
+    await db.users.update_one(
+        {"email": reset_request["email"]},
+        {"$set": {"password": hashed_pwd}}
+    )
+    
+    # Delete used token
+    await db.password_resets.delete_one({"token": data.token})
+    
+    return {"message": "Password has been reset successfully"}
+
+# ==================== EMAIL VERIFICATION ====================
+
+@api_router.post("/auth/send-verification")
+async def send_verification_email(data: EmailVerificationRequest):
+    """Send email verification link"""
+    user = await db.users.find_one({"email": data.email}, {"_id": 0})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.get("email_verified"):
+        return {"message": "Email already verified"}
+    
+    # Generate verification token
+    verification_token = uuid.uuid4().hex
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    
+    # Store verification token
+    await db.email_verifications.delete_many({"email": data.email})
+    await db.email_verifications.insert_one({
+        "email": data.email,
+        "token": verification_token,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    # In production, send email here
+    logger.info(f"Email verification token for {data.email}: {verification_token}")
+    
+    return {
+        "message": "Verification email sent",
+        "verification_token": verification_token  # Remove in production
+    }
+
+@api_router.get("/auth/verify-email/{token}")
+async def verify_email(token: str):
+    """Verify email using token"""
+    verification = await db.email_verifications.find_one({"token": token}, {"_id": 0})
+    
+    if not verification:
+        raise HTTPException(status_code=400, detail="Invalid verification token")
+    
+    expires_at = datetime.fromisoformat(verification["expires_at"].replace('Z', '+00:00'))
+    if datetime.now(timezone.utc) > expires_at:
+        await db.email_verifications.delete_one({"token": token})
+        raise HTTPException(status_code=400, detail="Verification token has expired")
+    
+    # Mark email as verified
+    await db.users.update_one(
+        {"email": verification["email"]},
+        {"$set": {"email_verified": True, "email_verified_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    # Delete used token
+    await db.email_verifications.delete_one({"token": token})
+    
+    return {"message": "Email verified successfully"}
+
+# ==================== PHONE AUTHENTICATION ====================
+
+@api_router.post("/auth/phone/send-code")
+async def send_phone_verification_code(data: PhoneVerificationRequest):
+    """Send verification code to phone number (Firebase Phone Auth)"""
+    # Normalize phone number
+    phone = data.phone_number.strip()
+    if not phone.startswith('+'):
+        phone = '+' + phone
+    
+    # Generate 6-digit code
+    verification_code = str(uuid.uuid4().int)[:6]
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    
+    # Store verification code
+    await db.phone_verifications.delete_many({"phone_number": phone})
+    await db.phone_verifications.insert_one({
+        "phone_number": phone,
+        "code": verification_code,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "attempts": 0
+    })
+    
+    # In production, use Firebase Phone Auth or SMS service
+    # For now, log the code for testing
+    logger.info(f"Phone verification code for {phone}: {verification_code}")
+    
+    return {
+        "message": "Verification code sent",
+        "phone_number": phone,
+        "verification_code": verification_code  # Remove in production - for testing only
+    }
+
+@api_router.post("/auth/phone/verify")
+async def verify_phone_and_register(data: PhoneVerificationConfirm, response: Response):
+    """Verify phone code and register/login user"""
+    phone = data.phone_number.strip()
+    if not phone.startswith('+'):
+        phone = '+' + phone
+    
+    verification = await db.phone_verifications.find_one({"phone_number": phone}, {"_id": 0})
+    
+    if not verification:
+        raise HTTPException(status_code=400, detail="No verification code sent to this number")
+    
+    # Check attempts
+    if verification.get("attempts", 0) >= 5:
+        await db.phone_verifications.delete_one({"phone_number": phone})
+        raise HTTPException(status_code=400, detail="Too many attempts. Please request a new code")
+    
+    # Check expiration
+    expires_at = datetime.fromisoformat(verification["expires_at"].replace('Z', '+00:00'))
+    if datetime.now(timezone.utc) > expires_at:
+        await db.phone_verifications.delete_one({"phone_number": phone})
+        raise HTTPException(status_code=400, detail="Verification code has expired")
+    
+    # Verify code
+    if verification["code"] != data.verification_code:
+        await db.phone_verifications.update_one(
+            {"phone_number": phone},
+            {"$inc": {"attempts": 1}}
+        )
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+    
+    # Delete verification record
+    await db.phone_verifications.delete_one({"phone_number": phone})
+    
+    # Check if user exists with this phone
+    existing_user = await db.users.find_one({"phone_number": phone}, {"_id": 0})
+    
+    if existing_user:
+        # Login existing user
+        user_id = existing_user["user_id"]
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "is_online": True,
+                "last_seen": datetime.now(timezone.utc).isoformat(),
+                "phone_verified": True
+            }}
+        )
+    else:
+        # Register new user
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        user_name = data.name or f"User {phone[-4:]}"
+        
+        user_doc = {
+            "user_id": user_id,
+            "email": None,
+            "phone_number": phone,
+            "name": user_name,
+            "password": None,
+            "picture": None,
+            "is_online": True,
+            "last_seen": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "preferred_language": "bg",
+            "country_code": "BG",
+            "phone_verified": True
+        }
+        await db.users.insert_one(user_doc)
+    
+    # Create session token
+    token = create_token(user_id)
+    
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=JWT_EXPIRATION_DAYS * 24 * 60 * 60
+    )
+    
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0})
+    
+    return {
+        "user_id": user_id,
+        "phone_number": phone,
+        "name": user.get("name"),
+        "email": user.get("email"),
+        "picture": user.get("picture"),
+        "token": token,
+        "is_new_user": not existing_user
+    }
 
 # ==================== USER ENDPOINTS ====================
 

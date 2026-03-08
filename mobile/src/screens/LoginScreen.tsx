@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -90,6 +91,30 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
             ) : (
               <Text style={styles.buttonText}>Sign In</Text>
             )}
+          </TouchableOpacity>
+
+          {/* Forgot Password */}
+          <TouchableOpacity
+            style={styles.forgotButton}
+            onPress={() => navigation.navigate('ForgotPassword')}
+          >
+            <Text style={styles.forgotText}>Forgot Password?</Text>
+          </TouchableOpacity>
+
+          {/* Divider */}
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          {/* Phone Login */}
+          <TouchableOpacity
+            style={styles.phoneButton}
+            onPress={() => navigation.navigate('PhoneAuth')}
+          >
+            <Ionicons name="phone-portrait-outline" size={22} color={colors.primary} />
+            <Text style={styles.phoneButtonText}>Continue with Phone</Text>
           </TouchableOpacity>
         </View>
 
@@ -181,6 +206,45 @@ const createStyles = (colors: any) =>
       fontSize: 16,
     },
     footerLink: {
+      color: colors.primary,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    forgotButton: {
+      alignItems: 'center',
+      paddingVertical: 12,
+    },
+    forgotText: {
+      color: colors.primary,
+      fontSize: 14,
+    },
+    divider: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginVertical: 16,
+    },
+    dividerLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: colors.border,
+    },
+    dividerText: {
+      color: colors.textSecondary,
+      paddingHorizontal: 16,
+      fontSize: 14,
+    },
+    phoneButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: 56,
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      gap: 8,
+    },
+    phoneButtonText: {
       color: colors.primary,
       fontSize: 16,
       fontWeight: '600',
