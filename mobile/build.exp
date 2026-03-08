@@ -1,0 +1,43 @@
+#!/usr/bin/expect -f
+
+set timeout 180
+
+cd "/app/mobile"
+
+spawn npx eas build --platform android --profile preview
+
+expect {
+    "Would you like to create a project for" {
+        send "y\r"
+        exp_continue
+    }
+    "Would you like to automatically create an EAS project" {
+        send "y\r"
+        exp_continue
+    }
+    "What would you like your Android" {
+        send "\r"
+        exp_continue
+    }
+    "Generate a new Android Keystore?" {
+        send "y\r"
+        exp_continue
+    }
+    "Learn more" {
+        exp_continue
+    }
+    "Build details" {
+        puts "\n\n=== BUILD STARTED! ===\n"
+        exp_continue
+    }
+    -re "https://expo.dev/accounts/\[^\r\n\]+" {
+        puts "\n=== BUILD URL: $expect_out(0,string) ===\n"
+        exp_continue
+    }
+    timeout {
+        puts "\n=== TIMEOUT - Check output above ===\n"
+    }
+    eof {
+        puts "\n=== BUILD PROCESS COMPLETED ===\n"
+    }
+}
