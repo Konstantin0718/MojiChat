@@ -24,6 +24,7 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const { colors, isDark, toggleTheme, setTheme, theme } = useTheme();
   const { api } = require('../services/api');
   const [registeringNotifications, setRegisteringNotifications] = useState(false);
+  const [sendingCloudNotification, setSendingCloudNotification] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
@@ -69,6 +70,34 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleTestNotification = async () => {
     await notificationService.sendTestNotification();
+  };
+
+  const handleSendCloudNotification = async () => {
+    const expoToken = notificationService.getExpoPushToken();
+    
+    if (!expoToken) {
+      Alert.alert('Error', 'No Expo Push Token found. Please tap "Register for Push" first.');
+      return;
+    }
+
+    setSendingCloudNotification(true);
+    try {
+      const result = await api.sendCloudNotification(
+        expoToken,
+        '🔔 Cloud Test',
+        'This notification was sent via Expo Push API through our backend!'
+      );
+      
+      if (result.success) {
+        Alert.alert('✅ Success', result.message);
+      } else {
+        Alert.alert('❌ Failed', result.message + '\n\nDetails: ' + JSON.stringify(result.details, null, 2));
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to send cloud notification');
+    } finally {
+      setSendingCloudNotification(false);
+    }
   };
 
   const styles = createStyles(colors);
@@ -224,8 +253,26 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               <View style={styles.settingIcon}>
                 <Ionicons name="paper-plane" size={22} color={colors.success} />
               </View>
-              <Text style={styles.settingText}>Send Test Notification</Text>
+              <Text style={styles.settingText}>Local Test Notification</Text>
               <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
+            </TouchableOpacity>
+            
+            <View style={styles.divider} />
+            
+            <TouchableOpacity 
+              style={styles.settingItem}
+              onPress={handleSendCloudNotification}
+              disabled={sendingCloudNotification}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name="cloud-upload" size={22} color="#FF6B6B" />
+              </View>
+              <Text style={styles.settingText}>Send Cloud Notification</Text>
+              {sendingCloudNotification ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="send" size={22} color={colors.primary} />
+              )}
             </TouchableOpacity>
           </View>
         </View>

@@ -1726,6 +1726,115 @@ async def get_unread_count(request: Request):
     
     return {"count": count}
 
+class SendPushRequest(BaseModel):
+    expo_token: str
+    title: str = "Test Notification"
+    body: str = "This is a test push notification from MijiChat!"
+    data: Optional[dict] = None
+
+@api_router.post("/notifications/send-push")
+async def send_push_notification(push_data: SendPushRequest, request: Request):
+    """Send push notification via Expo Push API"""
+    current_user = await get_current_user(request)
+    
+    # Expo Push API endpoint
+    EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+    
+    # Prepare the message
+    message = {
+        "to": push_data.expo_token,
+        "title": push_data.title,
+        "body": push_data.body,
+        "sound": "default",
+        "priority": "high",
+        "channelId": "default",
+    }
+    
+    if push_data.data:
+        message["data"] = push_data.data
+    
+    logger.info(f"Sending push notification to: {push_data.expo_token[:30]}...")
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                EXPO_PUSH_URL,
+                json=message,
+                headers={
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip, deflate",
+                    "Content-Type": "application/json",
+                }
+            )
+            
+            result = response.json()
+            logger.info(f"Expo Push API response: {result}")
+            
+            if response.status_code == 200:
+                # Check for errors in the response
+                if "data" in result:
+                    ticket = result["data"]
+                    if ticket.get("status") == "ok":
+                        return {
+                            "success": True,
+                            "message": "Push notification sent successfully!",
+                            "ticket_id": ticket.get("id"),
+                            "details": ticket
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "message": f"Push failed: {ticket.get('message', 'Unknown error')}",
+                            "details": ticket
+                        }
+                return {
+                    "success": True,
+                    "message": "Request sent",
+                    "details": result
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"HTTP {response.status_code}",
+                    "details": result
+                }
+                
+    except Exception as e:
+        logger.error(f"Push notification error: {e}")
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+@api_router.post("/notifications/send-to-user/{user_id}")
+async def send_push_to_user(user_id: str, request: Request):
+    """Send push notification to a specific user (for testing)"""
+    current_user = await get_current_user(request)
+    body = await request.json()
+    
+    # Get user's push token
+    subscription = await db.push_subscriptions.find_one(
+        {"user_id": user_id},
+        {"_id": 0}
+    )
+    
+    if not subscription:
+        raise HTTPException(status_code=404, detail="User has no push subscription")
+    
+    expo_token = subscription.get("endpoint")
+    if not expo_token or not expo_token.startswith("ExponentPushToken"):
+        raise HTTPException(status_code=400, detail="Invalid push token")
+    
+    # Send via Expo
+    push_request = SendPushRequest(
+        expo_token=expo_token,
+        title=body.get("title", "New Message"),
+        body=body.get("body", "You have a new message!"),
+        data=body.get("data")
+    )
+    
+    return await send_push_notification(push_request, request)
+
 # Include router and configure app
 app.include_router(api_router)
 
