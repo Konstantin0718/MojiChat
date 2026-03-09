@@ -167,7 +167,7 @@ const createStyles = (colors: any) =>
     logoText: {
       fontSize: 32,
       fontWeight: 'bold',
-      color: colors.primary,
+      color: '#2563EB', // OTA Test - Changed to blue!
     },
     title: {
       fontSize: 28,
