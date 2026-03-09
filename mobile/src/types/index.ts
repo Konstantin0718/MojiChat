@@ -1,12 +1,15 @@
 export interface User {
   user_id: string;
-  email: string;
+  email?: string;
   name: string;
   picture?: string;
   is_online?: boolean;
   last_seen?: string;
   preferred_language?: string;
   country_code?: string;
+  phone_number?: string;
+  email_verified?: boolean;
+  phone_verified?: boolean;
 }
 
 export interface Message {

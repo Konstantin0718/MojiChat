@@ -787,6 +787,242 @@ async def get_user(user_id: str, request: Request):
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
+# ==================== BLOCKED USERS ====================
+
+@api_router.get("/users/blocked")
+async def get_blocked_users(request: Request):
+    """Get list of blocked users"""
+    current_user = await get_current_user(request)
+    
+    blocked = await db.blocked_users.find(
+        {"blocker_id": current_user["user_id"]},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Get user details
+    blocked_ids = [b["blocked_id"] for b in blocked]
+    users = await db.users.find(
+        {"user_id": {"$in": blocked_ids}},
+        {"_id": 0, "password": 0}
+    ).to_list(100)
+    
+    result = []
+    for user in users:
+        block_record = next((b for b in blocked if b["blocked_id"] == user["user_id"]), None)
+        result.append({
+            **user,
+            "blocked_at": block_record["blocked_at"] if block_record else None
+        })
+    
+    return result
+
+@api_router.post("/users/{user_id}/block")
+async def block_user(user_id: str, request: Request):
+    """Block a user"""
+    current_user = await get_current_user(request)
+    
+    if user_id == current_user["user_id"]:
+        raise HTTPException(status_code=400, detail="Cannot block yourself")
+    
+    # Check if user exists
+    target_user = await db.users.find_one({"user_id": user_id})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if already blocked
+    existing = await db.blocked_users.find_one({
+        "blocker_id": current_user["user_id"],
+        "blocked_id": user_id
+    })
+    
+    if existing:
+        return {"message": "User already blocked"}
+    
+    # Create block record
+    await db.blocked_users.insert_one({
+        "blocker_id": current_user["user_id"],
+        "blocked_id": user_id,
+        "blocked_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "User blocked successfully"}
+
+@api_router.delete("/users/{user_id}/block")
+async def unblock_user(user_id: str, request: Request):
+    """Unblock a user"""
+    current_user = await get_current_user(request)
+    
+    result = await db.blocked_users.delete_one({
+        "blocker_id": current_user["user_id"],
+        "blocked_id": user_id
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Block record not found")
+    
+    return {"message": "User unblocked successfully"}
+
+# ==================== STATUS/STORIES ====================
+
+@api_router.get("/statuses")
+async def get_statuses(request: Request):
+    """Get status updates from contacts"""
+    current_user = await get_current_user(request)
+    
+    # Get statuses from last 24 hours
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    
+    # Get user's conversations to find contacts
+    conversations = await db.conversations.find(
+        {"participant_ids": current_user["user_id"]},
+        {"_id": 0}
+    ).to_list(100)
+    
+    contact_ids = set()
+    for conv in conversations:
+        contact_ids.update(conv["participant_ids"])
+    contact_ids.discard(current_user["user_id"])
+    contact_ids.add(current_user["user_id"])  # Include own statuses
+    
+    statuses = await db.statuses.find(
+        {
+            "user_id": {"$in": list(contact_ids)},
+            "created_at": {"$gte": cutoff}
+        },
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Get user info for each status
+    user_ids = list(set(s["user_id"] for s in statuses))
+    users = await db.users.find(
+        {"user_id": {"$in": user_ids}},
+        {"_id": 0, "password": 0}
+    ).to_list(100)
+    user_map = {u["user_id"]: u for u in users}
+    
+    for status in statuses:
+        user_info = user_map.get(status["user_id"], {})
+        status["user_name"] = user_info.get("name", "Unknown")
+        status["user_picture"] = user_info.get("picture")
+    
+    # Separate into my, recent, and viewed
+    my_statuses = [s for s in statuses if s["user_id"] == current_user["user_id"]]
+    other_statuses = [s for s in statuses if s["user_id"] != current_user["user_id"]]
+    
+    recent = [s for s in other_statuses if current_user["user_id"] not in s.get("viewed_by", [])]
+    viewed = [s for s in other_statuses if current_user["user_id"] in s.get("viewed_by", [])]
+    
+    return {
+        "my_statuses": my_statuses,
+        "recent": recent,
+        "viewed": viewed
+    }
+
+@api_router.post("/statuses")
+async def create_status(request: Request):
+    """Create a new status update"""
+    current_user = await get_current_user(request)
+    body = await request.json()
+    
+    status_id = f"status_{uuid.uuid4().hex[:12]}"
+    status_doc = {
+        "status_id": status_id,
+        "user_id": current_user["user_id"],
+        "content_type": body.get("content_type", "text"),
+        "text_content": body.get("text_content"),
+        "background_color": body.get("background_color", "#8B5CF6"),
+        "content_url": body.get("file_url"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+        "viewed_by": []
+    }
+    
+    await db.statuses.insert_one(status_doc)
+    
+    return {
+        "status_id": status_id,
+        "message": "Status created successfully"
+    }
+
+@api_router.post("/statuses/{status_id}/view")
+async def view_status(status_id: str, request: Request):
+    """Mark status as viewed"""
+    current_user = await get_current_user(request)
+    
+    await db.statuses.update_one(
+        {"status_id": status_id},
+        {"$addToSet": {"viewed_by": current_user["user_id"]}}
+    )
+    
+    return {"message": "Status marked as viewed"}
+
+@api_router.delete("/statuses/{status_id}")
+async def delete_status(status_id: str, request: Request):
+    """Delete own status"""
+    current_user = await get_current_user(request)
+    
+    result = await db.statuses.delete_one({
+        "status_id": status_id,
+        "user_id": current_user["user_id"]
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Status not found or not yours")
+    
+    return {"message": "Status deleted"}
+
+# ==================== MESSAGE FORWARDING ====================
+
+@api_router.post("/messages/{message_id}/forward")
+async def forward_message(message_id: str, request: Request):
+    """Forward a message to other conversations"""
+    current_user = await get_current_user(request)
+    body = await request.json()
+    conversation_ids = body.get("conversation_ids", [])
+    
+    if not conversation_ids:
+        raise HTTPException(status_code=400, detail="No conversations specified")
+    
+    # Get original message
+    original = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
+    if not original:
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    forwarded_messages = []
+    for conv_id in conversation_ids:
+        # Check user is participant
+        conv = await db.conversations.find_one({
+            "conversation_id": conv_id,
+            "participant_ids": current_user["user_id"]
+        })
+        if not conv:
+            continue
+        
+        # Create forwarded message
+        new_msg_id = f"msg_{uuid.uuid4().hex[:12]}"
+        new_msg = {
+            "message_id": new_msg_id,
+            "conversation_id": conv_id,
+            "sender_id": current_user["user_id"],
+            "sender_name": current_user.get("name"),
+            "content": original.get("content"),
+            "emoji_content": original.get("emoji_content"),
+            "message_type": original.get("message_type", "text"),
+            "file_url": original.get("file_url"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "read_by": [current_user["user_id"]],
+            "reactions": {},
+            "forwarded_from": message_id
+        }
+        
+        await db.messages.insert_one(new_msg)
+        forwarded_messages.append(new_msg_id)
+    
+    return {
+        "message": f"Forwarded to {len(forwarded_messages)} conversations",
+        "forwarded_message_ids": forwarded_messages
+    }
+
 # ==================== CONVERSATION ENDPOINTS ====================
 
 @api_router.post("/conversations")

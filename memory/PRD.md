@@ -1,86 +1,120 @@
 # MijiChat - PRD (Product Requirements Document)
 
-## Original Problem Statement
-Създай ми апп подобен на WhatsApp, Messenger, Viber. В него да може да се пише текст които да се вижда от получателя като емотикони и ако натисне върху тях да му излиза оригиналния текст.
+## Версия: 2.0.0 - Пълна функционалност
 
 ---
 
-## Architecture
+## Нови функции в тази версия
 
-### Backend (FastAPI + MongoDB) - COMPLETE ✅
-- **Location**: `/app/backend/server.py`
-- **API URL**: https://emoji-chat-mobile.preview.emergentagent.com
+### ✅ UI Локализация (6 езика)
+- English, Български, Русский, Deutsch, Español, Français
+- Всички менюта и бутони на избрания език
+- Автоматично откриване на езика на устройството
 
-### Mobile App (React Native / Expo) - COMPLETE ✅
-- **Location**: `/app/mobile/`
-- **Package**: `com.chatapp.mobile`
+### ✅ Video Call екран
+- UI за видео разговори с камера
+- Mute/unmute микрофон
+- Camera on/off
+- Flip camera (front/back)
+- Speaker toggle
+- Pulse анимация при звънене
 
----
+### ✅ Stickers & GIFs
+- Emoji picker с категории
+- Sticker packs от сървъра
+- GIF търсене (placeholder за Giphy)
 
-## Screens Implemented
+### ✅ Status/Stories
+- Създаване на текстови статуси с цветен фон
+- Снимки от камера/галерия
+- 24-часова видимост
+- Progress bar при преглед
+- My Status / Recent / Viewed секции
 
-| Screen | Status | Description |
-|--------|--------|-------------|
-| LoginScreen | ✅ | Email login + Phone auth + Forgot password |
-| RegisterScreen | ✅ | Account creation |
-| **ForgotPasswordScreen** | ✅ NEW | Password reset via token |
-| **PhoneAuthScreen** | ✅ NEW | Phone number verification/login |
-| ConversationsScreen | ✅ | Chat list |
-| ChatScreen | ✅ | Messages with voice recording |
-| SettingsScreen | ✅ | Profile, theme, push tokens |
-| NewChatScreen | ✅ | Start new conversation |
-| NewGroupScreen | ✅ | Create group chat |
+### ✅ Блокиране на потребители
+- Block/Unblock функция
+- Списък с блокирани потребители
+- Блокираните не могат да пишат
 
----
+### ✅ Настройки за известия
+- Избор на звук (Default, Chime, Bell, Pop, Ding, None)
+- Вибрация on/off
+- Звук on/off
+- Message preview on/off
 
-## Authentication Features
+### ✅ Message Forwarding
+- Препращане на съобщения към други чатове
 
-### Email/Password ✅
-- Register with email
-- Login with email
-- **Password Reset** (forgot password → email token → new password)
-- **Email Verification** (send link → verify email)
-
-### Phone Number ✅
-- Send SMS verification code
-- Verify code and login/register
-- Auto-create account for new phone numbers
-
-### Google OAuth ✅
-- Emergent-managed Google Auth integration
-
----
-
-## Push Notifications - Setup
-
-### SHA-1 Fingerprint (добави в Firebase Console):
-```
-76:9D:01:8D:1B:38:3F:CB:60:E8:4E:5A:F3:3F:D9:9D:9E:0B:02:59
-```
-
-### Стъпки:
-1. Firebase Console → Project Settings → Your apps → Android
-2. Click "Add fingerprint"
-3. Paste SHA-1
-4. Save
+### ✅ Permissions
+- Camera, Microphone, Contacts, Phone, Storage
+- Notification permission за Android 13+
 
 ---
 
-## API Endpoints
+## Пълен списък на екраните
 
-### Auth Endpoints
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/auth/register` | POST | Create account |
-| `/api/auth/login` | POST | Login |
-| `/api/auth/logout` | POST | Logout |
-| `/api/auth/me` | GET | Get current user |
-| `/api/auth/forgot-password` | POST | Send reset token |
-| `/api/auth/reset-password` | POST | Reset with token |
-| `/api/auth/send-verification` | POST | Send email verification |
-| `/api/auth/verify-email/{token}` | GET | Verify email |
-| `/api/auth/phone/send-code` | POST | Send SMS code |
-| `/api/auth/phone/verify` | POST | Verify & login |
+| Екран | Файл | Описание |
+|-------|------|----------|
+| Login | LoginScreen.tsx | Email/Password + Phone |
+| Register | RegisterScreen.tsx | Регистрация |
+| ForgotPassword | ForgotPasswordScreen.tsx | Нова парола |
+| PhoneAuth | PhoneAuthScreen.tsx | SMS верификация |
+| Conversations | ConversationsScreen.tsx | Списък чатове |
+| Chat | ChatScreen.tsx | Чат + voice + files |
+| Settings | SettingsScreen.tsx | Настройки |
+| NewChat | NewChatScreen.tsx | Нов чат |
+| NewGroup | NewGroupScreen.tsx | Нова група |
+| VideoCall | VideoCallScreen.tsx | Видео разговор |
+| BlockedUsers | BlockedUsersScreen.tsx | Блокирани |
+| NotificationSettings | NotificationSettingsScreen.tsx | Звуци |
+| Status | StatusScreen.tsx | Статуси/Stories |
+
+---
+
+## Компоненти
+
+| Компонент | Описание |
+|-----------|----------|
+| MessageBubble | Съобщение с emoji reveal |
+| AudioPlayer | Възпроизвеждане на аудио |
+| VoiceRecorder | Запис на глас |
+| StickerPicker | Emoji/Stickers/GIFs |
+
+---
+
+## API Endpoints (Backend)
+
+### Auth (9 endpoints)
+- POST /api/auth/register
+- POST /api/auth/login
+- POST /api/auth/logout
+- GET /api/auth/me
+- POST /api/auth/forgot-password
+- POST /api/auth/reset-password
+- POST /api/auth/send-verification
+- GET /api/auth/verify-email/{token}
+- POST /api/auth/phone/send-code
+- POST /api/auth/phone/verify
+
+### Users (6 endpoints)
+- GET /api/users/search
+- GET /api/users/{id}
+- GET /api/users/blocked
+- POST /api/users/{id}/block
+- DELETE /api/users/{id}/block
+- PUT /api/users/language
+
+### Status (4 endpoints)
+- GET /api/statuses
+- POST /api/statuses
+- POST /api/statuses/{id}/view
+- DELETE /api/statuses/{id}
+
+### Messages (+ forward)
+- POST /api/messages/{id}/forward
+
+### Notifications
+- POST /api/notifications/send-push
 
 ---
 
@@ -90,60 +124,61 @@
 # Development
 cd /app/mobile && npx expo start
 
-# Build APK (testing)
-npx eas build --platform android --profile preview
+# Build APK
+eas build --platform android --profile preview
 
 # Build for Play Store
-npx eas build --platform android --profile production
+eas build --platform android --profile production
 ```
 
 ---
 
-## Current APK
-**URL**: https://expo.dev/artifacts/eas/xhNivpGeA6n4dFQj6o1AL.apk
+## За обновленията на приложението
+
+**Кога трябва нов build (преинсталация)?**
+- Нови permissions (camera, contacts, etc.)
+- Нови native plugins
+- Промяна на google-services.json
+- Промяна на app.json (package name, version)
+
+**Кога НЕ трябва нов build?**
+- Промени в JavaScript/TypeScript код
+- Нови екрани или компоненти
+- Bug fixes в логиката
+- UI промени
+
+→ Тези промени могат да се публикуват с **OTA Update** (`eas update`) без преинсталация!
+
+---
+
+## Текущ Build
+
+**URL:** https://expo.dev/accounts/konstantin0/projects/mijichat/builds/9ccb3820-a0a1-4af9-923f-88d3b770de6f
+
+**Status:** In Progress
 
 ---
 
 ## Changelog
 
-### March 8, 2026 - Auth Improvements
-- Added ForgotPasswordScreen with email reset
-- Added PhoneAuthScreen with SMS verification
-- Added email verification endpoint
-- Updated LoginScreen with phone auth button
-- SHA-1 fingerprint extracted for Firebase
+### March 9, 2026 - v2.0.0
+- UI Локализация (6 езика)
+- Video Call екран
+- Status/Stories функционалност
+- Sticker/GIF picker
+- Blocked users management
+- Notification sound settings
+- Message forwarding API
+- Full permissions setup
 
-### December 2025 - Push Notifications
-- Added FCM token logging
-- Settings screen with token display
-- Notification permission request (Android 13+)
+### March 8, 2026 - v1.1.0
+- Password reset
+- Email verification
+- Phone authentication
+- Push notification setup
 
----
-
-## Prioritized Backlog
-
-### P0 - Critical ✅ DONE
-- Password reset ✅
-- Email verification ✅
-- Phone authentication ✅
-
-### P1 - High Priority
-- [ ] Firebase Phone Auth integration (replace mock SMS)
-- [ ] Push notifications working (add SHA-1 to Firebase)
-- [ ] Video calls UI
-
-### P2 - Medium Priority
-- [ ] Design refresh (user requested)
-- [ ] Message forwarding
-- [ ] End-to-end encryption
-
----
-
-## Test Credentials
-```
-Email: test@example.com
-Password: test123
-
-Phone: +359888123456
-Code: (shown in dev mode)
-```
+### December 2025 - v1.0.0
+- Initial release
+- Chat functionality
+- Voice messages
+- Emoji conversion

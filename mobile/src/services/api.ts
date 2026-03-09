@@ -246,6 +246,46 @@ class ApiService {
     return response.data;
   }
 
+  // Blocked Users
+  async getBlockedUsers() {
+    const response = await this.api.get('/users/blocked');
+    return response.data;
+  }
+
+  async blockUser(userId: string) {
+    const response = await this.api.post(`/users/${userId}/block`);
+    return response.data;
+  }
+
+  async unblockUser(userId: string) {
+    const response = await this.api.delete(`/users/${userId}/block`);
+    return response.data;
+  }
+
+  // Status/Stories
+  async getStatuses() {
+    const response = await this.api.get('/statuses');
+    return response.data;
+  }
+
+  async createStatus(data: { content_type: string; text_content?: string; background_color?: string; file_url?: string }) {
+    const response = await this.api.post('/statuses', data);
+    return response.data;
+  }
+
+  async viewStatus(statusId: string) {
+    const response = await this.api.post(`/statuses/${statusId}/view`);
+    return response.data;
+  }
+
+  // Message forwarding
+  async forwardMessage(messageId: string, conversationIds: string[]) {
+    const response = await this.api.post(`/messages/${messageId}/forward`, {
+      conversation_ids: conversationIds,
+    });
+    return response.data;
+  }
+
   // Password Reset
   async forgotPassword(email: string) {
     const response = await this.api.post('/auth/forgot-password', { email });

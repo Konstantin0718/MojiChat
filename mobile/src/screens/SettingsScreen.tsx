@@ -8,12 +8,16 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { APP_CONFIG } from '../config';
 import { notificationService } from '../services/notifications';
+import { api } from '../services/api';
 
 interface Props {
   navigation: any;
@@ -22,28 +26,22 @@ interface Props {
 export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const { user, logout, updateUser } = useAuth();
   const { colors, isDark, toggleTheme, setTheme, theme } = useTheme();
-  const { api } = require('../services/api');
+  const { t, language, setAppLanguage, availableLanguages } = useLanguage();
+  
   const [registeringNotifications, setRegisteringNotifications] = useState(false);
   const [sendingCloudNotification, setSendingCloudNotification] = useState(false);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [showThemeModal, setShowThemeModal] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
-      'Logout',
+      t('logout'),
       'Are you sure you want to logout?',
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', style: 'destructive', onPress: logout },
+        { text: t('cancel'), style: 'cancel' },
+        { text: t('logout'), style: 'destructive', onPress: logout },
       ]
     );
-  };
-
-  const handleLanguageChange = async (langCode: string) => {
-    try {
-      await api.updateLanguage(langCode);
-      updateUser({ preferred_language: langCode });
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update language');
-    }
   };
 
   const handleRegisterNotifications = async () => {
@@ -51,14 +49,10 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     try {
       const token = await notificationService.registerForPushNotifications();
       if (token) {
-        Alert.alert(
-          '✅ Registration Complete',
-          'Check your console logs for the FCM token. You can also tap "Show Tokens" to see them.',
-          [{ text: 'OK' }]
-        );
+        Alert.alert(t('success'), 'Push notifications registered!');
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to register for notifications');
+      Alert.alert(t('error'), 'Failed to register for notifications');
     } finally {
       setRegisteringNotifications(false);
     }
@@ -76,7 +70,7 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     const expoToken = notificationService.getExpoPushToken();
     
     if (!expoToken) {
-      Alert.alert('Error', 'No Expo Push Token found. Please tap "Register for Push" first.');
+      Alert.alert(t('error'), 'No Expo Push Token found. Please tap "Register for Push" first.');
       return;
     }
 
@@ -85,22 +79,38 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
       const result = await api.sendCloudNotification(
         expoToken,
         '🔔 Cloud Test',
-        'This notification was sent via Expo Push API through our backend!'
+        'This notification was sent via Expo Push API!'
       );
       
       if (result.success) {
-        Alert.alert('✅ Success', result.message);
+        Alert.alert(t('success'), result.message);
       } else {
-        Alert.alert('❌ Failed', result.message + '\n\nDetails: ' + JSON.stringify(result.details, null, 2));
+        Alert.alert(t('error'), result.message);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to send cloud notification');
+      Alert.alert(t('error'), error.message || 'Failed to send cloud notification');
     } finally {
       setSendingCloudNotification(false);
     }
   };
 
+  const handleLanguageChange = async (langCode: string) => {
+    await setAppLanguage(langCode);
+    setShowLanguageModal(false);
+  };
+
+  const handleThemeChange = async (newTheme: 'light' | 'dark' | 'system') => {
+    setTheme(newTheme);
+    setShowThemeModal(false);
+  };
+
   const styles = createStyles(colors);
+
+  const themeOptions = [
+    { id: 'light', name: t('light_mode'), icon: 'sunny' },
+    { id: 'dark', name: t('dark_mode'), icon: 'moon' },
+    { id: 'system', name: t('system_theme'), icon: 'phone-portrait' },
+  ];
 
   return (
     <View style={styles.container}>
@@ -109,119 +119,96 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="chevron-back" size={28} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={styles.headerTitle}>{t('settings')}</Text>
         <View style={{ width: 44 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         {/* Profile Section */}
-        <View style={styles.section}>
-          <View style={styles.profileCard}>
-            {user?.picture ? (
-              <Image source={{ uri: user.picture }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-                <Text style={styles.avatarText}>
-                  {user?.name?.[0]?.toUpperCase()}
-                </Text>
-              </View>
-            )}
-            <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{user?.name}</Text>
-              <Text style={styles.profileEmail}>{user?.email}</Text>
+        <View style={styles.profileSection}>
+          {user?.picture ? (
+            <Image source={{ uri: user.picture }} style={styles.profileImage} />
+          ) : (
+            <View style={[styles.profileImage, { backgroundColor: colors.primary }]}>
+              <Text style={styles.profileInitial}>{user?.name?.[0]?.toUpperCase()}</Text>
             </View>
-          </View>
+          )}
+          <Text style={styles.profileName}>{user?.name}</Text>
+          <Text style={styles.profileEmail}>{user?.email || user?.phone_number}</Text>
         </View>
 
-        {/* Theme Section */}
+        {/* Status Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Appearance</Text>
+          <TouchableOpacity 
+            style={styles.statusButton}
+            onPress={() => navigation.navigate('Status')}
+          >
+            <Ionicons name="aperture" size={24} color={colors.primary} />
+            <Text style={styles.statusButtonText}>{t('my_status')}</Text>
+            <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Appearance Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t('theme')}</Text>
           <View style={styles.card}>
-            <TouchableOpacity
+            <TouchableOpacity 
               style={styles.settingItem}
-              onPress={() => setTheme('light')}
+              onPress={() => setShowThemeModal(true)}
             >
               <View style={styles.settingIcon}>
-                <Ionicons name="sunny" size={22} color={colors.warning} />
+                <Ionicons name={isDark ? 'moon' : 'sunny'} size={22} color={colors.primary} />
               </View>
-              <Text style={styles.settingText}>Light</Text>
-              {theme === 'light' && (
-                <Ionicons name="checkmark" size={22} color={colors.primary} />
-              )}
+              <Text style={styles.settingText}>{t('theme')}</Text>
+              <Text style={styles.settingValue}>
+                {theme === 'dark' ? t('dark_mode') : theme === 'light' ? t('light_mode') : t('system_theme')}
+              </Text>
+              <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
             </TouchableOpacity>
-            
+
             <View style={styles.divider} />
-            
-            <TouchableOpacity
+
+            <TouchableOpacity 
               style={styles.settingItem}
-              onPress={() => setTheme('dark')}
+              onPress={() => setShowLanguageModal(true)}
             >
               <View style={styles.settingIcon}>
-                <Ionicons name="moon" size={22} color={colors.primary} />
+                <Ionicons name="language" size={22} color={colors.accent} />
               </View>
-              <Text style={styles.settingText}>Dark</Text>
-              {theme === 'dark' && (
-                <Ionicons name="checkmark" size={22} color={colors.primary} />
-              )}
-            </TouchableOpacity>
-            
-            <View style={styles.divider} />
-            
-            <TouchableOpacity
-              style={styles.settingItem}
-              onPress={() => setTheme('system')}
-            >
-              <View style={styles.settingIcon}>
-                <Ionicons name="phone-portrait" size={22} color={colors.text} />
-              </View>
-              <Text style={styles.settingText}>System</Text>
-              {theme === 'system' && (
-                <Ionicons name="checkmark" size={22} color={colors.primary} />
-              )}
+              <Text style={styles.settingText}>{t('language')}</Text>
+              <Text style={styles.settingValue}>
+                {availableLanguages[language as keyof typeof availableLanguages] || language}
+              </Text>
+              <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
-        </View>
-
-        {/* Language Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Language</Text>
-          <Text style={styles.sectionSubtitle}>
-            Messages will be translated to your preferred language
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.languageScroll}>
-            {Object.entries(APP_CONFIG.supportedLanguages).map(([code, name]) => (
-              <TouchableOpacity
-                key={code}
-                style={[
-                  styles.languageChip,
-                  user?.preferred_language === code && styles.languageChipActive,
-                ]}
-                onPress={() => handleLanguageChange(code)}
-              >
-                <Text
-                  style={[
-                    styles.languageChipText,
-                    user?.preferred_language === code && styles.languageChipTextActive,
-                  ]}
-                >
-                  {name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
         </View>
 
         {/* Notifications Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Notifications</Text>
+          <Text style={styles.sectionTitle}>{t('notifications')}</Text>
           <View style={styles.card}>
+            <TouchableOpacity 
+              style={styles.settingItem}
+              onPress={() => navigation.navigate('NotificationSettings')}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name="musical-notes" size={22} color={colors.primary} />
+              </View>
+              <Text style={styles.settingText}>{t('notification_sound')}</Text>
+              <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
             <TouchableOpacity 
               style={styles.settingItem}
               onPress={handleRegisterNotifications}
               disabled={registeringNotifications}
             >
               <View style={styles.settingIcon}>
-                <Ionicons name="notifications" size={22} color={colors.primary} />
+                <Ionicons name="notifications" size={22} color={colors.accent} />
               </View>
               <Text style={styles.settingText}>Register for Push</Text>
               {registeringNotifications ? (
@@ -233,12 +220,9 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             
             <View style={styles.divider} />
             
-            <TouchableOpacity 
-              style={styles.settingItem}
-              onPress={handleShowTokens}
-            >
+            <TouchableOpacity style={styles.settingItem} onPress={handleShowTokens}>
               <View style={styles.settingIcon}>
-                <Ionicons name="key" size={22} color={colors.accent} />
+                <Ionicons name="key" size={22} color={colors.warning} />
               </View>
               <Text style={styles.settingText}>Show Tokens</Text>
               <Ionicons name="eye" size={22} color={colors.textSecondary} />
@@ -246,14 +230,11 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             
             <View style={styles.divider} />
             
-            <TouchableOpacity 
-              style={styles.settingItem}
-              onPress={handleTestNotification}
-            >
+            <TouchableOpacity style={styles.settingItem} onPress={handleTestNotification}>
               <View style={styles.settingIcon}>
                 <Ionicons name="paper-plane" size={22} color={colors.success} />
               </View>
-              <Text style={styles.settingText}>Local Test Notification</Text>
+              <Text style={styles.settingText}>Local Test</Text>
               <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
             </TouchableOpacity>
             
@@ -267,7 +248,7 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               <View style={styles.settingIcon}>
                 <Ionicons name="cloud-upload" size={22} color="#FF6B6B" />
               </View>
-              <Text style={styles.settingText}>Send Cloud Notification</Text>
+              <Text style={styles.settingText}>Cloud Notification</Text>
               {sendingCloudNotification ? (
                 <ActivityIndicator size="small" color={colors.primary} />
               ) : (
@@ -277,28 +258,111 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
 
+        {/* Privacy Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t('privacy')}</Text>
+          <View style={styles.card}>
+            <TouchableOpacity 
+              style={styles.settingItem}
+              onPress={() => navigation.navigate('BlockedUsers')}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name="ban" size={22} color={colors.error} />
+              </View>
+              <Text style={styles.settingText}>{t('blocked_users')}</Text>
+              <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* About Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About</Text>
+          <Text style={styles.sectionTitle}>{t('about')}</Text>
           <View style={styles.card}>
             <View style={styles.settingItem}>
               <View style={styles.settingIcon}>
-                <Ionicons name="information-circle" size={22} color={colors.accent} />
+                <Ionicons name="information-circle" size={22} color={colors.primary} />
               </View>
-              <Text style={styles.settingText}>Version</Text>
+              <Text style={styles.settingText}>{t('version')}</Text>
               <Text style={styles.settingValue}>{APP_CONFIG.version}</Text>
             </View>
           </View>
         </View>
 
-        {/* Logout */}
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Ionicons name="log-out" size={22} color={colors.error} />
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Logout Button */}
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Ionicons name="log-out" size={22} color={colors.error} />
+          <Text style={styles.logoutText}>{t('logout')}</Text>
+        </TouchableOpacity>
       </ScrollView>
+
+      {/* Language Modal */}
+      <Modal
+        visible={showLanguageModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowLanguageModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{t('language')}</Text>
+              <TouchableOpacity onPress={() => setShowLanguageModal(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={Object.entries(availableLanguages)}
+              renderItem={({ item: [code, name] }) => (
+                <TouchableOpacity
+                  style={styles.modalItem}
+                  onPress={() => handleLanguageChange(code)}
+                >
+                  <Text style={styles.modalItemText}>{name}</Text>
+                  {language === code && (
+                    <Ionicons name="checkmark" size={22} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+              )}
+              keyExtractor={([code]) => code}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Theme Modal */}
+      <Modal
+        visible={showThemeModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowThemeModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{t('theme')}</Text>
+              <TouchableOpacity onPress={() => setShowThemeModal(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            {themeOptions.map((option) => (
+              <TouchableOpacity
+                key={option.id}
+                style={styles.modalItem}
+                onPress={() => handleThemeChange(option.id as 'light' | 'dark' | 'system')}
+              >
+                <View style={styles.modalItemLeft}>
+                  <Ionicons name={option.icon as any} size={22} color={colors.primary} />
+                  <Text style={styles.modalItemText}>{option.name}</Text>
+                </View>
+                {theme === option.id && (
+                  <Ionicons name="checkmark" size={22} color={colors.primary} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -328,7 +392,47 @@ const createStyles = (colors: any) =>
     },
     content: {
       padding: 16,
-      paddingBottom: 40,
+    },
+    profileSection: {
+      alignItems: 'center',
+      paddingVertical: 24,
+    },
+    profileImage: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    profileInitial: {
+      color: '#fff',
+      fontSize: 32,
+      fontWeight: 'bold',
+    },
+    profileName: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: colors.text,
+      marginTop: 12,
+    },
+    profileEmail: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginTop: 4,
+    },
+    statusButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.card,
+      padding: 16,
+      borderRadius: 16,
+      gap: 12,
+    },
+    statusButtonText: {
+      flex: 1,
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.text,
     },
     section: {
       marginBottom: 24,
@@ -341,48 +445,10 @@ const createStyles = (colors: any) =>
       marginLeft: 4,
       textTransform: 'uppercase',
     },
-    sectionSubtitle: {
-      fontSize: 12,
-      color: colors.textSecondary,
-      marginBottom: 12,
-      marginLeft: 4,
-    },
     card: {
       backgroundColor: colors.card,
       borderRadius: 16,
       overflow: 'hidden',
-    },
-    profileCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.card,
-      padding: 16,
-      borderRadius: 16,
-    },
-    avatar: {
-      width: 64,
-      height: 64,
-      borderRadius: 32,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    avatarText: {
-      color: '#fff',
-      fontSize: 24,
-      fontWeight: 'bold',
-    },
-    profileInfo: {
-      marginLeft: 16,
-    },
-    profileName: {
-      fontSize: 20,
-      fontWeight: '600',
-      color: colors.text,
-    },
-    profileEmail: {
-      fontSize: 14,
-      color: colors.textSecondary,
-      marginTop: 4,
     },
     settingItem: {
       flexDirection: 'row',
@@ -392,7 +458,7 @@ const createStyles = (colors: any) =>
     settingIcon: {
       width: 36,
       height: 36,
-      borderRadius: 8,
+      borderRadius: 10,
       backgroundColor: colors.background,
       justifyContent: 'center',
       alignItems: 'center',
@@ -404,38 +470,14 @@ const createStyles = (colors: any) =>
       color: colors.text,
     },
     settingValue: {
-      fontSize: 16,
+      fontSize: 14,
       color: colors.textSecondary,
+      marginRight: 8,
     },
     divider: {
       height: 1,
       backgroundColor: colors.border,
-      marginLeft: 64,
-    },
-    languageScroll: {
-      marginHorizontal: -16,
-      paddingHorizontal: 16,
-    },
-    languageChip: {
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      backgroundColor: colors.card,
-      borderRadius: 20,
-      marginRight: 8,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    languageChipActive: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
-    },
-    languageChipText: {
-      fontSize: 14,
-      color: colors.text,
-    },
-    languageChipTextActive: {
-      color: '#fff',
-      fontWeight: '600',
+      marginHorizontal: 16,
     },
     logoutButton: {
       flexDirection: 'row',
@@ -444,11 +486,51 @@ const createStyles = (colors: any) =>
       backgroundColor: colors.card,
       padding: 16,
       borderRadius: 16,
+      marginTop: 8,
       gap: 8,
     },
     logoutText: {
-      fontSize: 16,
       color: colors.error,
+      fontSize: 16,
       fontWeight: '600',
+    },
+    modalOverlay: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      backgroundColor: 'rgba(0,0,0,0.5)',
+    },
+    modalContent: {
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingBottom: 40,
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 20,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    modalTitle: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: colors.text,
+    },
+    modalItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: 16,
+      paddingHorizontal: 20,
+    },
+    modalItemLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    modalItemText: {
+      fontSize: 16,
+      color: colors.text,
     },
   });

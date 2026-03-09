@@ -7,6 +7,7 @@ import { ActivityIndicator, View } from 'react-native';
 
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
+import { LanguageProvider, useLanguage } from './src/contexts/LanguageContext';
 import { notificationService } from './src/services/notifications';
 
 // Screens
@@ -19,6 +20,10 @@ import { NewChatScreen } from './src/screens/NewChatScreen';
 import { NewGroupScreen } from './src/screens/NewGroupScreen';
 import { ForgotPasswordScreen } from './src/screens/ForgotPasswordScreen';
 import { PhoneAuthScreen } from './src/screens/PhoneAuthScreen';
+import { VideoCallScreen } from './src/screens/VideoCallScreen';
+import { BlockedUsersScreen } from './src/screens/BlockedUsersScreen';
+import { NotificationSettingsScreen } from './src/screens/NotificationSettingsScreen';
+import { StatusScreen } from './src/screens/StatusScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -57,6 +62,10 @@ const AppStack = () => {
       <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen name="NewChat" component={NewChatScreen} />
       <Stack.Screen name="NewGroup" component={NewGroupScreen} />
+      <Stack.Screen name="VideoCall" component={VideoCallScreen} />
+      <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
+      <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+      <Stack.Screen name="Status" component={StatusScreen} />
     </Stack.Navigator>
   );
 };
@@ -88,11 +97,6 @@ const RootNavigator = () => {
     const subscription = notificationService.addNotificationResponseListener((response) => {
       const data = response.notification.request.content.data;
       console.log('👆 Notification tapped:', data);
-      
-      // Navigate based on notification type
-      if (data?.type === 'message' && data?.conversation_id) {
-        // Navigation will be handled by the navigation ref
-      }
     });
 
     return () => subscription.remove();
@@ -140,10 +144,12 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
-        <AuthProvider>
-          <RootNavigator />
-          <StatusBar style="auto" />
-        </AuthProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <RootNavigator />
+            <StatusBar style="auto" />
+          </AuthProvider>
+        </LanguageProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );
