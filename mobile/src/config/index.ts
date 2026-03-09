@@ -1,6 +1,6 @@
 // API Configuration
 // Replace with your actual backend URL
-export const API_URL = 'https://emoji-chat-mobile.preview.emergentagent.com';
+export const API_URL = 'https://text-to-emoji-2.preview.emergentagent.com';
 
 // App Configuration
 export const APP_CONFIG = {

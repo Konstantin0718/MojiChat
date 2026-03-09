@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -6,6 +6,8 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import json
+import asyncio
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict
@@ -38,6 +40,136 @@ security = HTTPBearer(auto_error=False)
 # Create uploads directory
 UPLOADS_DIR = ROOT_DIR / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
+
+# Giphy API Key
+GIPHY_API_KEY = os.environ.get('GIPHY_API_KEY', '')
+
+# ==================== WEBSOCKET MANAGER ====================
+
+class ConnectionManager:
+    def __init__(self):
+        # user_id -> list of websocket connections
+        self.active_connections: Dict[str, List[WebSocket]] = {}
+        # conversation_id -> set of user_ids
+        self.conversation_subscribers: Dict[str, set] = {}
+    
+    async def connect(self, websocket: WebSocket, user_id: str):
+        await websocket.accept()
+        if user_id not in self.active_connections:
+            self.active_connections[user_id] = []
+        self.active_connections[user_id].append(websocket)
+        
+        # Update user online status
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"is_online": True, "last_seen": datetime.now(timezone.utc).isoformat()}}
+        )
+        
+        # Notify contacts about online status
+        await self.broadcast_online_status(user_id, True)
+        
+        logger.info(f"WebSocket connected: {user_id} (total: {len(self.active_connections[user_id])})")
+    
+    async def disconnect(self, websocket: WebSocket, user_id: str):
+        if user_id in self.active_connections:
+            if websocket in self.active_connections[user_id]:
+                self.active_connections[user_id].remove(websocket)
+            if not self.active_connections[user_id]:
+                del self.active_connections[user_id]
+                # Update user offline status
+                await db.users.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"is_online": False, "last_seen": datetime.now(timezone.utc).isoformat()}}
+                )
+                await self.broadcast_online_status(user_id, False)
+        
+        logger.info(f"WebSocket disconnected: {user_id}")
+    
+    async def broadcast_online_status(self, user_id: str, is_online: bool):
+        """Notify all contacts about user's online status"""
+        # Get user's conversations
+        conversations = await db.conversations.find(
+            {"participant_ids": user_id}
+        ).to_list(100)
+        
+        contact_ids = set()
+        for conv in conversations:
+            contact_ids.update(conv["participant_ids"])
+        contact_ids.discard(user_id)
+        
+        message = {
+            "type": "online_status",
+            "user_id": user_id,
+            "is_online": is_online,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        for contact_id in contact_ids:
+            await self.send_to_user(contact_id, message)
+    
+    async def send_to_user(self, user_id: str, message: dict):
+        """Send message to all connections of a user"""
+        if user_id in self.active_connections:
+            disconnected = []
+            for connection in self.active_connections[user_id]:
+                try:
+                    await connection.send_json(message)
+                except Exception as e:
+                    logger.error(f"Error sending to {user_id}: {e}")
+                    disconnected.append(connection)
+            
+            # Clean up dead connections
+            for conn in disconnected:
+                if conn in self.active_connections[user_id]:
+                    self.active_connections[user_id].remove(conn)
+    
+    async def broadcast_to_conversation(self, conversation_id: str, message: dict, exclude_user: str = None):
+        """Send message to all participants of a conversation"""
+        conv = await db.conversations.find_one(
+            {"conversation_id": conversation_id},
+            {"_id": 0, "participant_ids": 1}
+        )
+        
+        if conv:
+            for user_id in conv["participant_ids"]:
+                if user_id != exclude_user:
+                    await self.send_to_user(user_id, message)
+    
+    async def send_typing_indicator(self, conversation_id: str, user_id: str, user_name: str, is_typing: bool):
+        """Send typing indicator to conversation participants"""
+        message = {
+            "type": "typing",
+            "conversation_id": conversation_id,
+            "user_id": user_id,
+            "user_name": user_name,
+            "is_typing": is_typing,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        await self.broadcast_to_conversation(conversation_id, message, exclude_user=user_id)
+    
+    async def send_new_message(self, conversation_id: str, message_data: dict, sender_id: str):
+        """Send new message notification to conversation participants"""
+        message = {
+            "type": "new_message",
+            "conversation_id": conversation_id,
+            "message": message_data,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        await self.broadcast_to_conversation(conversation_id, message, exclude_user=sender_id)
+    
+    async def send_message_read(self, conversation_id: str, message_id: str, reader_id: str):
+        """Send read receipt to conversation"""
+        message = {
+            "type": "message_read",
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "reader_id": reader_id,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        await self.broadcast_to_conversation(conversation_id, message, exclude_user=reader_id)
+
+# Global WebSocket manager
+ws_manager = ConnectionManager()
 
 # Supported languages for translation
 SUPPORTED_LANGUAGES = {
@@ -1223,7 +1355,8 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
         "user_id": current_user["user_id"]
     })
     
-    return {
+    # Prepare response
+    response_data = {
         "message_id": message_id,
         "conversation_id": conversation_id,
         "sender_id": current_user["user_id"],
@@ -1240,6 +1373,11 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
         "created_at": msg_doc["created_at"],
         "read_by": msg_doc["read_by"]
     }
+    
+    # Broadcast new message via WebSocket
+    await ws_manager.send_new_message(conversation_id, response_data, current_user["user_id"])
+    
+    return response_data
 
 @api_router.get("/conversations/{conversation_id}/messages")
 async def get_messages(conversation_id: str, request: Request, limit: int = 50, before: Optional[str] = None):
@@ -1554,6 +1692,101 @@ async def remove_reaction(message_id: str, emoji: str, request: Request):
     )
     
     return {"message": "Reaction removed", "reactions": reactions}
+
+# ==================== GIPHY INTEGRATION ====================
+
+@api_router.get("/giphy/search")
+async def search_giphy(q: str, limit: int = 20, offset: int = 0, request: Request = None):
+    """Search for GIFs using Giphy API"""
+    if not GIPHY_API_KEY:
+        raise HTTPException(status_code=500, detail="Giphy API key not configured")
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.giphy.com/v1/gifs/search",
+                params={
+                    "api_key": GIPHY_API_KEY,
+                    "q": q,
+                    "limit": min(limit, 50),
+                    "offset": offset,
+                    "rating": "g",
+                    "lang": "en"
+                }
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail="Giphy API error")
+            
+            data = response.json()
+            
+            # Transform to simpler format
+            gifs = []
+            for gif in data.get("data", []):
+                gifs.append({
+                    "id": gif["id"],
+                    "title": gif.get("title", ""),
+                    "url": gif["images"]["fixed_height"]["url"],
+                    "preview_url": gif["images"]["fixed_height_small"]["url"],
+                    "original_url": gif["images"]["original"]["url"],
+                    "width": int(gif["images"]["fixed_height"]["width"]),
+                    "height": int(gif["images"]["fixed_height"]["height"]),
+                })
+            
+            return {
+                "gifs": gifs,
+                "total_count": data.get("pagination", {}).get("total_count", 0),
+                "offset": offset
+            }
+            
+    except httpx.HTTPError as e:
+        logger.error(f"Giphy API error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to search GIFs")
+
+@api_router.get("/giphy/trending")
+async def trending_giphy(limit: int = 20, offset: int = 0, request: Request = None):
+    """Get trending GIFs from Giphy"""
+    if not GIPHY_API_KEY:
+        raise HTTPException(status_code=500, detail="Giphy API key not configured")
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.giphy.com/v1/gifs/trending",
+                params={
+                    "api_key": GIPHY_API_KEY,
+                    "limit": min(limit, 50),
+                    "offset": offset,
+                    "rating": "g"
+                }
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail="Giphy API error")
+            
+            data = response.json()
+            
+            gifs = []
+            for gif in data.get("data", []):
+                gifs.append({
+                    "id": gif["id"],
+                    "title": gif.get("title", ""),
+                    "url": gif["images"]["fixed_height"]["url"],
+                    "preview_url": gif["images"]["fixed_height_small"]["url"],
+                    "original_url": gif["images"]["original"]["url"],
+                    "width": int(gif["images"]["fixed_height"]["width"]),
+                    "height": int(gif["images"]["fixed_height"]["height"]),
+                })
+            
+            return {
+                "gifs": gifs,
+                "total_count": data.get("pagination", {}).get("total_count", 0),
+                "offset": offset
+            }
+            
+    except httpx.HTTPError as e:
+        logger.error(f"Giphy API error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get trending GIFs")
 
 # ==================== STICKERS & GIFS ====================
 
@@ -2070,6 +2303,94 @@ async def send_push_to_user(user_id: str, request: Request):
     )
     
     return await send_push_notification(push_request, request)
+
+# ==================== WEBSOCKET ENDPOINT ====================
+
+@app.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str):
+    """WebSocket endpoint for real-time communication"""
+    # Verify user token from query params
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001)
+        return
+    
+    # Verify JWT token
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        token_user_id = payload.get("user_id")
+        if token_user_id != user_id:
+            await websocket.close(code=4003)
+            return
+    except jwt.ExpiredSignatureError:
+        await websocket.close(code=4002)
+        return
+    except jwt.InvalidTokenError:
+        await websocket.close(code=4003)
+        return
+    
+    # Connect the user
+    await ws_manager.connect(websocket, user_id)
+    
+    try:
+        while True:
+            # Receive message from client
+            data = await websocket.receive_json()
+            message_type = data.get("type")
+            
+            if message_type == "typing":
+                # Handle typing indicator
+                conversation_id = data.get("conversation_id")
+                is_typing = data.get("is_typing", False)
+                user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "name": 1})
+                user_name = user.get("name", "User") if user else "User"
+                
+                await ws_manager.send_typing_indicator(
+                    conversation_id, user_id, user_name, is_typing
+                )
+                
+            elif message_type == "message_read":
+                # Handle read receipt
+                conversation_id = data.get("conversation_id")
+                message_id = data.get("message_id")
+                
+                # Update message in DB
+                await db.messages.update_one(
+                    {"message_id": message_id},
+                    {"$addToSet": {"read_by": user_id}}
+                )
+                
+                # Broadcast read receipt
+                await ws_manager.send_message_read(conversation_id, message_id, user_id)
+                
+            elif message_type == "ping":
+                # Handle heartbeat/ping
+                await websocket.send_json({"type": "pong", "timestamp": datetime.now(timezone.utc).isoformat()})
+                
+                # Update user's online status
+                await db.users.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"is_online": True, "last_seen": datetime.now(timezone.utc).isoformat()}}
+                )
+                
+            elif message_type == "subscribe_conversation":
+                # Subscribe to a conversation's updates
+                conversation_id = data.get("conversation_id")
+                if conversation_id not in ws_manager.conversation_subscribers:
+                    ws_manager.conversation_subscribers[conversation_id] = set()
+                ws_manager.conversation_subscribers[conversation_id].add(user_id)
+                
+            elif message_type == "unsubscribe_conversation":
+                # Unsubscribe from a conversation
+                conversation_id = data.get("conversation_id")
+                if conversation_id in ws_manager.conversation_subscribers:
+                    ws_manager.conversation_subscribers[conversation_id].discard(user_id)
+                    
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(websocket, user_id)
+    except Exception as e:
+        logger.error(f"WebSocket error for {user_id}: {e}")
+        await ws_manager.disconnect(websocket, user_id)
 
 # Include router and configure app
 app.include_router(api_router)

@@ -3,139 +3,182 @@ The user requested the creation of a chat application similar to WhatsApp/Messen
 
 **PRODUCT REQUIREMENTS:**
 - **Core Feature:** Text sent by a user should be converted into emojis, and the recipient should see the emojis. Clicking on the emojis reveals the original text.
-- **Authentication:** JWT-based registration/login, Google Social Login, and Phone Number registration.
-- **Chat:** 1-to-1 and group chats.
+- **Authentication:** JWT-based registration/login, Google Social Login, Phone Number registration (via Firebase), forgot password, and email verification.
+- **Chat:** 1-to-1 and group chats with real-time functionality via WebSockets.
 - **Real-time Features:** Online status, typing indicators, read receipts.
 - **AI Features:**
-    - AI-based conversion of text to interactive/animated emojis.
-    - Automatic translation of messages based on the recipient's language preference, which is configurable. (This was requested but deferred due to potential API costs).
-- **Media:** Ability to send images, voice messages (recorded in-app), and other file types.
-- **Interactions:** Reactions to messages, stickers, and GIFs.
+    - AI-based conversion of text to interactive/animated emojis (using GPT-4o).
+    - Automatic translation of messages based on recipient's language preference.
+- **Media & Interactions:** Ability to send images, voice messages, files, GIFs (via Giphy), and message reactions.
 - **Advanced Features:**
     - Video calls (1-to-1 and group).
     - Search functionality within messages.
     - Push notifications (via Firebase Cloud Messaging).
-- **Platform:** A native mobile application for Android and iOS using React Native for performance and reliable notifications. The app should have a placeholder name for now.
+    - Story/Status feature.
+    - User blocking.
+- **UI/UX:**
+    - Multi-language support for the app interface.
+    - Customizable notification sounds.
+    - Dark/Light/System theme.
+- **Platform:** A native mobile application for Android and iOS named MijiChat using React Native.
+- **Permissions:** The app should request access to the camera, microphone, contacts, and storage on startup.
 
 **User's preferred language**: Bulgarian (български)
 
 **what currently exists?**
-- A comprehensive FastAPI backend in  that supports most of the required features, including user authentication, chat management, file uploads, and placeholder endpoints for video calls, search, and notifications.
-- The original React web application frontend has been developed and moved to  as an archive. **It is now deprecated.**
-- A new project structure for a React Native mobile app has been created in . This includes the basic folder structure (, , , etc.), navigation, and configuration files (, ), but no functional UI has been implemented yet.
+- A comprehensive FastAPI backend in  supporting most features: user auth (JWT, phone, password reset, email verification), chat management, file/voice uploads, message reactions, and auto-translation. WebSocket support has been partially added.
+- A React Native mobile app in  named MijiChat. It includes authentication screens, chat, voice messaging, settings, multi-language support (i18n), and skeletons for video calls, stickers, user blocking, and stories.
+- Push notifications are configured with Firebase (FCM) and Expo, but there are ongoing debugging issues.
+- The original React web app is archived in  and is deprecated.
 
 **Last working item**:
-- Last item agent was working: The agent was scaffolding a new React Native project to meet the user's demand for a native mobile app instead of a web-based PWA. It created the entire directory structure, component/screen skeletons, navigation, and configuration files.
+- Last item agent was working: The agent was implementing two user requests in parallel:
+    1.  Adding WebSocket support to the backend for real-time chat features.
+    2.  Preparing to integrate the Giphy API for sending GIFs.
+    The agent had just added the WebSocket  class and a basic  endpoint to .
 - Status: IN PROGRESS
 - Agent Testing Done: N
-- Which testing method agent to use? backend testing agent for the existing API, but the new React Native frontend is not ready for testing.
+- Which testing method agent to use? Both. The backend needs testing for the new WebSocket endpoints (can be done with a simple Python client script). The frontend requires the testing agent to verify real-time UI updates (typing indicators, new messages) and the Giphy feature once implemented.
 - User Testing Done: N
 
 **All Pending/In progress Issue list**:
-There are no pending bugs from the previous implementation. The primary focus is on the new task.
+-   **Issue 1: Push Notifications from Firebase Console are not working (P0)**
+    -   **Description:** Despite correctly configuring the package name in , adding the EAS-provided SHA-1 key to Firebase, and enabling the FCM API in Google Cloud, test notifications sent directly from the Firebase Console do not arrive on the device. Local notifications and potentially notifications sent via the Expo API work, but the Firebase Console channel is broken.
+    -   **Status:** IN PROGRESS
+    -   **Is recurring issue?** Y
+    -   **Should Test frontend/backend/both after fix?** Frontend (requires a new build and user testing).
 
 **In progress Task List**:
-- **Task 1: Build the React Native Mobile Application (P0)**
-    - **Description:** Implement the full application functionality within the new React Native project structure located at . This involves translating all features from the web version () into native components for both Android and iOS.
-    - **Where to resume:** Start by building the UI screens defined in , such as , , , and . Connect these screens to the existing backend API endpoints.
-    - **What will be achieved with this?** A functional native mobile chat application that fulfills the user's core requirements.
-    - **Status:** IN PROGRESS
-    - **Should Test frontend/backend/both after fix?** Both. The backend API should be re-verified, and the new mobile frontend will require its first round of testing.
+-   **Task 1: Complete Backend WebSocket Implementation (P0)**
+    -   **Description:** Finalize the WebSocket logic in the FastAPI backend to handle real-time events.
+    -   **Where to resume:** In , enhance the  and the  endpoint to manage connections, disconnections, and broadcast messages for typing indicators, online status, and new messages. Integrate this logic into the existing  endpoint.
+    -   **What will be achieved with this?** A real-time backend capable of pushing updates to clients instantly.
+    -   **Status:** IN PROGRESS
+    -   **Should Test frontend/backend/both after fix?** Both.
+
+-   **Task 2: Implement Frontend WebSocket Client (P0)**
+    -   **Description:** Update the mobile app to connect to the WebSocket endpoint and handle real-time events.
+    -   **Where to resume:** Create a WebSocket service/context in the mobile app. Update  to establish a WebSocket connection, send typing events, and listen for incoming messages and status updates to render them without polling.
+    -   **What will be achieved with this?** A fluid, real-time chat experience.
+    -   **Status:** NOT STARTED
+    -   **Blocked on something:** Task 1: Complete Backend WebSocket Implementation.
+
+-   **Task 3: Implement Giphy Integration (P1)**
+    -   **Description:** Add the ability to search for and send GIFs using the Giphy API key provided by the user. The user wants this deployed via an EAS Update.
+    -   **Where to resume:**
+        1.  Add  to .
+        2.  Create a new backend endpoint (e.g., ) to proxy requests to Giphy, preventing key exposure.
+        3.  Implement the UI in  to search and display GIFs.
+        4.  Update  to send a message with a GIF URL.
+    -   **What will be achieved with this?** Users can send GIFs in chats.
+    -   **Status:** NOT STARTED
+    -   **Should Test frontend/backend/both after fix?** Both.
+
+-   **Task 4: Await and Test the Mega Build (P0)**
+    -   **Description:** A large EAS build () was started, containing many new features and permissions (localization, video call UI, contacts access, etc.). The user considers this the final installable base version.
+    -   **Where to resume:** Monitor the build status via the provided URL. Once complete, provide the APK link to the user and prepare for extensive testing of all newly added features.
+    -   **What will be achieved with this?** A feature-rich base application ready for further development via OTA updates.
+    -   **Status:** IN PROGRESS (Building)
+    -   **Should Test frontend/backend/both after fix?** Frontend.
 
 **Upcoming and Future Tasks**
-- **Upcoming Tasks:**
-  - **P0: Port All Web Features to React Native:**
-    - Implement the UI and logic for all existing features in the new mobile app.
-    - **Files to create/modify:** All files under . Key files will be  (for the main chat interface),  (a new native component), , and components for handling file uploads and video calls.
-  - **P1: Implement Full Push Notification Flow:**
-    - Integrate the Firebase Cloud Messaging (FCM) SDK into the React Native app.
-    - Guide the user on how to create a Firebase project and provide the necessary credentials (, etc.).
-    - Update the backend endpoints  and  in  with the actual FCM logic.
-- **Future Tasks:**
-  - **P1: Implement Real-time Translation:**
-    - This feature was requested by the user but deferred due to API costs. The next step would be to select a translation service (like Google Translate API), integrate its SDK, and implement the logic in the backend  within the message sending endpoint. The frontend will need a UI for users to set their preferred language.
-  - **P2: Native Build and Deployment Guidance:**
-    - Guide the user through building the React Native app for Android () and iOS () using Expo Application Services (EAS) and the configured .
-    - Provide the user with the Android package name required for their Firebase setup.
+-   **Upcoming Tasks:**
+    -   **P1: Add Show/Hide Password Icon:** Implement a visibility toggle for password fields in  and .
+    -   **P1: Implement Video Call UI & Functionality:** Connect the  to the device camera/microphone and integrate with the backend's WebRTC signaling endpoints using .
+    -   **P1: Implement Google Sign-In Button:** Add a button to  to trigger the Google OAuth flow, which is already supported by the backend.
+-   **Future Tasks:**
+    -   **P2: UI Redesign:** The user is unhappy with the current design. This will require using the  to propose new styles (e.g., Minimal Dark, Vibrant, Glassmorphism) or work from a user-provided reference.
+    -   **P2: Finalize Story/Status Feature:** Build out the UI and logic for creating and viewing statuses.
+    -   **P2: Finalize User Blocking:** Connect the backend API to the UI to allow blocking/unblocking and filter chats.
+    -   **P2: Implement Ringtone/Sound Settings:** Build the  to allow users to select notification sounds.
+    -   **P3: Implement Message Forwarding.**
+    -   **P3: Implement End-to-End Encryption.**
 
 **Completed work in this session**
-- **Backend API:** A robust FastAPI backend was created with endpoints for:
-  - User management (JWT, Google Auth).
-  - Conversations and messaging.
-  - File uploads and voice messages.
-  - Message reactions.
-  - Stubs for video calls, search, and push notifications.
-- **Web Frontend (Archived):** A complete React-based web application was built and is now located in .
-- **Project Restructure:** The project was reorganized to support native mobile development. The web frontend was archived, and a new React Native project was scaffolded in .
+-   **Full Authentication Suite:** Implemented screens and backend logic for Password Reset, Email Verification, and Phone Number Authentication.
+-   **Voice Messaging:** Added  and  components for recording and playing voice notes.
+-   **Push Notification Setup:** Configured Firebase and , implemented permission requests, and created a backend endpoint to send notifications via the Expo API.
+-   **Massive Feature Scaffolding:** Created UI skeletons, backend endpoints, and navigation for a wide range of features including multi-language support (i18n), Video Calls, Stickers, User Blocking, and Stories.
+-   **Permissions:** Added  and configured permissions for camera, microphone, and contacts in .
+-   **Build Management:** Successfully ran multiple EAS builds, debugging and resolving configuration issues related to  and EAS project IDs.
+-   **Project Renaming:** Renamed the application to MijiChat across the codebase.
 
 **Earlier issues found/mentioned but not fixed**
-- No known issues were left unfixed. The translation feature was not an issue but a deferred feature request.
+-   The core issue of push notifications not arriving when sent from the Firebase Console remains unresolved, despite multiple debugging attempts.
 
 **Known issue recurrence from previous fork**
-- None.
+-   None.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
-- **Backend:** FastAPI, Python, MongoDB, WebSockets
-- **Frontend (Active):** React Native, TypeScript, Expo
-- **Authentication:** JWT, Google OAuth
-- **Real-time Communication:** WebSockets (backend), WebRTC (for video calls)
+-   **Backend:** FastAPI, Python, MongoDB, WebSockets
+-   **Frontend:** React Native, TypeScript, Expo, 
+-   **Real-time:** WebSockets for chat, WebRTC for video calls.
+-   **Builds & Updates:** Expo Application Services (EAS) for native builds and Over-the-Air (OTA) updates.
+-   **Localization:**  and  for a multi-language UI.
 
 **key DB schema**
-- **users:** {username, email, hashed_password, google_id, language_preference}
-- **conversations:** {name, members, is_group_chat}
-- **messages:** {conversation_id, sender_id, content_original, content_emoji, file_url, message_type, reactions, created_at}
+-   **users:** {..., email_verified: bool, blocked_users: [ObjectId], phone_number: str}
+-   **conversations:** {..., members: [ObjectId]}
+-   **messages:** {..., content_original: str, content_emoji: str, message_type: str}
+-   **statuses:** {user_id, content_url, expires_at} (newly added model)
 
 **All files of reference**
-- : Contains all backend logic and API endpoints.
-- : Defines the dependencies for the new React Native project.
-- : The entry point for the new mobile application.
-- : Defines the screen navigation flow.
-- : Directory containing all screen components to be built.
-- : The entire directory serves as a reference for UI and logic to be ported to the mobile app.
+-   : Core backend logic, including new WebSocket stubs.
+-   : Crucial for build configuration, permissions, and Firebase integration.
+-   : EAS build configuration.
+-   : The main chat interface, to be updated with WebSockets.
+-   : Contains logic for theme switching, language selection, and testing notifications.
+-   : The configuration for the multi-language interface.
+-   : Logic for handling push notification tokens and permissions.
 
 **Critical Info for New Agent**
-- **The project has pivoted from a Web App to a React Native Mobile App.** All new frontend development must occur in the  directory. The code in  is for reference only and should not be modified.
-- The backend is largely complete and can be reused for the mobile app. The API URL is available in the environment variables.
-- The next major task is to build out the screens and components in the React Native app, connecting them to the backend API.
-- The translation feature was explicitly deferred by the user due to cost concerns. Do not implement it without further confirmation.
+-   **Prioritize OTA Updates:** The user wants all future non-native changes (UI, JS logic) deployed via , not new APK builds. The current build-in-progress is meant to be the stable base.
+-   **Giphy API Key:** The user provided a key () and wants it stored securely in , not hardcoded.
+-   **Push Notification Debugging:** The Firebase Console notification issue is a persistent, high-priority blocker that needs to be solved.
+-   **UI Redesign:** The user is not satisfied with the current UI. Be prepared to involve the  to propose new designs.
 
 **documents and test reports created in this job**
-- 
+-    (updated multiple times)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User:** Asks for video calls, message search, push notifications, and an installable phone app.
-2.  **Agent:** Clarifies requirements for these features.
-3.  **User:** Confirms choices (WebRTC, demo push notifications, PWA).
-4.  **Agent:** Implements the PWA, video, search, and notification stubs.
-5.  **Agent:** Runs tests and fixes minor backend bugs.
-6.  **User:** Asks how to upload the app to the Play Store and what the Android package name is.
-7.  **Agent:** Asks for clarification via the .
-8.  **User:** Clarifies they want a **Native Android app (React Native/Flutter)** for better performance, not a PWA, and asks to restructure the project.
-9.  **Agent:** Clarifies new requirements (React Native, Android+iOS, placeholder name).
-10. **User:** Confirms choices for the native app.
+1.  **User:** Asks for a final check of the push notification configuration (google-services.json, FCM API) and a new build. (Msg 309)
+2.  **Agent:** Confirms configuration and starts a new build (). (Msg 328)
+3.  **Agent:** Announces the build is finished and provides the APK link. (Msg 332)
+4.  **User:** Reports Expo Push Tool token is invalid, asks to fix  in , add a backend endpoint to send notifications, and requests a list of all features. (Msg 333)
+5.  **Agent:** Agrees, adds the  to , implements the backend notification endpoint, and starts a new build (). (Msg 375-386)
+6.  **Agent:** Provides a comprehensive list of all implemented and TODO features while the build runs. (Msg 386)
+7.  **User:** Acknowledges the build is ready, and requests the implementation of the entire TODO list, plus multi-language menus and permission requests on startup. (Msg 387)
+8.  **Agent:** Starts a massive implementation task, creating files for localization, video calls, stickers, blocking, and stories, and starts a new mega build (). (Msg 388-457)
+9.  **Agent:** Informs the user the build is compiling and finishes the session. (Msg 469)
+10. **User:** (LATEST) Asks for immediate WebSocket implementation, Giphy integration (with API key) via EAS Update, verification that the Video Call screen is connected to the camera, and a show/hide password icon. Confirms the current mega build should be the last full install for a while. (Msg 471)
 
 **Project Health Check:**
-- **Broken:** The frontend is currently non-existent as the new React Native project is just a skeleton.
-- **Mocked:** The backend has mocked/stubbed endpoints for video call token generation and push notifications.
+-   **Broken:** Push notifications sent from the Firebase Console do not work.
+-   **Mocked:** The UI for Video Calls, Stickers, User Blocking, and Stories are all placeholder skeletons without functionality.
 
 **3rd Party Integrations**
-- **OpenAI GPT-4o:** Used for the text-to-emoji conversion. Uses **Emergent LLM Key**.
-- **Google Auth:** Used for social login.
-- **Firebase Cloud Messaging:** Planned for push notifications. Will require user-provided credentials.
-- **WebRTC:** The underlying technology for video calls.
+-   **OpenAI GPT-4o:** For text-to-emoji conversion. Uses **Emergent LLM Key**.
+-   **Google Auth:** For social login (backend implemented, frontend button needed).
+-   **Firebase:** For Phone Authentication and Push Notifications (FCM). Requires user-provided .
+-   **WebRTC:** Technology for video calls (backend signaling stubs exist).
+-   **Giphy:** Planned for sending GIFs. User provided an API key.
 
 **Testing status**
-- **Testing agent used after significant changes:** YES
-- **Troubleshoot agent used after agent stuck in loop:** NO
-- **Test files created:** None.
-- **Known regressions:** None.
+-   **Testing agent used after significant changes:** NO (Agent did manual  tests and TypeScript checks).
+-   **Troubleshoot agent used after agent stuck in loop:** NO
+-   **Test files created:** None.
+-   **Known regressions:** None.
 
 **Credentials to test flow:**
-- User registration and login can be tested with any dummy email/password combination.
-- Google Auth testing is set up on the backend but may require frontend configuration.
+-   Register/login with any dummy credentials.
+-   The Giphy API key is .
 
 **What agent forgot to execute**
-The agent correctly followed the user's instructions. It finished the last task after scaffolding the new React Native project, which is a logical stopping point before the large task of implementing the mobile UI. The next agent must now begin that implementation.</analysis>
+From the user's last message, the agent began implementing WebSockets but did not address the other immediate requests:
+-   Connecting the  to the device camera.
+-   Adding the show/hide password icon on auth screens.
+-   Verifying that typing/online/seen indicators are part of the WebSocket plan.
+The agent also has not yet checked the status of the final mega build () or provided the user with the resulting APK link.</analysis>

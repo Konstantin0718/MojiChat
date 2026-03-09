@@ -1,10 +1,37 @@
 # MijiChat - PRD (Product Requirements Document)
 
-## Версия: 2.0.0 - Пълна функционалност
+## Версия: 2.1.0 - WebSocket & Giphy Integration
 
 ---
 
-## Нови функции в тази версия
+## Нови функции в тази версия (v2.1.0)
+
+### ✅ WebSocket Real-time Communication
+- Backend WebSocket endpoint `/ws/{user_id}`
+- Real-time typing indicators без polling
+- Instant message delivery
+- Online/offline status updates
+- Read receipts в реално време
+- Автоматичен reconnect при загуба на връзка
+
+### ✅ Giphy Integration
+- Търсене на GIF-ове чрез Giphy API
+- Trending GIFs секция
+- GIF picker в чат интерфейса
+- Пълна интеграция в ChatScreen
+
+### ✅ Password Visibility Toggle
+- Show/Hide password икона в Login екрана
+- Show/Hide password икона в Register екрана
+
+### ✅ EAS Updates (OTA) Configuration
+- Конфигуриран expo-updates за OTA
+- runtimeVersion: appVersion
+- Всички бъдещи JS промени ще се разпространяват без нов APK
+
+---
+
+## Нови функции от v2.0.0
 
 ### ✅ UI Локализация (6 езика)
 - English, Български, Русский, Deutsch, Español, Français
@@ -75,10 +102,21 @@
 
 | Компонент | Описание |
 |-----------|----------|
-| MessageBubble | Съобщение с emoji reveal |
+| MessageBubble | Съобщение с emoji reveal + GIF support |
 | AudioPlayer | Възпроизвеждане на аудио |
 | VoiceRecorder | Запис на глас |
-| StickerPicker | Emoji/Stickers/GIFs |
+| GiphyPicker | Търсене и изпращане на GIF-ове |
+
+---
+
+## Services
+
+| Service | Файл | Описание |
+|---------|------|----------|
+| API | api.ts | REST API клиент |
+| WebSocket | websocket.ts | Real-time комуникация |
+| Giphy | giphy.ts | Giphy API клиент |
+| Notifications | notificationService.ts | Push notifications |
 
 ---
 
@@ -109,6 +147,14 @@
 - POST /api/statuses
 - POST /api/statuses/{id}/view
 - DELETE /api/statuses/{id}
+
+### Giphy (2 endpoints) - NEW
+- GET /api/giphy/search?q={query}&limit={limit}
+- GET /api/giphy/trending?limit={limit}
+
+### WebSocket - NEW
+- WS /ws/{user_id}?token={jwt_token}
+  - Events: typing, new_message, message_read, online_status
 
 ### Messages (+ forward)
 - POST /api/messages/{id}/forward
@@ -160,6 +206,16 @@ eas build --platform android --profile production
 ---
 
 ## Changelog
+
+### March 9, 2026 - v2.1.0
+- WebSocket real-time communication
+- Giphy GIF search & send integration
+- Password visibility toggle (show/hide)
+- EAS Updates OTA configuration
+- Improved typing indicators via WebSocket
+- GiphyPicker component
+- websocket.ts service
+- giphy.ts service
 
 ### March 9, 2026 - v2.0.0
 - UI Локализация (6 езика)

@@ -11,6 +11,7 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -25,6 +26,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleRegister = async () => {
     if (!name || !email || !password) {
@@ -88,14 +90,26 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
               autoCorrect={false}
             />
 
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              placeholderTextColor={colors.textSecondary}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Password"
+                placeholderTextColor={colors.textSecondary}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+              />
+              <TouchableOpacity 
+                style={styles.eyeButton}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Ionicons 
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'} 
+                  size={22} 
+                  color={colors.textSecondary} 
+                />
+              </TouchableOpacity>
+            </View>
             <Text style={styles.hint}>Must be at least 6 characters</Text>
 
             <TouchableOpacity
@@ -177,6 +191,27 @@ const createStyles = (colors: any) =>
       color: colors.text,
       borderWidth: 1,
       borderColor: colors.border,
+    },
+    passwordContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      height: 56,
+    },
+    passwordInput: {
+      flex: 1,
+      height: '100%',
+      paddingHorizontal: 20,
+      fontSize: 16,
+      color: colors.text,
+    },
+    eyeButton: {
+      paddingHorizontal: 16,
+      height: '100%',
+      justifyContent: 'center',
     },
     hint: {
       fontSize: 12,

@@ -19,7 +19,7 @@ export interface Message {
   sender_name: string;
   content: string;
   emoji_content: string;
-  message_type: 'text' | 'image' | 'video' | 'audio' | 'file';
+  message_type: 'text' | 'image' | 'video' | 'audio' | 'file' | 'gif';
   file_url?: string;
   file_name?: string;
   file_size?: number;

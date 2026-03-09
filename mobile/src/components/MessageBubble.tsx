@@ -57,6 +57,37 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     );
   }
 
+  // Render GIF messages
+  if (msg.message_type === 'gif' && msg.file_url) {
+    const gifUrl = msg.file_url.startsWith('http') ? msg.file_url : `${API_URL}${msg.file_url}`;
+    return (
+      <View style={[styles.messageRow, isOwn && styles.messageRowOwn]}>
+        <TouchableOpacity
+          style={[styles.gifMessage, isOwn && styles.messageOwn]}
+          activeOpacity={0.9}
+        >
+          <Image
+            source={{ uri: gifUrl }}
+            style={styles.gifImage}
+            resizeMode="contain"
+          />
+          <View style={styles.gifFooter}>
+            <Text style={[styles.messageTime, isOwn && styles.messageTimeOwn]}>
+              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+            {isOwn && (
+              <Ionicons
+                name={msg.read_by.length > 1 ? 'checkmark-done' : 'checkmark'}
+                size={16}
+                color={msg.read_by.length > 1 ? colors.accent : 'rgba(255,255,255,0.7)'}
+              />
+            )}
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   if (msg.message_type === 'audio' && msg.file_url) {
     return (
       <View style={[styles.messageRow, isOwn && styles.messageRowOwn]}>
@@ -240,6 +271,25 @@ const createStyles = (colors: any) =>
       width: 200,
       height: 200,
       borderRadius: 12,
+    },
+    gifMessage: {
+      borderRadius: 16,
+      overflow: 'hidden',
+      backgroundColor: 'transparent',
+      padding: 4,
+    },
+    gifImage: {
+      width: 220,
+      height: 165,
+      borderRadius: 12,
+    },
+    gifFooter: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      paddingTop: 4,
+      paddingHorizontal: 4,
+      gap: 4,
     },
     reactionsContainer: {
       flexDirection: 'row',

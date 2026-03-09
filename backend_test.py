@@ -11,7 +11,7 @@ import sys
 from datetime import datetime, timezone
 
 class MojiChatAPITester:
-    def __init__(self, base_url="https://emoji-chat-mobile.preview.emergentagent.com"):
+    def __init__(self, base_url="https://text-to-emoji-2.preview.emergentagent.com"):
         self.base_url = base_url
         self.token = None
         self.user_id = None

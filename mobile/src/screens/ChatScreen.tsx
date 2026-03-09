@@ -10,6 +10,7 @@ import {
   Platform,
   Animated,
   Alert,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -17,9 +18,12 @@ import * as DocumentPicker from 'expo-document-picker';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { api } from '../services/api';
+import { wsService } from '../services/websocket';
 import { Message, Conversation } from '../types';
 import { MessageBubble } from '../components/MessageBubble';
 import { VoiceRecorder } from '../components/VoiceRecorder';
+import { GiphyPicker } from '../components/GiphyPicker';
+import { GiphyGif } from '../services/giphy';
 
 interface Props {
   route: any;
@@ -38,9 +42,88 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const [typingUsers, setTypingUsers] = useState<any[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showGiphyPicker, setShowGiphyPicker] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // WebSocket connection and handlers
+  useEffect(() => {
+    if (!user?.user_id) return;
+
+    // Connect to WebSocket if not connected
+    if (!wsService.isConnected()) {
+      wsService.connect(user.user_id);
+    }
+
+    // Subscribe to conversation
+    wsService.subscribeToConversation(conversationId);
+
+    // Handle new messages
+    const unsubMessage = wsService.on('new_message', (data) => {
+      if (data.conversation_id === conversationId) {
+        setMessages(prev => {
+          // Check if message already exists
+          if (prev.some(m => m.message_id === data.message.message_id)) {
+            return prev;
+          }
+          return [...prev, data.message];
+        });
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }
+    });
+
+    // Handle typing indicators
+    const unsubTyping = wsService.on('typing', (data) => {
+      if (data.conversation_id === conversationId) {
+        if (data.is_typing) {
+          setTypingUsers(prev => {
+            if (prev.some(u => u.user_id === data.user_id)) return prev;
+            return [...prev, { user_id: data.user_id, user_name: data.user_name }];
+          });
+        } else {
+          setTypingUsers(prev => prev.filter(u => u.user_id !== data.user_id));
+        }
+      }
+    });
+
+    // Handle read receipts
+    const unsubRead = wsService.on('message_read', (data) => {
+      if (data.conversation_id === conversationId) {
+        setMessages(prev => prev.map(m => {
+          if (m.message_id === data.message_id) {
+            return { ...m, read_by: [...(m.read_by || []), data.reader_id] };
+          }
+          return m;
+        }));
+      }
+    });
+
+    // Handle online status
+    const unsubOnline = wsService.on('online_status', (data) => {
+      if (conversation?.participants) {
+        setConversation(prev => {
+          if (!prev || !prev.participants) return prev;
+          return {
+            ...prev,
+            participants: prev.participants.map(p => 
+              p.user_id === data.user_id 
+                ? { ...p, is_online: data.is_online } 
+                : p
+            )
+          };
+        });
+      }
+    });
+
+    return () => {
+      unsubMessage();
+      unsubTyping();
+      unsubRead();
+      unsubOnline();
+      wsService.unsubscribeFromConversation(conversationId);
+    };
+  }, [user?.user_id, conversationId, conversation?.participants]);
 
   const fetchConversation = useCallback(async () => {
     try {
@@ -71,10 +154,13 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     fetchConversation();
     fetchMessages();
     
+    // Reduced polling since we have WebSocket
     const interval = setInterval(() => {
-      fetchMessages();
-      fetchTyping();
-    }, 2000);
+      if (!wsService.isConnected()) {
+        fetchMessages();
+        fetchTyping();
+      }
+    }, 5000);
     
     return () => clearInterval(interval);
   }, [fetchConversation, fetchMessages, fetchTyping]);
@@ -91,18 +177,27 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   };
 
   const handleTyping = async () => {
-    try {
-      await api.setTyping(conversationId, true);
-    } catch (e) {}
+    // Use WebSocket for typing if connected
+    if (wsService.isConnected()) {
+      wsService.sendTyping(conversationId, true);
+    } else {
+      try {
+        await api.setTyping(conversationId, true);
+      } catch (e) {}
+    }
 
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
 
     typingTimeoutRef.current = setTimeout(async () => {
-      try {
-        await api.setTyping(conversationId, false);
-      } catch (e) {}
+      if (wsService.isConnected()) {
+        wsService.sendTyping(conversationId, false);
+      } else {
+        try {
+          await api.setTyping(conversationId, false);
+        } catch (e) {}
+      }
     }, 3000);
   };
 
@@ -141,6 +236,24 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     } catch (error) {
       console.error('Voice upload error:', error);
       Alert.alert('Error', 'Failed to send voice message');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const sendGif = async (gif: GiphyGif) => {
+    setShowGiphyPicker(false);
+    setSending(true);
+    try {
+      await api.sendMessage(conversationId, gif.title || 'GIF', 'gif', {
+        file_url: gif.url,
+        file_name: `${gif.id}.gif`,
+      });
+      await fetchMessages();
+      flatListRef.current?.scrollToEnd({ animated: true });
+    } catch (error) {
+      console.error('GIF send error:', error);
+      Alert.alert('Error', 'Failed to send GIF');
     } finally {
       setSending(false);
     }
@@ -322,8 +435,44 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             </View>
             <Text style={styles.attachText}>Document</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.attachOption} 
+            onPress={() => {
+              setShowAttachMenu(false);
+              setShowGiphyPicker(true);
+            }}
+          >
+            <View style={[styles.attachIcon, { backgroundColor: '#FF6B6B' }]}>
+              <Text style={styles.gifIcon}>GIF</Text>
+            </View>
+            <Text style={styles.attachText}>GIF</Text>
+          </TouchableOpacity>
         </View>
       )}
+
+      {/* GIF Picker Modal */}
+      <Modal
+        visible={showGiphyPicker}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowGiphyPicker(false)}
+      >
+        <View style={styles.giphyModalContainer}>
+          <TouchableOpacity 
+            style={styles.giphyModalOverlay} 
+            onPress={() => setShowGiphyPicker(false)}
+            activeOpacity={1}
+          />
+          <View style={styles.giphyModalContent}>
+            <GiphyPicker
+              colors={colors}
+              onSelect={sendGif}
+              onClose={() => setShowGiphyPicker(false)}
+            />
+          </View>
+        </View>
+      </Modal>
 
       {/* Input */}
       <View style={styles.inputContainer}>
@@ -514,5 +663,24 @@ const createStyles = (colors: any) =>
     },
     micButton: {
       padding: 6,
+    },
+    gifIcon: {
+      color: '#fff',
+      fontWeight: 'bold',
+      fontSize: 14,
+    },
+    giphyModalContainer: {
+      flex: 1,
+      justifyContent: 'flex-end',
+    },
+    giphyModalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+    },
+    giphyModalContent: {
+      height: '70%',
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
     },
   });

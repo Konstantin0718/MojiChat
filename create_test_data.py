@@ -9,7 +9,7 @@ import json
 
 def create_test_users_and_conversation():
     """Create test users and a conversation, return session info"""
-    base_url = "https://emoji-chat-mobile.preview.emergentagent.com/api"
+    base_url = "https://text-to-emoji-2.preview.emergentagent.com/api"
     
     # Create first user
     timestamp = int(time.time())
