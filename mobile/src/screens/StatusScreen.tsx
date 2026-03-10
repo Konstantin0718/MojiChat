@@ -115,12 +115,34 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
     });
 
     if (!result.canceled && result.assets[0]) {
-      try {
-        // Would upload image and create status
-        Alert.alert(t('success'), 'Status posted!');
-      } catch (error) {
-        Alert.alert(t('error'), 'Failed to post status');
-      }
+      Alert.alert(
+        t('confirm_status'),
+        t('post_this_photo'),
+        [
+          { text: t('cancel'), style: 'cancel' },
+          { 
+            text: t('send'), 
+            onPress: async () => {
+              try {
+                const uploadResult = await api.uploadFile(
+                  result.assets[0].uri,
+                  'status_photo.jpg',
+                  'image/jpeg'
+                );
+                await api.createStatus({
+                  content_type: 'image',
+                  file_url: uploadResult.file_url,
+                });
+                Alert.alert(t('success'), t('status_posted'));
+                setShowAddModal(false);
+                loadStatuses();
+              } catch (error) {
+                Alert.alert(t('error'), t('failed_to_post_status'));
+              }
+            }
+          },
+        ]
+      );
     }
   };
 
@@ -133,17 +155,40 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
 
     const result = await ImagePicker.launchCameraAsync({
       quality: 0.8,
-      allowsEditing: true,
+      allowsEditing: false, // Don't edit immediately, show preview first
       aspect: [9, 16],
     });
 
     if (!result.canceled && result.assets[0]) {
-      try {
-        // Would upload image and create status
-        Alert.alert(t('success'), 'Status posted!');
-      } catch (error) {
-        Alert.alert(t('error'), 'Failed to post status');
-      }
+      // Show confirmation dialog with preview
+      Alert.alert(
+        t('confirm_status'),
+        t('post_this_photo'),
+        [
+          { text: t('cancel'), style: 'cancel' },
+          { 
+            text: t('send'), 
+            onPress: async () => {
+              try {
+                // Upload image and create status
+                const uploadResult = await api.uploadFile(
+                  result.assets[0].uri,
+                  'status_photo.jpg',
+                  'image/jpeg'
+                );
+                await api.createStatus({
+                  content_type: 'image',
+                  file_url: uploadResult.file_url,
+                });
+                Alert.alert(t('success'), t('status_posted'));
+                loadStatuses();
+              } catch (error) {
+                Alert.alert(t('error'), t('failed_to_post_status'));
+              }
+            }
+          },
+        ]
+      );
     }
   };
 

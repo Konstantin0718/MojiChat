@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Message, User, Conversation } from '../types';
 import { API_URL } from '../config';
 import { AudioPlayer } from './AudioPlayer';
@@ -16,6 +17,7 @@ interface MessageBubbleProps {
   currentUser: User | null;
   conversation: Conversation | null;
   colors: any;
+  emojiModeEnabled?: boolean;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -23,10 +25,25 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   currentUser: user,
   conversation,
   colors,
+  emojiModeEnabled = true,
 }) => {
   const [revealed, setRevealed] = useState(false);
+  const [localEmojiMode, setLocalEmojiMode] = useState(emojiModeEnabled);
   const isOwn = msg.sender_id === user?.user_id;
   const styles = createStyles(colors);
+
+  // Load emoji mode from storage if not passed as prop
+  useEffect(() => {
+    const loadEmojiMode = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('@emoji_mode');
+        if (saved !== null) {
+          setLocalEmojiMode(saved === 'true');
+        }
+      } catch (e) {}
+    };
+    loadEmojiMode();
+  }, []);
 
   // Get translated content
   const getDisplayContent = () => {
@@ -115,22 +132,27 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     );
   }
 
-  // Text message with emoji reveal
+  // Text message with emoji reveal (or direct text if emoji mode disabled)
+  // When emoji mode is OFF, show text directly without emoji conversion
+  const showAsEmoji = localEmojiMode && msg.emoji_content && msg.emoji_content !== msg.content;
+  
   return (
     <View style={[styles.messageRow, isOwn && styles.messageRowOwn]}>
       <TouchableOpacity
         style={[styles.messageBubble, isOwn ? styles.messageOwn : styles.messageOther]}
-        onPress={() => setRevealed(!revealed)}
-        activeOpacity={0.8}
+        onPress={() => showAsEmoji && setRevealed(!revealed)}
+        activeOpacity={showAsEmoji ? 0.8 : 1}
       >
         {!isOwn && conversation?.is_group && (
           <Text style={styles.senderName}>{msg.sender_name}</Text>
         )}
         
-        {revealed ? (
+        {!showAsEmoji || revealed ? (
           <View>
             <View style={styles.revealedContent}>
-              <Ionicons name="eye" size={14} color={isOwn ? '#fff' : colors.textSecondary} />
+              {showAsEmoji && revealed && (
+                <Ionicons name="eye" size={14} color={isOwn ? '#fff' : colors.textSecondary} />
+              )}
               <Text style={[styles.messageText, isOwn && styles.messageTextOwn]}>
                 {getDisplayContent()}
               </Text>
@@ -170,7 +192,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           )}
         </View>
         
-        {!revealed && (
+        {showAsEmoji && !revealed && (
           <Text style={[styles.tapHint, isOwn && styles.tapHintOwn]}>tap to reveal</Text>
         )}
       </TouchableOpacity>

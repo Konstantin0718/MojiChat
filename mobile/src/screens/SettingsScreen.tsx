@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,10 @@ import {
   ActivityIndicator,
   Modal,
   FlatList,
+  Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -32,6 +34,31 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const [sendingCloudNotification, setSendingCloudNotification] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
+  const [emojiModeEnabled, setEmojiModeEnabled] = useState(true);
+
+  // Load emoji mode setting
+  useEffect(() => {
+    const loadEmojiMode = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('@emoji_mode');
+        if (saved !== null) {
+          setEmojiModeEnabled(saved === 'true');
+        }
+      } catch (e) {
+        console.log('Error loading emoji mode:', e);
+      }
+    };
+    loadEmojiMode();
+  }, []);
+
+  const toggleEmojiMode = async (value: boolean) => {
+    setEmojiModeEnabled(value);
+    try {
+      await AsyncStorage.setItem('@emoji_mode', value.toString());
+    } catch (e) {
+      console.log('Error saving emoji mode:', e);
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -275,6 +302,28 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
 
+        {/* Chat Settings Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t('chats')}</Text>
+          <View style={styles.card}>
+            <View style={styles.settingItem}>
+              <View style={styles.settingIcon}>
+                <Ionicons name="happy" size={22} color={colors.warning} />
+              </View>
+              <View style={styles.settingTextContainer}>
+                <Text style={styles.settingText}>{t('emoji_mode')}</Text>
+                <Text style={styles.settingDescription}>{t('emoji_mode_desc')}</Text>
+              </View>
+              <Switch
+                value={emojiModeEnabled}
+                onValueChange={toggleEmojiMode}
+                trackColor={{ false: colors.border, true: colors.primary }}
+                thumbColor={emojiModeEnabled ? '#fff' : '#f4f3f4'}
+              />
+            </View>
+          </View>
+        </View>
+
         {/* About Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('about')}</Text>
@@ -468,6 +517,14 @@ const createStyles = (colors: any) =>
       flex: 1,
       fontSize: 16,
       color: colors.text,
+    },
+    settingTextContainer: {
+      flex: 1,
+    },
+    settingDescription: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      marginTop: 2,
     },
     settingValue: {
       fontSize: 14,

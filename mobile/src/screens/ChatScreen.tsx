@@ -630,7 +630,8 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       alignItems: 'flex-end',
       paddingHorizontal: 12,
-      paddingVertical: 12,
+      paddingTop: 12,
+      paddingBottom: 24, // More padding at bottom for better visibility
       backgroundColor: colors.card,
       borderTopWidth: 1,
       borderTopColor: colors.border,

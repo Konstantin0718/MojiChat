@@ -97,6 +97,14 @@ const translations = {
     my_status: 'My Status',
     status_updates: 'Status Updates',
     add_status: 'Add Status',
+    confirm_status: 'Confirm Status',
+    post_this_photo: 'Post this photo as your status?',
+    status_posted: 'Status posted!',
+    failed_to_post_status: 'Failed to post status',
+    
+    // Settings - Emoji
+    emoji_mode: 'Emoji Mode',
+    emoji_mode_desc: 'Show messages as emojis (tap to reveal text)',
     
     // Errors
     network_error: 'Network error. Please try again.',
@@ -198,6 +206,14 @@ const translations = {
     my_status: 'Моят статус',
     status_updates: 'Статуси',
     add_status: 'Добави статус',
+    confirm_status: 'Потвърди статус',
+    post_this_photo: 'Публикувай тази снимка като статус?',
+    status_posted: 'Статусът е публикуван!',
+    failed_to_post_status: 'Неуспешно публикуване на статус',
+    
+    // Settings - Emoji
+    emoji_mode: 'Режим емоджи',
+    emoji_mode_desc: 'Показвай съобщенията като емоджи (натисни за текст)',
     
     // Errors
     network_error: 'Грешка в мрежата. Опитайте отново.',
@@ -299,6 +315,14 @@ const translations = {
     my_status: 'Мой статус',
     status_updates: 'Статусы',
     add_status: 'Добавить статус',
+    confirm_status: 'Подтвердить статус',
+    post_this_photo: 'Опубликовать это фото как статус?',
+    status_posted: 'Статус опубликован!',
+    failed_to_post_status: 'Не удалось опубликовать статус',
+    
+    // Settings - Emoji
+    emoji_mode: 'Режим эмодзи',
+    emoji_mode_desc: 'Показывать сообщения как эмодзи (нажмите для текста)',
     
     // Errors
     network_error: 'Ошибка сети. Попробуйте снова.',
