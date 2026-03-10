@@ -3,7 +3,7 @@
     "name": "MijiChat",
     "slug": "mijichat",
     "owner": "konstantin0",
-    "version": "1.0.0",
+    "version": "2.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "mijichat",
@@ -13,6 +13,7 @@
     },
     "updates": {
       "enabled": true,
+      "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0,
       "url": "https://u.expo.dev/84867f60-7222-42a4-b8b6-32d381c81e14"
     },
@@ -85,7 +86,8 @@
         }
       ],
       "expo-font",
-      "expo-localization"
+      "expo-localization",
+      "expo-updates"
     ],
     "extra": {
       "eas": {
