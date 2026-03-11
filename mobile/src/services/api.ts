@@ -41,21 +41,23 @@ class ApiService {
     );
   }
 
-  setToken(token: string) {
+  async setToken(token: string) {
     this.token = token;
-    AsyncStorage.setItem('auth_token', token);
+    await AsyncStorage.setItem('auth_token', token);
+    console.log('Token saved successfully');
   }
 
   async logout() {
     this.token = null;
     await AsyncStorage.removeItem('auth_token');
+    console.log('Token removed');
   }
 
   // Auth
   async register(email: string, password: string, name: string) {
     const response = await this.api.post('/auth/register', { email, password, name });
     if (response.data.token) {
-      this.setToken(response.data.token);
+      await this.setToken(response.data.token);
     }
     return response.data;
   }
@@ -63,7 +65,7 @@ class ApiService {
   async login(email: string, password: string) {
     const response = await this.api.post('/auth/login', { email, password });
     if (response.data.token) {
-      this.setToken(response.data.token);
+      await this.setToken(response.data.token);
     }
     return response.data;
   }

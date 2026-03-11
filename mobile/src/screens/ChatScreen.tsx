@@ -363,7 +363,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       {/* Header */}
       <View style={styles.header}>
@@ -631,7 +631,7 @@ const createStyles = (colors: any) =>
       alignItems: 'flex-end',
       paddingHorizontal: 12,
       paddingTop: 12,
-      paddingBottom: 24, // More padding at bottom for better visibility
+      paddingBottom: 32, // Increased for better visibility above navigation bar
       backgroundColor: colors.card,
       borderTopWidth: 1,
       borderTopColor: colors.border,

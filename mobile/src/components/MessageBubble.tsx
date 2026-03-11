@@ -45,11 +45,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     loadEmojiMode();
   }, []);
 
-  // Get translated content
+  // Get translated content - REMOVED AUTO-TRANSLATE
+  // Now shows original content always, translation only on demand
   const getDisplayContent = () => {
-    if (msg.translations && user?.preferred_language && msg.translations[user.preferred_language]) {
-      return msg.translations[user.preferred_language];
-    }
+    // Always return original content - no auto-translate
     return msg.content;
   };
 
