@@ -631,7 +631,7 @@ const createStyles = (colors: any) =>
       alignItems: 'flex-end',
       paddingHorizontal: 12,
       paddingTop: 12,
-      paddingBottom: 32, // Increased for better visibility above navigation bar
+      paddingBottom: 40, // Much more padding for Android navigation bar
       backgroundColor: colors.card,
       borderTopWidth: 1,
       borderTopColor: colors.border,

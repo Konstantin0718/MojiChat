@@ -37,11 +37,17 @@ export const ForgotPasswordScreen: React.FC<Props> = ({ navigation }) => {
     try {
       const result = await api.forgotPassword(email.trim());
       setCodeSent(true);
-      // In production, token would be sent via email
+      // Token is returned for testing - auto-fill it
       if (result.reset_token) {
         setResetToken(result.reset_token);
+        Alert.alert(
+          'Reset Token Generated', 
+          'A reset token has been generated. You can now enter your new password.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert('Success', 'If this email exists, a reset link has been sent');
       }
-      Alert.alert('Success', 'If this email exists, a reset link has been sent');
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to send reset email');
     } finally {

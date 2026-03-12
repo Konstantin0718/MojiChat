@@ -231,15 +231,14 @@ const createStyles = (colors: any) =>
       marginBottom: 4,
     },
     revealedContent: {
-      flexDirection: 'row',
+      flexDirection: 'column',
       alignItems: 'flex-start',
-      gap: 6,
     },
     messageText: {
       fontSize: 16,
       color: colors.text,
       lineHeight: 22,
-      flex: 1,
+      flexWrap: 'wrap',
     },
     messageTextOwn: {
       color: '#fff',
