@@ -2,6 +2,17 @@
 // Replace with your actual backend URL
 export const API_URL = 'https://text-to-emoji-2.preview.emergentagent.com';
 
+// WebRTC Configuration
+export const WEBRTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+  ],
+};
+
 // App Configuration
 export const APP_CONFIG = {
   name: 'MijiChat',

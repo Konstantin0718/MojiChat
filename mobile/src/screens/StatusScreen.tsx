@@ -51,6 +51,8 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [textContent, setTextContent] = useState('');
   const [selectedBgColor, setSelectedBgColor] = useState('#8B5CF6');
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [uploadingStatus, setUploadingStatus] = useState(false);
 
   const progressAnim = useRef(new Animated.Value(0)).current;
 
@@ -155,41 +157,43 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
 
     const result = await ImagePicker.launchCameraAsync({
       quality: 0.8,
-      allowsEditing: false, // Don't edit immediately, show preview first
+      allowsEditing: false,
       aspect: [9, 16],
     });
 
     if (!result.canceled && result.assets[0]) {
-      // Show confirmation dialog with preview
-      Alert.alert(
-        t('confirm_status'),
-        t('post_this_photo'),
-        [
-          { text: t('cancel'), style: 'cancel' },
-          { 
-            text: t('send'), 
-            onPress: async () => {
-              try {
-                // Upload image and create status
-                const uploadResult = await api.uploadFile(
-                  result.assets[0].uri,
-                  'status_photo.jpg',
-                  'image/jpeg'
-                );
-                await api.createStatus({
-                  content_type: 'image',
-                  file_url: uploadResult.file_url,
-                });
-                Alert.alert(t('success'), t('status_posted'));
-                loadStatuses();
-              } catch (error) {
-                Alert.alert(t('error'), t('failed_to_post_status'));
-              }
-            }
-          },
-        ]
-      );
+      // Show preview screen with Send button
+      setPreviewImage(result.assets[0].uri);
+      setShowAddModal(false);
     }
+  };
+
+  const handleConfirmStatusUpload = async () => {
+    if (!previewImage) return;
+    
+    setUploadingStatus(true);
+    try {
+      const uploadResult = await api.uploadFile(
+        previewImage,
+        'status_photo.jpg',
+        'image/jpeg'
+      );
+      await api.createStatus({
+        content_type: 'image',
+        file_url: uploadResult.file_url,
+      });
+      Alert.alert(t('success'), t('status_posted'));
+      setPreviewImage(null);
+      loadStatuses();
+    } catch (error) {
+      Alert.alert(t('error'), t('failed_to_post_status'));
+    } finally {
+      setUploadingStatus(false);
+    }
+  };
+
+  const handleCancelPreview = () => {
+    setPreviewImage(null);
   };
 
   const styles = createStyles(colors);
@@ -430,6 +434,42 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           </TouchableOpacity>
         )}
+      </Modal>
+
+      {/* Photo Preview Modal with Send Button */}
+      <Modal
+        visible={!!previewImage}
+        animationType="fade"
+        onRequestClose={handleCancelPreview}
+      >
+        <View style={styles.previewContainer}>
+          <Image source={{ uri: previewImage || '' }} style={styles.previewImage} resizeMode="contain" />
+          
+          {/* Top bar with cancel */}
+          <View style={styles.previewTopBar}>
+            <TouchableOpacity onPress={handleCancelPreview} style={styles.previewCloseBtn}>
+              <Ionicons name="close" size={32} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          
+          {/* Bottom bar with Send button */}
+          <View style={styles.previewBottomBar}>
+            <TouchableOpacity 
+              style={[styles.previewSendBtn, uploadingStatus && styles.previewSendBtnDisabled]}
+              onPress={handleConfirmStatusUpload}
+              disabled={uploadingStatus}
+            >
+              {uploadingStatus ? (
+                <Text style={styles.previewSendText}>{t('uploading')}...</Text>
+              ) : (
+                <>
+                  <Text style={styles.previewSendText}>{t('send')}</Text>
+                  <Ionicons name="send" size={22} color="#fff" />
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -730,5 +770,53 @@ const createStyles = (colors: any) =>
       fontWeight: '600',
       textAlign: 'center',
       padding: 40,
+    },
+    // Preview styles
+    previewContainer: {
+      flex: 1,
+      backgroundColor: '#000',
+    },
+    previewImage: {
+      flex: 1,
+      width: '100%',
+    },
+    previewTopBar: {
+      position: 'absolute',
+      top: 50,
+      left: 0,
+      right: 0,
+      flexDirection: 'row',
+      justifyContent: 'flex-start',
+      paddingHorizontal: 16,
+    },
+    previewCloseBtn: {
+      padding: 8,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      borderRadius: 20,
+    },
+    previewBottomBar: {
+      position: 'absolute',
+      bottom: 40,
+      left: 0,
+      right: 0,
+      alignItems: 'center',
+      paddingHorizontal: 24,
+    },
+    previewSendBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.primary,
+      paddingHorizontal: 32,
+      paddingVertical: 16,
+      borderRadius: 30,
+      gap: 10,
+    },
+    previewSendBtnDisabled: {
+      opacity: 0.6,
+    },
+    previewSendText: {
+      color: '#fff',
+      fontSize: 18,
+      fontWeight: '600',
     },
   });

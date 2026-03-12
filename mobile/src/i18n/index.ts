@@ -101,6 +101,7 @@ const translations = {
     post_this_photo: 'Post this photo as your status?',
     status_posted: 'Status posted!',
     failed_to_post_status: 'Failed to post status',
+    uploading: 'Uploading',
     
     // Settings - Emoji
     emoji_mode: 'Emoji Mode',
@@ -210,6 +211,7 @@ const translations = {
     post_this_photo: 'Публикувай тази снимка като статус?',
     status_posted: 'Статусът е публикуван!',
     failed_to_post_status: 'Неуспешно публикуване на статус',
+    uploading: 'Качване',
     
     // Settings - Emoji
     emoji_mode: 'Режим емоджи',
