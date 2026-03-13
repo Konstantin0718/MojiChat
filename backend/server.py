@@ -1,6 +1,7 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -1853,6 +1854,18 @@ async def root():
 @api_router.get("/health")
 async def health():
     return {"status": "healthy"}
+
+@api_router.get("/download/code")
+async def download_code():
+    """Download source code ZIP file"""
+    zip_path = UPLOADS_DIR / "mijichat_code.zip"
+    if zip_path.exists():
+        return FileResponse(
+            path=str(zip_path),
+            filename="mijichat_code.zip",
+            media_type="application/zip"
+        )
+    raise HTTPException(status_code=404, detail="File not found")
 
 # ==================== MESSAGE SEARCH ====================
 
