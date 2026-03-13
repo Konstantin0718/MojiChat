@@ -1849,6 +1849,18 @@ async def download_code():
         )
     raise HTTPException(status_code=404, detail="File not found")
 
+@api_router.get("/download/full")
+async def download_full_code():
+    """Download FULL source code ZIP file"""
+    zip_path = UPLOADS_DIR / "mijichat_full_code.zip"
+    if zip_path.exists():
+        return FileResponse(
+            path=str(zip_path),
+            filename="mijichat_full_code.zip",
+            media_type="application/zip"
+        )
+    raise HTTPException(status_code=404, detail="File not found")
+
 # ==================== MESSAGE SEARCH ====================
 
 @api_router.get("/search/messages")
