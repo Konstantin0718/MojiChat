@@ -2403,6 +2403,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount uploads directory for static file serving
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
