@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Message, User, Conversation } from '../types';
 import { API_URL } from '../config';
 import { AudioPlayer } from './AudioPlayer';
@@ -27,37 +26,21 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   colors,
   emojiModeEnabled = true,
 }) => {
-  const [revealed, setRevealed] = useState(false);
-  const [localEmojiMode, setLocalEmojiMode] = useState(emojiModeEnabled);
+  const [revealed, setRevealed] = useState(true); // Always revealed by default
   const isOwn = msg.sender_id === user?.user_id;
-  const styles = createStyles(colors);
+  const styles = createStyles(colors, isOwn);
 
-  // Load emoji mode from storage if not passed as prop
-  useEffect(() => {
-    const loadEmojiMode = async () => {
-      try {
-        const saved = await AsyncStorage.getItem('@emoji_mode');
-        if (saved !== null) {
-          setLocalEmojiMode(saved === 'true');
-        }
-      } catch (e) {}
-    };
-    loadEmojiMode();
-  }, []);
-
-  // Get translated content - REMOVED AUTO-TRANSLATE
-  // Now shows original content always, translation only on demand
+  // Get content - always show original, no auto-translate
   const getDisplayContent = () => {
-    // Always return original content - no auto-translate
     return msg.content;
   };
 
   // Render media messages
   if (msg.message_type === 'image' && msg.file_url) {
     return (
-      <View style={[styles.messageRow, isOwn && styles.messageRowOwn]}>
+      <View style={styles.messageRow}>
         <TouchableOpacity
-          style={[styles.imageMessage, isOwn && styles.messageOwn]}
+          style={[styles.imageBubble, isOwn && styles.messageOwn]}
           onPress={() => {/* Open full image */}}
         >
           <Image
@@ -77,7 +60,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   if (msg.message_type === 'gif' && msg.file_url) {
     const gifUrl = msg.file_url.startsWith('http') ? msg.file_url : `${API_URL}${msg.file_url}`;
     return (
-      <View style={[styles.messageRow, isOwn && styles.messageRowOwn]}>
+      <View style={styles.messageRow}>
         <TouchableOpacity
           style={[styles.gifMessage, isOwn && styles.messageOwn]}
           activeOpacity={0.9}
@@ -106,7 +89,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   if (msg.message_type === 'audio' && msg.file_url) {
     return (
-      <View style={[styles.messageRow, isOwn && styles.messageRowOwn]}>
+      <View style={styles.messageRow}>
         <View style={[styles.messageBubble, styles.audioBubble, isOwn ? styles.messageOwn : styles.messageOther]}>
           <AudioPlayer
             uri={`${API_URL}${msg.file_url}`}
@@ -131,52 +114,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     );
   }
 
-  // Text message with emoji reveal (or direct text if emoji mode disabled)
-  // When emoji mode is OFF, show text directly without emoji conversion
-  const showAsEmoji = localEmojiMode && msg.emoji_content && msg.emoji_content !== msg.content;
-  
+  // Simple text message - always visible, no tap to reveal
   return (
-    <View style={[styles.messageRow, isOwn && styles.messageRowOwn]}>
-      <TouchableOpacity
-        style={[styles.messageBubble, isOwn ? styles.messageOwn : styles.messageOther]}
-        onPress={() => showAsEmoji && setRevealed(!revealed)}
-        activeOpacity={showAsEmoji ? 0.8 : 1}
-      >
+    <View style={styles.messageRow}>
+      <View style={[styles.messageBubble, isOwn ? styles.messageOwn : styles.messageOther]}>
         {!isOwn && conversation?.is_group && (
           <Text style={styles.senderName}>{msg.sender_name}</Text>
         )}
         
-        {!showAsEmoji || revealed ? (
-          <View>
-            <View style={styles.revealedContent}>
-              {showAsEmoji && revealed && (
-                <Ionicons name="eye" size={14} color={isOwn ? '#fff' : colors.textSecondary} />
-              )}
-              <Text style={[styles.messageText, isOwn && styles.messageTextOwn]}>
-                {getDisplayContent()}
-              </Text>
-            </View>
-            {msg.translations && user?.preferred_language && msg.translations[user.preferred_language] && (
-              <Text style={[styles.originalText, isOwn && styles.originalTextOwn]}>
-                Original: {msg.content}
-              </Text>
-            )}
-          </View>
-        ) : (
-          <Text style={styles.emojiContent}>{msg.emoji_content || '🔮'}</Text>
-        )}
-
-        {/* Reactions */}
-        {msg.reactions && Object.keys(msg.reactions).length > 0 && (
-          <View style={styles.reactionsContainer}>
-            {Object.entries(msg.reactions).map(([emoji, users]) => (
-              <View key={emoji} style={styles.reactionBadge}>
-                <Text>{emoji}</Text>
-                <Text style={styles.reactionCount}>{(users as string[]).length}</Text>
-              </View>
-            ))}
-          </View>
-        )}
+        <Text style={[styles.messageText, isOwn && styles.messageTextOwn]}>
+          {getDisplayContent()}
+        </Text>
 
         <View style={styles.messageFooter}>
           <Text style={[styles.messageTime, isOwn && styles.messageTimeOwn]}>
@@ -190,28 +138,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             />
           )}
         </View>
-        
-        {showAsEmoji && !revealed && (
-          <Text style={[styles.tapHint, isOwn && styles.tapHintOwn]}>tap to reveal</Text>
-        )}
-      </TouchableOpacity>
+      </View>
     </View>
   );
 };
 
-const createStyles = (colors: any) =>
+const createStyles = (colors: any, isOwn: boolean) =>
   StyleSheet.create({
     messageRow: {
       marginBottom: 8,
-      alignItems: 'flex-start',
-    },
-    messageRowOwn: {
-      alignItems: 'flex-end',
+      alignItems: isOwn ? 'flex-end' : 'flex-start',
     },
     messageBubble: {
-      maxWidth: '80%',
+      maxWidth: '85%',
       padding: 12,
       borderRadius: 20,
+      alignSelf: isOwn ? 'flex-end' : 'flex-start',
     },
     audioBubble: {
       minWidth: 240,
@@ -229,36 +171,17 @@ const createStyles = (colors: any) =>
       fontWeight: '600',
       color: colors.primary,
       marginBottom: 4,
-    },
-    revealedContent: {
-      flexDirection: 'column',
-      alignItems: 'flex-start',
+      fontFamily: 'System',
     },
     messageText: {
       fontSize: 16,
       color: colors.text,
       lineHeight: 22,
       flexWrap: 'wrap',
+      fontFamily: 'System',
     },
     messageTextOwn: {
       color: '#fff',
-    },
-    emojiContent: {
-      fontSize: 24,
-      letterSpacing: 2,
-    },
-    originalText: {
-      fontSize: 12,
-      color: colors.textSecondary,
-      marginTop: 8,
-      fontStyle: 'italic',
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-      paddingTop: 8,
-    },
-    originalTextOwn: {
-      color: 'rgba(255,255,255,0.7)',
-      borderTopColor: 'rgba(255,255,255,0.2)',
     },
     messageFooter: {
       flexDirection: 'row',
@@ -274,18 +197,10 @@ const createStyles = (colors: any) =>
     messageTimeOwn: {
       color: 'rgba(255,255,255,0.7)',
     },
-    tapHint: {
-      fontSize: 10,
-      color: colors.textSecondary,
-      marginTop: 4,
-      opacity: 0.6,
-    },
-    tapHintOwn: {
-      color: 'rgba(255,255,255,0.5)',
-    },
-    imageMessage: {
+    imageBubble: {
       borderRadius: 16,
       overflow: 'hidden',
+      alignSelf: isOwn ? 'flex-end' : 'flex-start',
     },
     messageImage: {
       width: 200,

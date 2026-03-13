@@ -181,6 +181,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     messageText: {
       fontSize: 16,
       lineHeight: 22,
+      fontFamily: 'System',
     },
     messageTime: {
       fontSize: 11,
@@ -208,6 +209,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       fontSize: 16,
       color: colors.text,
       marginRight: 10,
+      fontFamily: 'System',
     },
     sendButton: {
       width: 44,
@@ -249,8 +251,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={90}
       >
         {/* Header */}
         <View style={styles.header}>

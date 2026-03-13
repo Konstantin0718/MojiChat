@@ -1305,29 +1305,11 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     
     # Convert text to emoji (only for text messages)
     emoji_content = ""
-    translations = {}
+    translations = {}  # NO AUTO-TRANSLATION - send message as-is
     
     if msg_data.message_type == "text" and msg_data.content:
         emoji_content = await convert_text_to_emoji(msg_data.content)
-        
-        # Get all participants and their languages
-        participants = await db.users.find(
-            {"user_id": {"$in": conv["participant_ids"]}},
-            {"_id": 0, "user_id": 1, "preferred_language": 1}
-        ).to_list(100)
-        
-        sender_lang = current_user.get("preferred_language", "en")
-        
-        # Pre-translate for each unique language (except sender's)
-        unique_langs = set()
-        for p in participants:
-            lang = p.get("preferred_language", "en")
-            if lang != sender_lang:
-                unique_langs.add(lang)
-        
-        for target_lang in unique_langs:
-            translated = await translate_text(msg_data.content, target_lang, sender_lang)
-            translations[target_lang] = translated
+        # Removed auto-translation logic - messages are sent exactly as received
     
     message_id = f"msg_{uuid.uuid4().hex[:12]}"
     msg_doc = {
