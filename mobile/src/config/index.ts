@@ -15,8 +15,8 @@ export const WEBRTC_CONFIG = {
 
 // App Configuration
 export const APP_CONFIG = {
-  name: 'MijiChat',
-  version: '1.0.0',
+  name: 'MojiChat',
+  version: '2.3.1',
   defaultLanguage: 'en',
   supportedLanguages: {
     en: 'English',

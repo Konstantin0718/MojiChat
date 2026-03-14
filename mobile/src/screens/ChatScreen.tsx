@@ -260,7 +260,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             <Ionicons name="chevron-back" size={28} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            TEST 2.3.0
+            MOJI FIX 2.3.1
           </Text>
         </View>
 

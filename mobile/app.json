@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "MijiChat",
+    "name": "MojiChat",
     "slug": "mijichat",
     "owner": "konstantin0",
-    "version": "2.3.0",
+    "version": "2.3.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "mijichat",
+    "scheme": "mojichat",
     "userInterfaceStyle": "automatic",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -19,7 +19,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.chatapp.mobile",
+      "bundleIdentifier": "com.mojichat.app",
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs camera access for video calls and sharing photos",
         "NSMicrophoneUsageDescription": "This app needs microphone access for voice messages and calls",
@@ -32,7 +32,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.chatapp.mobile",
+      "package": "com.mojichat.app",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
@@ -69,20 +69,20 @@
       [
         "expo-av",
         {
-          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone for voice messages and calls."
+          "microphonePermission": "Allow MojiChat to access your microphone for voice messages and calls."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to share images.",
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera for video calls and photos."
+          "photosPermission": "Allow MojiChat to access your photos to share images.",
+          "cameraPermission": "Allow MojiChat to access your camera for video calls and photos."
         }
       ],
       [
         "expo-contacts",
         {
-          "contactsPermission": "Allow $(PRODUCT_NAME) to access your contacts to find friends."
+          "contactsPermission": "Allow MojiChat to access your contacts to find friends."
         }
       ],
       "expo-font",
@@ -93,7 +93,7 @@
       "eas": {
         "projectId": "84867f60-7222-42a4-b8b6-32d381c81e14"
       },
-      "firebaseProjectId": "mijichat-7d13c"
+      "firebaseProjectId": "mojichat"
     }
   }
 }
