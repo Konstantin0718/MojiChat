@@ -252,7 +252,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       <KeyboardAvoidingView 
         style={{ flex: 1 }}
         behavior="height"
-        keyboardVerticalOffset={100}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 120}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -260,7 +260,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             <Ionicons name="chevron-back" size={28} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {conversationName}
+            TEST 2.3.0
           </Text>
         </View>
 
