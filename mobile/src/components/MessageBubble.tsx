@@ -1,98 +1,75 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Image,
-} from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Message, User, Conversation } from '../types';
 import { API_URL } from '../config';
 
-interface MessageBubbleProps {
+interface Props {
   message: Message;
   currentUser: User | null;
   conversation: Conversation | null;
   colors: any;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({
-  message: msg,
-  currentUser: user,
+export const MessageBubble: React.FC<Props> = ({
+  message,
+  currentUser,
   conversation,
   colors,
 }) => {
-  const isOwn = msg.sender_id === user?.user_id;
+  const isOwn = message.sender_id === currentUser?.user_id;
 
-  // Image message
-  if (msg.message_type === 'image' && msg.file_url) {
+  // Image
+  if (message.message_type === 'image' && message.file_url) {
     return (
-      <View style={[styles.messageContainer, { alignSelf: isOwn ? 'flex-end' : 'flex-start' }]}>
+      <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
         <Image
-          source={{ uri: `${API_URL}${msg.file_url}` }}
-          style={styles.messageImage}
+          source={{ uri: `${API_URL}${message.file_url}` }}
+          style={styles.image}
           resizeMode="cover"
         />
-        <Text style={styles.timeText}>
-          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        <Text style={[styles.time, isOwn && styles.timeOwn]}>
+          {formatTime(message.created_at)}
         </Text>
       </View>
     );
   }
 
-  // GIF message
-  if (msg.message_type === 'gif' && msg.file_url) {
-    const gifUrl = msg.file_url.startsWith('http') ? msg.file_url : `${API_URL}${msg.file_url}`;
+  // GIF
+  if (message.message_type === 'gif' && message.file_url) {
+    const url = message.file_url.startsWith('http') ? message.file_url : `${API_URL}${message.file_url}`;
     return (
-      <View style={[styles.messageContainer, { alignSelf: isOwn ? 'flex-end' : 'flex-start' }]}>
-        <Image
-          source={{ uri: gifUrl }}
-          style={styles.gifImage}
-          resizeMode="contain"
-        />
-        <Text style={styles.timeText}>
-          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </Text>
+      <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+        <Image source={{ uri: url }} style={styles.gif} resizeMode="contain" />
+        <Text style={[styles.time, isOwn && styles.timeOwn]}>{formatTime(message.created_at)}</Text>
       </View>
     );
   }
 
-  // Text message - ALWAYS VISIBLE, no tap to reveal
+  // Text - ВИНАГИ ВИДИМ, БЕЗ "TAP TO REVEAL"
   return (
     <View style={[
-      styles.messageContainer,
-      {
-        maxWidth: '85%',
-        padding: 12,
-        borderRadius: 16,
-        backgroundColor: isOwn ? '#007AFF' : '#E5E5EA',
-        alignSelf: isOwn ? 'flex-end' : 'flex-start',
-        marginBottom: 8,
-      }
+      styles.bubble,
+      isOwn ? styles.bubbleOwn : styles.bubbleOther,
+      { backgroundColor: isOwn ? '#007AFF' : '#E5E5EA' }
     ]}>
       {!isOwn && conversation?.is_group && (
-        <Text style={styles.senderName}>{msg.sender_name}</Text>
+        <Text style={styles.sender}>{message.sender_name}</Text>
       )}
       
-      <Text style={[
-        styles.messageText,
-        { color: isOwn ? '#FFFFFF' : '#000000' }
-      ]}>
-        {msg.content}
+      <Text style={[styles.text, { color: isOwn ? '#FFFFFF' : '#000000' }]}>
+        {message.content}
       </Text>
 
       <View style={styles.footer}>
-        <Text style={[
-          styles.timeText,
-          { color: isOwn ? 'rgba(255,255,255,0.7)' : '#8E8E93' }
-        ]}>
-          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        <Text style={[styles.time, isOwn && styles.timeOwn]}>
+          {formatTime(message.created_at)}
         </Text>
         {isOwn && (
           <Ionicons
-            name={msg.read_by && msg.read_by.length > 1 ? 'checkmark-done' : 'checkmark'}
-            size={16}
-            color={msg.read_by && msg.read_by.length > 1 ? '#34C759' : 'rgba(255,255,255,0.7)'}
+            name={message.read_by?.length > 1 ? 'checkmark-done' : 'checkmark'}
+            size={14}
+            color={message.read_by?.length > 1 ? '#34C759' : 'rgba(255,255,255,0.7)'}
           />
         )}
       </View>
@@ -100,20 +77,44 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   );
 };
 
+const formatTime = (date: string) => {
+  return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 const styles = StyleSheet.create({
-  messageContainer: {
-    marginBottom: 8,
+  container: {
+    marginVertical: 4,
   },
-  senderName: {
+  containerOwn: {
+    alignSelf: 'flex-end',
+  },
+  containerOther: {
+    alignSelf: 'flex-start',
+  },
+  bubble: {
+    maxWidth: '85%',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 18,
+    marginVertical: 4,
+  },
+  bubbleOwn: {
+    alignSelf: 'flex-end',
+    borderBottomRightRadius: 4,
+  },
+  bubbleOther: {
+    alignSelf: 'flex-start',
+    borderBottomLeftRadius: 4,
+  },
+  sender: {
     fontSize: 12,
     fontWeight: '600',
     color: '#007AFF',
     marginBottom: 4,
   },
-  messageText: {
+  text: {
     fontSize: 16,
     lineHeight: 22,
-    fontFamily: 'System',
     flexWrap: 'wrap',
   },
   footer: {
@@ -123,17 +124,21 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 4,
   },
-  timeText: {
+  time: {
     fontSize: 11,
+    color: '#8E8E93',
   },
-  messageImage: {
+  timeOwn: {
+    color: 'rgba(255,255,255,0.7)',
+  },
+  image: {
     width: 200,
     height: 200,
     borderRadius: 12,
   },
-  gifImage: {
-    width: 220,
-    height: 165,
+  gif: {
+    width: 200,
+    height: 150,
     borderRadius: 12,
   },
 });

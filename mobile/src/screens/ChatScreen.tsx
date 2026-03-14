@@ -193,7 +193,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       alignItems: 'flex-end',
       paddingHorizontal: 12,
       paddingTop: 10,
-      paddingBottom: Platform.OS === 'ios' ? 30 : 20,
+      paddingBottom: 30,
       backgroundColor: colors.card,
       borderTopWidth: 1,
       borderTopColor: colors.border,
@@ -251,8 +251,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={90}
+        behavior="height"
+        keyboardVerticalOffset={100}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -260,7 +260,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             <Ionicons name="chevron-back" size={28} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            TEST CONNECTION
+            {conversationName}
           </Text>
         </View>
 
