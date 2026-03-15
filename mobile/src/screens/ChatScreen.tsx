@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -31,43 +31,36 @@ interface Props {
 }
 
 export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
-  // Get params with fallback
   const conversationId = route?.params?.conversationId;
   const paramName = route?.params?.name;
-  
+
   const { user } = useAuth();
   const { colors } = useTheme();
-  
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [conversationName, setConversationName] = useState(paramName || 'Chat');
-  const [isFirstLoad, setIsFirstLoad] = useState(true);
-  
+
   const flatListRef = useRef<FlatList>(null);
 
-  // Load data
   useEffect(() => {
     if (!conversationId) {
-      Alert.alert("Error", "No conversation ID provided");
+      Alert.alert('Error', 'No conversation ID provided');
       setLoading(false);
       return;
     }
-    
+
     loadMessages();
     loadConversation();
-    
-    const interval = setInterval(() => {
-      loadMessages();
-    }, 3000);
-    
+
+    const interval = setInterval(loadMessages, 3000);
     return () => clearInterval(interval);
   }, [conversationId]);
 
   const loadConversation = async () => {
     if (!conversationId) return;
-    
     try {
       const conv = await api.getConversation(conversationId);
       if (conv.name) {
@@ -76,81 +69,84 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         const other = conv.participants.find((p: any) => p.user_id !== user?.user_id);
         setConversationName(other?.name || paramName || 'Chat');
       }
-    } catch (e: any) {
-      console.log('Failed to load conversation:', e);
-    }
+    } catch (_) {}
   };
 
-  const loadMessages = async () => {
+  const loadMessages = useCallback(async () => {
     if (!conversationId) return;
-    
     try {
       const data = await api.getMessages(conversationId);
-      
       if (Array.isArray(data)) {
-        // Sort newest first for inverted FlatList (index 0 = newest)
-        const sorted = [...data].sort((a, b) => 
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        // Backend returns oldest→newest. For inverted FlatList, we need newest first (index 0 = newest).
+        const sorted = [...data].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
         setMessages(sorted);
       } else {
         setMessages([]);
       }
-    } catch (err: any) {
-      console.log('Failed to load messages:', err);
+    } catch (_) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [conversationId]);
 
   const sendMessage = async () => {
     if (!inputText.trim() || sending || !conversationId) return;
-    
+
     const text = inputText.trim();
     setInputText('');
     setSending(true);
-    
+
     try {
       await api.sendMessage(conversationId, text, 'text');
       await loadMessages();
     } catch (e: any) {
-      console.log('Failed to send message:', e);
       setInputText(text);
-      Alert.alert("Send Error", e?.message || "Failed to send message");
+      Alert.alert('Send Error', e?.message || 'Failed to send message');
     } finally {
       setSending(false);
     }
   };
 
-  const renderMessage = ({ item }: { item: Message }) => {
-    const isOwn = item.sender_id === user?.user_id;
-    
-    return (
-      <View style={[styles.messageRow, isOwn && styles.messageRowOwn]}>
-        <View style={[
-          styles.messageBubble,
-          isOwn ? styles.bubbleOwn : styles.bubbleOther,
-          { backgroundColor: isOwn ? colors.primary : colors.card }
-        ]}>
-          <Text style={[
-            styles.messageText,
-            { color: isOwn ? '#fff' : colors.text }
-          ]}>
-            {item.content}
-          </Text>
-          <Text style={[
-            styles.messageTime,
-            { color: isOwn ? 'rgba(255,255,255,0.7)' : colors.textSecondary }
-          ]}>
-            {new Date(item.created_at).toLocaleTimeString([], { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            })}
-          </Text>
+  const renderMessage = useCallback(
+    ({ item }: { item: Message }) => {
+      const isOwn = item.sender_id === user?.user_id;
+
+      return (
+        <View style={[styles.messageRow, isOwn && styles.messageRowOwn]}>
+          <View
+            style={[
+              styles.messageBubble,
+              isOwn ? styles.bubbleOwn : styles.bubbleOther,
+              { backgroundColor: isOwn ? colors.primary : colors.card },
+            ]}
+          >
+            <Text style={[styles.messageText, { color: isOwn ? '#fff' : colors.text }]}>
+              {item.content}
+            </Text>
+            <Text
+              style={[
+                styles.messageTime,
+                { color: isOwn ? 'rgba(255,255,255,0.7)' : colors.textSecondary },
+              ]}
+            >
+              {new Date(item.created_at).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Text>
+          </View>
         </View>
-      </View>
-    );
-  };
+      );
+    },
+    [user?.user_id, colors]
+  );
+
+  const keyExtractor = useCallback(
+    (item: Message, index: number) => item.message_id || `msg-${index}`,
+    []
+  );
 
   const styles = StyleSheet.create({
     container: {
@@ -253,10 +249,11 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       alignItems: 'center',
     },
     emptyContainer: {
-      flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
       paddingVertical: 40,
+      // Flip text back upright inside inverted FlatList
+      transform: [{ scaleY: -1 }],
     },
     emptyText: {
       color: colors.textSecondary,
@@ -268,21 +265,18 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ color: colors.textSecondary, marginTop: 10 }}>
-          Loading... ID: {conversationId || 'none'}
-        </Text>
       </View>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 120}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        {/* Header - Shows conversation name */}
+        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Ionicons name="chevron-back" size={28} color={colors.text} />
@@ -292,15 +286,18 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           </Text>
         </View>
 
-        {/* Messages - inverted list keeps newest at bottom */}
+        {/* Messages - inverted: data[0] (newest) renders at the bottom */}
         <FlatList
           ref={flatListRef}
           inverted
           data={messages}
           renderItem={renderMessage}
-          keyExtractor={(item, index) => item.message_id || `msg-${index}`}
+          keyExtractor={keyExtractor}
           style={styles.messagesList}
-          contentContainerStyle={styles.messagesContent}
+          contentContainerStyle={[
+            styles.messagesContent,
+            messages.length === 0 && { flexGrow: 1 },
+          ]}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>No messages yet</Text>
@@ -309,6 +306,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
               </Text>
             </View>
           }
+          // No manual scroll-to logic - let inverted handle it naturally
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         />
 
         {/* Input */}
@@ -322,10 +321,10 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             multiline
             maxLength={1000}
           />
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
               styles.sendButton,
-              (!inputText.trim() || sending) && styles.sendButtonDisabled
+              (!inputText.trim() || sending) && styles.sendButtonDisabled,
             ]}
             onPress={sendMessage}
             disabled={!inputText.trim() || sending}

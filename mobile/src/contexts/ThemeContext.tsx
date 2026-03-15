@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../config';
@@ -20,50 +20,44 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const systemColorScheme = useColorScheme();
   const [theme, setThemeState] = useState<Theme>('system');
   const [isLoading, setIsLoading] = useState(true);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const themeRef = useRef<Theme>(theme);
 
-  // Load theme only once on mount
+  // Keep ref in sync
+  themeRef.current = theme;
+
+  // Load saved theme once on mount
   useEffect(() => {
-    if (!isInitialized) {
-      loadTheme();
-    }
-  }, [isInitialized]);
-
-  const loadTheme = async () => {
-    try {
-      const savedTheme = await AsyncStorage.getItem('theme');
-      if (savedTheme && ['light', 'dark', 'system'].includes(savedTheme)) {
-        setThemeState(savedTheme as Theme);
-      }
-    } catch (e) {
-      console.log('Failed to load theme');
-    } finally {
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem('theme');
+        if (saved && ['light', 'dark', 'system'].includes(saved)) {
+          setThemeState(saved as Theme);
+        }
+      } catch (_) {}
       setIsLoading(false);
-      setIsInitialized(true);
-    }
-  };
+    })();
+  }, []);
 
-  const setTheme = async (newTheme: Theme) => {
-    if (newTheme === theme) return; // Prevent unnecessary updates
-    
+  const setTheme = useCallback(async (newTheme: Theme) => {
+    if (newTheme === themeRef.current) return;
     setThemeState(newTheme);
-    try {
-      await AsyncStorage.setItem('theme', newTheme);
-    } catch (e) {
-      console.log('Failed to save theme');
-    }
-  };
+    try { await AsyncStorage.setItem('theme', newTheme); } catch (_) {}
+  }, []);
 
-  const toggleTheme = () => {
-    const newTheme = isDark ? 'light' : 'dark';
-    setTheme(newTheme);
-  };
+  const toggleTheme = useCallback(() => {
+    const next = themeRef.current === 'dark' || (themeRef.current === 'system' && systemColorScheme === 'dark') ? 'light' : 'dark';
+    setTheme(next);
+  }, [systemColorScheme, setTheme]);
 
   const isDark = theme === 'dark' || (theme === 'system' && systemColorScheme === 'dark');
   const colors = isDark ? COLORS.dark : COLORS.light;
 
+  const value = useMemo(() => ({
+    theme, isDark, colors, setTheme, toggleTheme, isLoading
+  }), [theme, isDark, colors, setTheme, toggleTheme, isLoading]);
+
   return (
-    <ThemeContext.Provider value={{ theme, isDark, colors, setTheme, toggleTheme, isLoading }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );
