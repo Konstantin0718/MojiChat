@@ -1,184 +1,170 @@
 <analysis>**original_problem_statement:**
-The user requested the creation of a chat application similar to WhatsApp/Messenger.
+The user requested the creation of a chat application named MojiChat (originally MоjiChat), similar to WhatsApp/Messenger.
 
 **PRODUCT REQUIREMENTS:**
-- **Core Feature:** Text sent by a user should be converted into emojis, and the recipient should see the emojis. Clicking on the emojis reveals the original text.
-- **Authentication:** JWT-based registration/login, Google Social Login, Phone Number registration (via Firebase), forgot password, and email verification.
-- **Chat:** 1-to-1 and group chats with real-time functionality via WebSockets.
+- **Core Feature:** Text sent by a user should be converted into emojis, with the original text revealed on click (this feature has been temporarily disabled due to bugs).
+- **Authentication:** JWT-based auth, Google Social Login, Phone Number registration (Firebase), forgot password, and email verification.
+- **Chat:** Real-time 1-to-1 and group chats via WebSockets.
 - **Real-time Features:** Online status, typing indicators, read receipts.
-- **AI Features:**
-    - AI-based conversion of text to interactive/animated emojis (using GPT-4o).
-    - Automatic translation of messages based on recipient's language preference.
-- **Media & Interactions:** Ability to send images, voice messages, files, GIFs (via Giphy), and message reactions.
-- **Advanced Features:**
-    - Video calls (1-to-1 and group).
-    - Search functionality within messages.
-    - Push notifications (via Firebase Cloud Messaging).
-    - Story/Status feature.
-    - User blocking.
-- **UI/UX:**
-    - Multi-language support for the app interface.
-    - Customizable notification sounds.
-    - Dark/Light/System theme.
-- **Platform:** A native mobile application for Android and iOS named MijiChat using React Native.
-- **Permissions:** The app should request access to the camera, microphone, contacts, and storage on startup.
+- **AI Features:** AI-based text-to-emoji conversion (GPT-4o), automatic message translation (now disabled).
+- **Media & Interactions:** Send images, voice messages, files, GIFs (Giphy), and message reactions.
+- **Advanced Features:** Video calls, message search, push notifications (FCM), Story/Status feature, user blocking.
+- **UI/UX:** Multi-language support, customizable sounds, Dark/Light/System theme.
+- **Platform:** A React Native mobile application for Android and iOS.
 
 **User's preferred language**: Bulgarian (български)
 
 **what currently exists?**
-- A comprehensive FastAPI backend in  supporting most features: user auth (JWT, phone, password reset, email verification), chat management, file/voice uploads, message reactions, and auto-translation. WebSocket support has been partially added.
-- A React Native mobile app in  named MijiChat. It includes authentication screens, chat, voice messaging, settings, multi-language support (i18n), and skeletons for video calls, stickers, user blocking, and stories.
-- Push notifications are configured with Firebase (FCM) and Expo, but there are ongoing debugging issues.
-- The original React web app is archived in  and is deprecated.
+- A comprehensive FastAPI backend and a React Native mobile app (MojiChat). The original React web app is deprecated.
+- The project name, package ID, and related configurations have been unified to MojiChat to resolve critical build and update issues.
+- The backend supports authentication, chat, file uploads, and has stubs for WebRTC. The problematic automatic translation feature has been removed from the core message sending flow.
+- The mobile app includes authentication screens, chat, settings, and UI skeletons for numerous features. It has undergone multiple refactors, especially the , to simplify logic and fix persistent UI bugs.
+- The agent has successfully configured the project for EAS Builds and OTA updates, resolving several  and configuration errors.
 
 **Last working item**:
-- Last item agent was working: The agent was implementing two user requests in parallel:
-    1.  Adding WebSocket support to the backend for real-time chat features.
-    2.  Preparing to integrate the Giphy API for sending GIFs.
-    The agent had just added the WebSocket  class and a basic  endpoint to .
+- Last item agent was working: The user reported that messages in the chat were still in the wrong order (newest at the top) and the theme button was flickering. The agent was implementing fixes for these issues.
 - Status: IN PROGRESS
 - Agent Testing Done: N
-- Which testing method agent to use? Both. The backend needs testing for the new WebSocket endpoints (can be done with a simple Python client script). The frontend requires the testing agent to verify real-time UI updates (typing indicators, new messages) and the Giphy feature once implemented.
+- Which testing method agent to use? both. The frontend needs the testing agent to verify the chat screen's inverted layout, scrolling, and theme switching. The backend needs a curl test to ensure the message endpoint is stable.
 - User Testing Done: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: Push Notifications from Firebase Console are not working (P0)**
-    -   **Description:** Despite correctly configuring the package name in , adding the EAS-provided SHA-1 key to Firebase, and enabling the FCM API in Google Cloud, test notifications sent directly from the Firebase Console do not arrive on the device. Local notifications and potentially notifications sent via the Expo API work, but the Firebase Console channel is broken.
+-   **Issue 1: Chat messages are in the wrong order and auto-scroll is buggy (P0)**
+    -   **Description:** Despite using an  FlatList, messages are still not displaying correctly (newest should be at the bottom). The user also wants to scroll up freely without the view jumping back down.
     -   **Status:** IN PROGRESS
     -   **Is recurring issue?** Y
-    -   **Should Test frontend/backend/both after fix?** Frontend (requires a new build and user testing).
+
+-   **Issue 2: Theme button flickers on the web version (P1)**
+    -   **Description:** The theme toggle button causes a re-render loop, creating a flickering effect.
+    -   **Status:** IN PROGRESS
+
+-   **Issue 3: Video/Audio calls are not functional (P2)**
+    -   **Description:** The feature is a UI placeholder. It requires implementing WebRTC signaling via WebSockets and integrating .
+    -   **Status:** NOT STARTED
+
+-   **Issue 4: Forgot Password flow is incorrect (P2)**
+    -   **Description:** The user wants the feature to use Firebase's  to send a link, not the current implementation which shows a reset token in-app.
+    -   **Status:** NOT STARTED
+
+-   **Issue 5: Critical Push Notification Failure (P2)**
+    -   **Description:** The user reported an 'Unable to retrieve the FCM server key' error. This prevents push notifications from working correctly.
+    -   **Status:** BLOCKED
+
+-   **Issue 6: Incomplete UI Language Translation (P3)**
+    -   **Description:** Changing the language in settings does not translate the entire application interface.
+    -   **Status:** NOT STARTED
 
 **In progress Task List**:
--   **Task 1: Complete Backend WebSocket Implementation (P0)**
-    -   **Description:** Finalize the WebSocket logic in the FastAPI backend to handle real-time events.
-    -   **Where to resume:** In , enhance the  and the  endpoint to manage connections, disconnections, and broadcast messages for typing indicators, online status, and new messages. Integrate this logic into the existing  endpoint.
-    -   **What will be achieved with this?** A real-time backend capable of pushing updates to clients instantly.
+-   **Task 1: Finalize Chat Screen Refactor (P0)**
+    -   **Description:** Correctly implement the inverted  to ensure messages are ordered with the newest at the bottom and that scrolling is smooth.
+    -   **Where to resume:** In . Ensure the  prop for the  is sorted with the newest message at index 0 (using  on the fetched array) and that no manual scroll logic interferes with the  prop.
+    -   **What will be achieved with this?** A stable, usable core chat interface.
     -   **Status:** IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?** Both.
-
--   **Task 2: Implement Frontend WebSocket Client (P0)**
-    -   **Description:** Update the mobile app to connect to the WebSocket endpoint and handle real-time events.
-    -   **Where to resume:** Create a WebSocket service/context in the mobile app. Update  to establish a WebSocket connection, send typing events, and listen for incoming messages and status updates to render them without polling.
-    -   **What will be achieved with this?** A fluid, real-time chat experience.
-    -   **Status:** NOT STARTED
-    -   **Blocked on something:** Task 1: Complete Backend WebSocket Implementation.
-
--   **Task 3: Implement Giphy Integration (P1)**
-    -   **Description:** Add the ability to search for and send GIFs using the Giphy API key provided by the user. The user wants this deployed via an EAS Update.
-    -   **Where to resume:**
-        1.  Add  to .
-        2.  Create a new backend endpoint (e.g., ) to proxy requests to Giphy, preventing key exposure.
-        3.  Implement the UI in  to search and display GIFs.
-        4.  Update  to send a message with a GIF URL.
-    -   **What will be achieved with this?** Users can send GIFs in chats.
-    -   **Status:** NOT STARTED
-    -   **Should Test frontend/backend/both after fix?** Both.
-
--   **Task 4: Await and Test the Mega Build (P0)**
-    -   **Description:** A large EAS build () was started, containing many new features and permissions (localization, video call UI, contacts access, etc.). The user considers this the final installable base version.
-    -   **Where to resume:** Monitor the build status via the provided URL. Once complete, provide the APK link to the user and prepare for extensive testing of all newly added features.
-    -   **What will be achieved with this?** A feature-rich base application ready for further development via OTA updates.
-    -   **Status:** IN PROGRESS (Building)
-    -   **Should Test frontend/backend/both after fix?** Frontend.
+    -   **Blocked on something:** None.
 
 **Upcoming and Future Tasks**
 -   **Upcoming Tasks:**
-    -   **P1: Add Show/Hide Password Icon:** Implement a visibility toggle for password fields in  and .
-    -   **P1: Implement Video Call UI & Functionality:** Connect the  to the device camera/microphone and integrate with the backend's WebRTC signaling endpoints using .
-    -   **P1: Implement Google Sign-In Button:** Add a button to  to trigger the Google OAuth flow, which is already supported by the backend.
+    -   **P1: Fix Theme Flicker:** Properly manage state in  to prevent the re-render loop.
+    -   **P2: Deploy Backend:** Deploy the FastAPI backend to a persistent hosting service (e.g., Render) using the already created , so the app works when the agent is not active.
+    -   **P2: Implement Firebase Forgot Password:** Refactor the forgot password screen to use .
 -   **Future Tasks:**
-    -   **P2: UI Redesign:** The user is unhappy with the current design. This will require using the  to propose new styles (e.g., Minimal Dark, Vibrant, Glassmorphism) or work from a user-provided reference.
-    -   **P2: Finalize Story/Status Feature:** Build out the UI and logic for creating and viewing statuses.
-    -   **P2: Finalize User Blocking:** Connect the backend API to the UI to allow blocking/unblocking and filter chats.
-    -   **P2: Implement Ringtone/Sound Settings:** Build the  to allow users to select notification sounds.
-    -   **P3: Implement Message Forwarding.**
-    -   **P3: Implement End-to-End Encryption.**
+    -   **P2: Implement Video/Audio Calls:** Integrate  and build out the backend signaling. This will require a new native build.
+    -   **P2: Fix Push Notifications:** Work with the user to resolve the FCM server key issue.
+    -   **P2: UI Redesign:** The user has previously expressed dissatisfaction with the UI and a redesign task is in the backlog.
+    -   **P3: Complete i18n Integration:** Ensure all text strings across the app are connected to the localization files.
+    -   **P3: Finalize other features:** Stories, User Blocking, Custom Sounds, Message Forwarding.
 
 **Completed work in this session**
--   **Full Authentication Suite:** Implemented screens and backend logic for Password Reset, Email Verification, and Phone Number Authentication.
--   **Voice Messaging:** Added  and  components for recording and playing voice notes.
--   **Push Notification Setup:** Configured Firebase and , implemented permission requests, and created a backend endpoint to send notifications via the Expo API.
--   **Massive Feature Scaffolding:** Created UI skeletons, backend endpoints, and navigation for a wide range of features including multi-language support (i18n), Video Calls, Stickers, User Blocking, and Stories.
--   **Permissions:** Added  and configured permissions for camera, microphone, and contacts in .
--   **Build Management:** Successfully ran multiple EAS builds, debugging and resolving configuration issues related to  and EAS project IDs.
--   **Project Renaming:** Renamed the application to MijiChat across the codebase.
+- **Full Project Renaming:** Successfully migrated the project from MijiChat to MojiChat, fixing critical conflicts in , , and EAS project settings.
+- **Chat Component Refactoring:** Performed multiple refactors of  and , removing complex/buggy logic (auto-translation, tap-to-reveal) and simplifying the implementation based on user feedback.
+- **Backend Auto-Translation Removed:** Eliminated the server-side logic that was incorrectly translating messages to Turkish, a major source of user frustration.
+- **EAS Build & Update Debugging:** Resolved numerous build and update failures, including:
+    - Fixing  errors (mismatched packages, multiple lock files).
+    - Correcting the package name in  to match .
+    - Configuring  with channels to enable OTA updates properly.
+- **File Serving for User:** Created a custom backend endpoint to provide the user with a downloadable ZIP archive of the full codebase.
 
 **Earlier issues found/mentioned but not fixed**
--   The core issue of push notifications not arriving when sent from the Firebase Console remains unresolved, despite multiple debugging attempts.
+-   The critical issue of push notifications failing due to an FCM server key error remains unresolved.
 
 **Known issue recurrence from previous fork**
--   None.
+-   Push notifications not working from the Firebase Console is a persistent issue from the previous session.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
 -   **Backend:** FastAPI, Python, MongoDB, WebSockets
--   **Frontend:** React Native, TypeScript, Expo, 
--   **Real-time:** WebSockets for chat, WebRTC for video calls.
+-   **Frontend:** React Native, TypeScript, Expo
 -   **Builds & Updates:** Expo Application Services (EAS) for native builds and Over-the-Air (OTA) updates.
--   **Localization:**  and  for a multi-language UI.
+-   **Localization:** 
 
 **key DB schema**
 -   **users:** {..., email_verified: bool, blocked_users: [ObjectId], phone_number: str}
--   **conversations:** {..., members: [ObjectId]}
--   **messages:** {..., content_original: str, content_emoji: str, message_type: str}
--   **statuses:** {user_id, content_url, expires_at} (newly added model)
+-   **messages:** {..., content: str, conversation_id: ObjectId, sender_id: ObjectId} (Simplified after removing emoji/translation fields)
 
 **All files of reference**
--   : Core backend logic, including new WebSocket stubs.
--   : Crucial for build configuration, permissions, and Firebase integration.
--   : EAS build configuration.
--   : The main chat interface, to be updated with WebSockets.
--   : Contains logic for theme switching, language selection, and testing notifications.
--   : The configuration for the multi-language interface.
--   : Logic for handling push notification tokens and permissions.
+-   : The main chat UI. Core of the current debugging effort.
+-   : Contains the theme-switching logic that is causing flickering.
+-   : Main backend file where auto-translation was removed.
+-   : Master config for the mobile app. Has been changed frequently.
+-   : Configuration for EAS builds and updates.
+
+**Areas that need refactoring**:
+-    requires one final, stable implementation of the inverted list.
+-    needs a definitive fix for the re-render loop to stop the flickering.
+
+**key api endpoints**
+-   : Fetches messages for a chat.
+-   : Sends a new message.
+-   : User login.
+-   : Custom endpoint to download the project's source code as a ZIP file.
 
 **Critical Info for New Agent**
--   **Prioritize OTA Updates:** The user wants all future non-native changes (UI, JS logic) deployed via , not new APK builds. The current build-in-progress is meant to be the stable base.
--   **Giphy API Key:** The user provided a key () and wants it stored securely in , not hardcoded.
--   **Push Notification Debugging:** The Firebase Console notification issue is a persistent, high-priority blocker that needs to be solved.
--   **UI Redesign:** The user is not satisfied with the current UI. Be prepared to involve the  to propose new designs.
+-   **User Trust:** The user is frustrated with recurring bugs. Prioritize stability and accuracy. Confirm each fix with the user before moving on.
+-   **OTA Updates:** The underlying issues preventing OTA updates (project name mismatch, config errors) have been fixed. The latest generated APK ( or newer) should be the stable base for future OTA updates. Do not start a new build unless native code or permissions are changed.
+-   **Backend Persistence:** The user is aware the backend is not persistent. A high-priority upcoming task is to deploy it to a service like Render using the provided .
+-   **Focus on Core Bugs:** Do not work on new features until the core chat UI (message order, scrolling) and theme flickering are definitively solved.
 
 **documents and test reports created in this job**
--    (updated multiple times)
+- None.
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User:** Asks for a final check of the push notification configuration (google-services.json, FCM API) and a new build. (Msg 309)
-2.  **Agent:** Confirms configuration and starts a new build (). (Msg 328)
-3.  **Agent:** Announces the build is finished and provides the APK link. (Msg 332)
-4.  **User:** Reports Expo Push Tool token is invalid, asks to fix  in , add a backend endpoint to send notifications, and requests a list of all features. (Msg 333)
-5.  **Agent:** Agrees, adds the  to , implements the backend notification endpoint, and starts a new build (). (Msg 375-386)
-6.  **Agent:** Provides a comprehensive list of all implemented and TODO features while the build runs. (Msg 386)
-7.  **User:** Acknowledges the build is ready, and requests the implementation of the entire TODO list, plus multi-language menus and permission requests on startup. (Msg 387)
-8.  **Agent:** Starts a massive implementation task, creating files for localization, video calls, stickers, blocking, and stories, and starts a new mega build (). (Msg 388-457)
-9.  **Agent:** Informs the user the build is compiling and finishes the session. (Msg 469)
-10. **User:** (LATEST) Asks for immediate WebSocket implementation, Giphy integration (with API key) via EAS Update, verification that the Video Call screen is connected to the camera, and a show/hide password icon. Confirms the current mega build should be the last full install for a while. (Msg 471)
+1.  **User:** Reports chat is empty after an update, suspects  is not being passed. Asks for debug alerts. (Resolved)
+2.  **User:** Confirms update works but chat is empty and username is gone. Asks to fix title, check  and navigation params, and fix theme flicker.
+3.  **User:** Reports messages finally appeared but are in the wrong order (newest on top). Asks for an  FlatList and correct sorting.
+4.  **User:** Repeats the request to fix the inverted list, stop auto-scroll jumps, and fix the theme flicker.
+5.  **User:** Demands a full code ZIP file to review.
+6.  **User:** After reviewing the code, provides a very specific list of fixes for  (remove auto-translate),  (remove reveal logic, fix styles), and  (fix ).
+7.  **User:** Asks for confirmation when all fixes are done and is ready to publish an EAS update.
+8.  **User:** Confirms to publish the update.
+9.  **User:** Discovers the root cause of update failures: a project name mismatch ( on Android vs.  on their Macbook). Demands a full project name unification to  and a new APK.
+10. **User:** Reports that the chat screen is empty because the  function is failing. Asks for specific debug steps: check , fix , and add a debug  to see the error.
 
 **Project Health Check:**
--   **Broken:** Push notifications sent from the Firebase Console do not work.
--   **Mocked:** The UI for Video Calls, Stickers, User Blocking, and Stories are all placeholder skeletons without functionality.
+-   **Broken:** Chat message ordering, auto-scrolling, WebRTC video/audio calls, Forgot Password flow, Firebase push notifications.
+-   **Mocked:** UI for Stories, User Blocking, Stickers.
 
 **3rd Party Integrations**
--   **OpenAI GPT-4o:** For text-to-emoji conversion. Uses **Emergent LLM Key**.
+-   **OpenAI GPT-4o:** For text-to-emoji conversion (currently disabled in UI). Uses **Emergent LLM Key**.
 -   **Google Auth:** For social login (backend implemented, frontend button needed).
 -   **Firebase:** For Phone Authentication and Push Notifications (FCM). Requires user-provided .
--   **WebRTC:** Technology for video calls (backend signaling stubs exist).
--   **Giphy:** Planned for sending GIFs. User provided an API key.
+-   **WebRTC:** For video calls (not implemented).
+-   **Giphy:** For sending GIFs. User provided an API key.
 
 **Testing status**
--   **Testing agent used after significant changes:** NO (Agent did manual  tests and TypeScript checks).
+-   **Testing agent used after significant changes:** NO
 -   **Troubleshoot agent used after agent stuck in loop:** NO
 -   **Test files created:** None.
--   **Known regressions:** None.
+-   **Known regressions:** The chat UI has regressed multiple times during refactoring attempts.
 
 **Credentials to test flow:**
 -   Register/login with any dummy credentials.
--   The Giphy API key is .
+-   Giphy API key: 
 
 **What agent forgot to execute**
-From the user's last message, the agent began implementing WebSockets but did not address the other immediate requests:
--   Connecting the  to the device camera.
--   Adding the show/hide password icon on auth screens.
--   Verifying that typing/online/seen indicators are part of the WebSocket plan.
-The agent also has not yet checked the status of the final mega build () or provided the user with the resulting APK link.</analysis>
+The agent has been stuck in a loop fixing the chat UI and has not been able to progress on other critical user requests from earlier in the session, including:
+-   Implementing the correct Forgot Password flow using Firebase.
+-   Deploying the backend to a persistent server.
+-   Making progress on the non-functional video/audio calls.
+-   Fixing the incomplete UI translations.</analysis>

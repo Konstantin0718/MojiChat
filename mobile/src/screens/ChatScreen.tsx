@@ -81,24 +81,23 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   };
 
-  const loadMessages = async (shouldScroll = true) => {
+  const loadMessages = async () => {
     if (!conversationId) return;
     
     try {
       const data = await api.getMessages(conversationId);
       
       if (Array.isArray(data)) {
-        // Keep newest first for inverted FlatList
-        setMessages(data);
-        setIsFirstLoad(false);
+        // Sort newest first for inverted FlatList (index 0 = newest)
+        const sorted = [...data].sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        setMessages(sorted);
       } else {
         setMessages([]);
       }
     } catch (err: any) {
       console.log('Failed to load messages:', err);
-      if (isFirstLoad) {
-        Alert.alert("Load Error", err?.message || "Failed to load messages");
-      }
     } finally {
       setLoading(false);
     }
