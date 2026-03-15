@@ -31,26 +31,31 @@ interface Props {
 }
 
 export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
-  const { conversationId } = route.params || {};
+  // Get params with fallback
+  const conversationId = route?.params?.conversationId;
+  const paramName = route?.params?.name;
+  
   const { user } = useAuth();
   const { colors } = useTheme();
-  
-  // DEBUG: Log conversationId
-  console.log("Loading chat for ID:", conversationId);
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [conversationName, setConversationName] = useState('Chat');
-  const [debugInfo, setDebugInfo] = useState('');
+  const [conversationName, setConversationName] = useState(paramName || 'Chat');
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
   
   const flatListRef = useRef<FlatList>(null);
 
-  // Check if conversationId exists
+  // DEBUG: Show Alert with conversationId on mount
+  useEffect(() => {
+    Alert.alert("Debug", "ID: " + conversationId + "\nName: " + paramName);
+  }, []);
+
+  // Load data
   useEffect(() => {
     if (!conversationId) {
-      Alert.alert("Error", "No conversation ID provided");
+      Alert.alert("Error", "No conversation ID provided. Route params: " + JSON.stringify(route?.params));
       setLoading(false);
       return;
     }
@@ -58,52 +63,60 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     loadMessages();
     loadConversation();
     
-    // Poll for new messages every 3 seconds
-    const interval = setInterval(loadMessages, 3000);
+    const interval = setInterval(() => {
+      loadMessages(false); // false = not first load
+    }, 3000);
+    
     return () => clearInterval(interval);
   }, [conversationId]);
 
   const loadConversation = async () => {
+    if (!conversationId) return;
+    
     try {
       const conv = await api.getConversation(conversationId);
       if (conv.name) {
         setConversationName(conv.name);
       } else if (conv.participants) {
         const other = conv.participants.find((p: any) => p.user_id !== user?.user_id);
-        setConversationName(other?.name || 'Chat');
+        setConversationName(other?.name || paramName || 'Chat');
       }
-    } catch (e) {
-      console.log('Failed to load conversation');
+    } catch (e: any) {
+      console.log('Failed to load conversation:', e);
     }
   };
 
-  const loadMessages = async () => {
+  const loadMessages = async (shouldScroll = true) => {
     if (!conversationId) return;
-    
-    console.log("Fetching messages for:", conversationId);
     
     try {
       const data = await api.getMessages(conversationId);
-      console.log("Messages received:", data?.length || 0);
-      setDebugInfo(`Loaded ${data?.length || 0} messages`);
       
       if (Array.isArray(data)) {
-        setMessages(data.reverse()); // Oldest first
+        setMessages(data.reverse());
+        
+        // Only auto-scroll on first load
+        if (shouldScroll && isFirstLoad && data.length > 0) {
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: false });
+          }, 100);
+          setIsFirstLoad(false);
+        }
       } else {
-        console.log("Data is not array:", typeof data);
         setMessages([]);
       }
     } catch (err: any) {
       console.log('Failed to load messages:', err);
-      Alert.alert("Chat Load Error", JSON.stringify(err?.message || err));
-      setDebugInfo(`Error: ${err?.message || 'Unknown'}`);
+      if (isFirstLoad) {
+        Alert.alert("Load Error", err?.message || "Failed to load messages");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const sendMessage = async () => {
-    if (!inputText.trim() || sending) return;
+    if (!inputText.trim() || sending || !conversationId) return;
     
     const text = inputText.trim();
     setInputText('');
@@ -111,11 +124,12 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     
     try {
       await api.sendMessage(conversationId, text, 'text');
-      await loadMessages();
+      await loadMessages(true); // Scroll after sending
       flatListRef.current?.scrollToEnd({ animated: true });
-    } catch (e) {
-      console.log('Failed to send message');
-      setInputText(text); // Restore text on error
+    } catch (e: any) {
+      console.log('Failed to send message:', e);
+      setInputText(text);
+      Alert.alert("Send Error", e?.message || "Failed to send message");
     } finally {
       setSending(false);
     }
@@ -192,7 +206,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       justifyContent: 'flex-end',
     },
     messageBubble: {
-      maxWidth: '80%',
+      maxWidth: '85%',
       paddingHorizontal: 14,
       paddingVertical: 10,
       borderRadius: 18,
@@ -206,7 +220,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     messageText: {
       fontSize: 16,
       lineHeight: 22,
-      fontFamily: 'System',
+      flexWrap: 'wrap',
     },
     messageTime: {
       fontSize: 11,
@@ -234,7 +248,6 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       fontSize: 16,
       color: colors.text,
       marginRight: 10,
-      fontFamily: 'System',
     },
     sendButton: {
       width: 44,
@@ -268,6 +281,9 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
         <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={{ color: colors.textSecondary, marginTop: 10 }}>
+          Loading... ID: {conversationId || 'none'}
+        </Text>
       </View>
     );
   }
@@ -276,10 +292,10 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
         style={{ flex: 1 }}
-        behavior="height"
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 120}
       >
-        {/* Header */}
+        {/* Header - Shows conversation name */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Ionicons name="chevron-back" size={28} color={colors.text} />
@@ -294,18 +310,14 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
-          keyExtractor={(item, index) => item.message_id || index.toString()}
+          keyExtractor={(item, index) => item.message_id || `msg-${index}`}
           style={styles.messagesList}
           contentContainerStyle={styles.messagesContent}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>No messages yet</Text>
               <Text style={[styles.emptyText, { fontSize: 12, marginTop: 8 }]}>
-                ID: {conversationId || 'undefined'}
-              </Text>
-              <Text style={[styles.emptyText, { fontSize: 10, marginTop: 4 }]}>
-                {debugInfo}
+                Start the conversation!
               </Text>
             </View>
           }

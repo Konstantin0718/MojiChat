@@ -80,11 +80,15 @@ export const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
 
   const renderConversation = ({ item: conv }: { item: Conversation }) => {
     const other = getOtherParticipant(conv);
+    const displayName = conv.is_group ? conv.name : (other?.name || 'Chat');
     
     return (
       <TouchableOpacity
         style={styles.conversationItem}
-        onPress={() => navigation.navigate('Chat', { conversationId: conv.conversation_id })}
+        onPress={() => navigation.navigate('Chat', { 
+          conversationId: conv.conversation_id,
+          name: displayName
+        })}
       >
         {/* Avatar */}
         <View style={styles.avatarContainer}>

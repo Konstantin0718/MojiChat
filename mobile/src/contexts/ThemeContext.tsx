@@ -11,6 +11,7 @@ interface ThemeContextType {
   colors: typeof COLORS.light;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
+  isLoading: boolean;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -18,21 +19,39 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const systemColorScheme = useColorScheme();
   const [theme, setThemeState] = useState<Theme>('system');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialized, setIsInitialized] = useState(false);
 
+  // Load theme only once on mount
   useEffect(() => {
-    loadTheme();
-  }, []);
+    if (!isInitialized) {
+      loadTheme();
+    }
+  }, [isInitialized]);
 
   const loadTheme = async () => {
-    const savedTheme = await AsyncStorage.getItem('theme');
-    if (savedTheme) {
-      setThemeState(savedTheme as Theme);
+    try {
+      const savedTheme = await AsyncStorage.getItem('theme');
+      if (savedTheme && ['light', 'dark', 'system'].includes(savedTheme)) {
+        setThemeState(savedTheme as Theme);
+      }
+    } catch (e) {
+      console.log('Failed to load theme');
+    } finally {
+      setIsLoading(false);
+      setIsInitialized(true);
     }
   };
 
   const setTheme = async (newTheme: Theme) => {
+    if (newTheme === theme) return; // Prevent unnecessary updates
+    
     setThemeState(newTheme);
-    await AsyncStorage.setItem('theme', newTheme);
+    try {
+      await AsyncStorage.setItem('theme', newTheme);
+    } catch (e) {
+      console.log('Failed to save theme');
+    }
   };
 
   const toggleTheme = () => {
@@ -44,7 +63,7 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const colors = isDark ? COLORS.dark : COLORS.light;
 
   return (
-    <ThemeContext.Provider value={{ theme, isDark, colors, setTheme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, isDark, colors, setTheme, toggleTheme, isLoading }}>
       {children}
     </ThemeContext.Provider>
   );
