@@ -10,6 +10,7 @@ import {
   Platform,
   SafeAreaView,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
@@ -30,20 +31,30 @@ interface Props {
 }
 
 export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
-  const { conversationId } = route.params;
+  const { conversationId } = route.params || {};
   const { user } = useAuth();
   const { colors } = useTheme();
+  
+  // DEBUG: Log conversationId
+  console.log("Loading chat for ID:", conversationId);
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [conversationName, setConversationName] = useState('Chat');
+  const [debugInfo, setDebugInfo] = useState('');
   
   const flatListRef = useRef<FlatList>(null);
 
-  // Load messages
+  // Check if conversationId exists
   useEffect(() => {
+    if (!conversationId) {
+      Alert.alert("Error", "No conversation ID provided");
+      setLoading(false);
+      return;
+    }
+    
     loadMessages();
     loadConversation();
     
@@ -67,11 +78,25 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   };
 
   const loadMessages = async () => {
+    if (!conversationId) return;
+    
+    console.log("Fetching messages for:", conversationId);
+    
     try {
       const data = await api.getMessages(conversationId);
-      setMessages(data.reverse()); // Oldest first
-    } catch (e) {
-      console.log('Failed to load messages');
+      console.log("Messages received:", data?.length || 0);
+      setDebugInfo(`Loaded ${data?.length || 0} messages`);
+      
+      if (Array.isArray(data)) {
+        setMessages(data.reverse()); // Oldest first
+      } else {
+        console.log("Data is not array:", typeof data);
+        setMessages([]);
+      }
+    } catch (err: any) {
+      console.log('Failed to load messages:', err);
+      Alert.alert("Chat Load Error", JSON.stringify(err?.message || err));
+      setDebugInfo(`Error: ${err?.message || 'Unknown'}`);
     } finally {
       setLoading(false);
     }
@@ -260,7 +285,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             <Ionicons name="chevron-back" size={28} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            MOJI FIX 2.3.1
+            {conversationName}
           </Text>
         </View>
 
@@ -269,13 +294,19 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
-          keyExtractor={(item) => item.message_id}
+          keyExtractor={(item, index) => item.message_id || index.toString()}
           style={styles.messagesList}
           contentContainerStyle={styles.messagesContent}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>No messages yet</Text>
+              <Text style={[styles.emptyText, { fontSize: 12, marginTop: 8 }]}>
+                ID: {conversationId || 'undefined'}
+              </Text>
+              <Text style={[styles.emptyText, { fontSize: 10, marginTop: 4 }]}>
+                {debugInfo}
+              </Text>
             </View>
           }
         />
