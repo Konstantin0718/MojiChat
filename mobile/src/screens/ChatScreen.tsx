@@ -47,15 +47,10 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   
   const flatListRef = useRef<FlatList>(null);
 
-  // DEBUG: Show Alert with conversationId on mount
-  useEffect(() => {
-    Alert.alert("Debug", "ID: " + conversationId + "\nName: " + paramName);
-  }, []);
-
   // Load data
   useEffect(() => {
     if (!conversationId) {
-      Alert.alert("Error", "No conversation ID provided. Route params: " + JSON.stringify(route?.params));
+      Alert.alert("Error", "No conversation ID provided");
       setLoading(false);
       return;
     }
@@ -64,7 +59,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     loadConversation();
     
     const interval = setInterval(() => {
-      loadMessages(false); // false = not first load
+      loadMessages();
     }, 3000);
     
     return () => clearInterval(interval);
@@ -93,15 +88,9 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       const data = await api.getMessages(conversationId);
       
       if (Array.isArray(data)) {
-        setMessages(data.reverse());
-        
-        // Only auto-scroll on first load
-        if (shouldScroll && isFirstLoad && data.length > 0) {
-          setTimeout(() => {
-            flatListRef.current?.scrollToEnd({ animated: false });
-          }, 100);
-          setIsFirstLoad(false);
-        }
+        // Keep newest first for inverted FlatList
+        setMessages(data);
+        setIsFirstLoad(false);
       } else {
         setMessages([]);
       }
@@ -124,8 +113,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     
     try {
       await api.sendMessage(conversationId, text, 'text');
-      await loadMessages(true); // Scroll after sending
-      flatListRef.current?.scrollToEnd({ animated: true });
+      await loadMessages();
     } catch (e: any) {
       console.log('Failed to send message:', e);
       setInputText(text);
@@ -305,9 +293,10 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           </Text>
         </View>
 
-        {/* Messages */}
+        {/* Messages - inverted list keeps newest at bottom */}
         <FlatList
           ref={flatListRef}
+          inverted
           data={messages}
           renderItem={renderMessage}
           keyExtractor={(item, index) => item.message_id || `msg-${index}`}

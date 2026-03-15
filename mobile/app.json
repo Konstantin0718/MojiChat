@@ -3,7 +3,7 @@
     "name": "MojiChat",
     "slug": "mijichat",
     "owner": "konstantin0",
-    "version": "2.3.2",
+    "version": "2.3.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "mojichat",
