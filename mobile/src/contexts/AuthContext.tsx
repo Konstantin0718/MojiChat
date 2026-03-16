@@ -42,8 +42,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const userData = await api.getMe();
         setUser(userData);
         
-        // Register for push notifications
-        await notificationService.registerForPushNotifications();
+        // Register for push notifications (non-blocking)
+        try { await notificationService.registerForPushNotifications(); } catch (_) {}
       }
     } catch (error) {
       console.error('Auth check failed:', error);
@@ -57,16 +57,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const response = await api.login(email, password);
     setUser(response);
     
-    // Register for push notifications
-    await notificationService.registerForPushNotifications();
+    // Register for push notifications (non-blocking)
+    try { await notificationService.registerForPushNotifications(); } catch (_) {}
   };
 
   const register = async (email: string, password: string, name: string) => {
     const response = await api.register(email, password, name);
     setUser(response);
     
-    // Register for push notifications
-    await notificationService.registerForPushNotifications();
+    // Register for push notifications (non-blocking)
+    try { await notificationService.registerForPushNotifications(); } catch (_) {}
   };
 
   const logout = async () => {
