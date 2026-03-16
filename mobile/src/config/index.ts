@@ -1,6 +1,6 @@
 // API Configuration
 // Replace with your actual backend URL
-export const API_URL = 'https://mojichat-preview.preview.emergentagent.com';
+export const API_URL = 'https://mojichat.onrender.com';
 
 // WebRTC Configuration
 export const WEBRTC_CONFIG = {
