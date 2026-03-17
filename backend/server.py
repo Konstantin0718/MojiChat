@@ -23,26 +23,32 @@ import mimetypes
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
 mongo_url = os.environ.get('MONGO_URL') or os.environ.get('MONGODB_URI')
 if not mongo_url:
     raise RuntimeError("MONGO_URL or MONGODB_URI environment variable is required")
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ.get('DB_NAME', 'mojichat_db')]
 
-# JWT Config
 JWT_SECRET = os.environ.get('JWT_SECRET', 'default_secret')
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
 
-# Create the main app
 app = FastAPI(title="MojiChat API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 api_router = APIRouter(prefix="/api")
 security = HTTPBearer(auto_error=False)
 
-# Create uploads directory
 UPLOADS_DIR = ROOT_DIR / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
+
 
 # Giphy API Key
 GIPHY_API_KEY = os.environ.get('GIPHY_API_KEY', '')
