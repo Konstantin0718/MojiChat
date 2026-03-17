@@ -12,7 +12,6 @@ export const AuthProvider = ({ children }) => {
 
   const api = axios.create({
     baseURL: `${API_URL}/api`,
-    withCredentials: true,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 
