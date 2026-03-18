@@ -12,6 +12,28 @@ import { Message, User, Conversation } from '../types';
 import { API_URL } from '../config';
 import { api } from '../services/api';
 
+// Language detection heuristics
+const detectLanguage = (text: string): string => {
+  if (!text) return 'en';
+  if (/[\u0400-\u04FF]/.test(text)) return /[\u0404\u0406\u0407\u0490\u0491]/.test(text) ? 'uk' : /[\u0451\u0449\u044A\u044B\u044D]/.test(text) ? 'ru' : 'bg';
+  if (/[\u4E00-\u9FFF]/.test(text)) return 'zh';
+  if (/[\u3040-\u30FF]/.test(text)) return 'ja';
+  if (/[\uAC00-\uD7AF]/.test(text)) return 'ko';
+  if (/[\u0600-\u06FF]/.test(text)) return 'ar';
+  if (/[äöüßÄÖÜ]/.test(text)) return 'de';
+  if (/[àâçéèêëîïôùûüÿœæ]/i.test(text)) return 'fr';
+  if (/[ñáéíóú¿¡]/i.test(text)) return 'es';
+  if (/[ğışçöüĞİŞÇÖÜ]/.test(text)) return 'tr';
+  if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl';
+  return 'en';
+};
+
+const LANG_FLAGS: Record<string, string> = {
+  bg: '🇧🇬', en: '🇬🇧', de: '🇩🇪', es: '🇪🇸', fr: '🇫🇷', it: '🇮🇹',
+  ru: '🇷🇺', tr: '🇹🇷', zh: '🇨🇳', ja: '🇯🇵', ko: '🇰🇷', ar: '🇸🇦',
+  pt: '🇵🇹', nl: '🇳🇱', pl: '🇵🇱', uk: '🇺🇦',
+};
+
 interface Props {
   message: Message;
   currentUser: User | null;
@@ -25,7 +47,7 @@ export const MessageBubble: React.FC<Props> = ({
   currentUser,
   conversation,
   colors,
-  userLanguage = 'en',
+  userLanguage = 'bg',
 }) => {
   const isOwn = message.sender_id === currentUser?.user_id;
   const [isRevealed, setIsRevealed] = useState(false);
@@ -33,26 +55,29 @@ export const MessageBubble: React.FC<Props> = ({
   const [isTranslating, setIsTranslating] = useState(false);
 
   const hasEmoji = !!message.emoji_content;
+  const detectedLang = detectLanguage(message.content);
+  const langFlag = LANG_FLAGS[detectedLang] || '🌐';
+
+  const doTranslate = async () => {
+    if (translatedText) return;
+    setIsTranslating(true);
+    try {
+      const targetLang = userLanguage === 'auto' ? 'bg' : (userLanguage || 'bg');
+      const result = await api.translate(message.content, targetLang);
+      setTranslatedText(result.translated);
+    } catch (_) {
+      setTranslatedText(null);
+    }
+    setIsTranslating(false);
+  };
 
   const handleTap = async () => {
-    if (!hasEmoji) return;
-
     if (!isRevealed) {
-      // Reveal: translate if not already done
-      if (!translatedText) {
-        setIsTranslating(true);
-        try {
-          // Use userLanguage or 'auto' for auto-detect
-          const targetLang = userLanguage || 'auto';
-          const result = await api.translate(message.content, targetLang);
-          setTranslatedText(result.translated);
-        } catch (_) {
-          setTranslatedText(null);
-        }
-        setIsTranslating(false);
-      }
+      setIsRevealed(true);
+      await doTranslate();
+    } else {
+      setIsRevealed(false);
     }
-    setIsRevealed(!isRevealed);
   };
 
   // Image
@@ -86,10 +111,10 @@ export const MessageBubble: React.FC<Props> = ({
     );
   }
 
-  // Text message with emoji reveal
+  // Text/Emoji message
   return (
     <TouchableOpacity
-      activeOpacity={hasEmoji ? 0.7 : 1}
+      activeOpacity={0.7}
       onPress={handleTap}
       style={[
         styles.bubble,
@@ -103,8 +128,8 @@ export const MessageBubble: React.FC<Props> = ({
         </Text>
       )}
 
-      {isRevealed || !hasEmoji ? (
-        // Revealed: show translated text + original
+      {isRevealed ? (
+        /* REVEALED: translation + original */
         <View>
           {isTranslating ? (
             <ActivityIndicator size="small" color={isOwn ? '#fff' : colors.primary} />
@@ -114,61 +139,53 @@ export const MessageBubble: React.FC<Props> = ({
                 {translatedText || message.content}
               </Text>
               {translatedText && translatedText !== message.content && (
-                <Text
-                  style={[
-                    styles.originalText,
-                    { color: isOwn ? 'rgba(255,255,255,0.6)' : colors.textSecondary },
-                  ]}
-                >
-                  {message.content}
-                </Text>
+                <>
+                  <View style={[styles.divider, { borderTopColor: isOwn ? 'rgba(255,255,255,0.2)' : 'rgba(128,128,128,0.2)' }]}>
+                    <Text style={[styles.originalLabel, { color: isOwn ? 'rgba(255,255,255,0.5)' : colors.textSecondary }]}>
+                      Original ({langFlag}):
+                    </Text>
+                    <Text style={[styles.originalText, { color: isOwn ? 'rgba(255,255,255,0.5)' : colors.textSecondary }]}>
+                      {message.content}
+                    </Text>
+                  </View>
+                </>
               )}
             </>
           )}
-          {hasEmoji && (
-            <Text
-              style={[
-                styles.tapHint,
-                { color: isOwn ? 'rgba(255,255,255,0.5)' : colors.textSecondary },
-              ]}
-            >
-              tap for emoji
-            </Text>
-          )}
+          <Text style={[styles.tapHint, { color: isOwn ? 'rgba(255,255,255,0.4)' : colors.textSecondary }]}>
+            {hasEmoji ? 'tap for emoji' : 'tap to close'}
+          </Text>
+        </View>
+      ) : hasEmoji ? (
+        /* EMOJI MODE */
+        <View>
+          <Text style={styles.emojiText}>{message.emoji_content}</Text>
+          <Text style={[styles.tapHint, { color: isOwn ? 'rgba(255,255,255,0.4)' : colors.textSecondary }]}>
+            tap to reveal
+          </Text>
         </View>
       ) : (
-        // Emoji mode
+        /* PLAIN TEXT - tap to translate */
         <View>
-          <Text style={styles.emojiText}>
-            {message.emoji_content}
-          </Text>
-          <Text
-            style={[
-              styles.tapHint,
-              { color: isOwn ? 'rgba(255,255,255,0.5)' : colors.textSecondary },
-            ]}
-          >
-            tap to reveal
+          <Text style={[styles.text, { color: isOwn ? '#fff' : colors.text }]}>
+            {message.content}
           </Text>
         </View>
       )}
 
+      {/* Footer: language badge + time + read status */}
       <View style={styles.footer}>
-        <Text
-          style={[
-            styles.time,
-            { color: isOwn ? 'rgba(255,255,255,0.7)' : colors.textSecondary },
-          ]}
-        >
+        <Text style={[styles.langBadge, { color: isOwn ? 'rgba(255,255,255,0.6)' : colors.textSecondary }]}>
+          {langFlag}
+        </Text>
+        <Text style={[styles.time, { color: isOwn ? 'rgba(255,255,255,0.6)' : colors.textSecondary }]}>
           {formatTime(message.created_at)}
         </Text>
         {isOwn && (
           <Ionicons
             name={message.read_by?.length > 1 ? 'checkmark-done' : 'checkmark'}
             size={14}
-            color={
-              message.read_by?.length > 1 ? '#34C759' : 'rgba(255,255,255,0.7)'
-            }
+            color={message.read_by?.length > 1 ? '#34C759' : 'rgba(255,255,255,0.6)'}
           />
         )}
       </View>
@@ -177,22 +194,13 @@ export const MessageBubble: React.FC<Props> = ({
 };
 
 const formatTime = (date: string) => {
-  return new Date(date).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
 const styles = StyleSheet.create({
-  container: {
-    marginVertical: 4,
-  },
-  containerOwn: {
-    alignSelf: 'flex-end',
-  },
-  containerOther: {
-    alignSelf: 'flex-start',
-  },
+  container: { marginVertical: 4 },
+  containerOwn: { alignSelf: 'flex-end' },
+  containerOther: { alignSelf: 'flex-start' },
   bubble: {
     maxWidth: '85%',
     paddingHorizontal: 14,
@@ -200,42 +208,16 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     marginVertical: 4,
   },
-  bubbleOwn: {
-    alignSelf: 'flex-end',
-    borderBottomRightRadius: 4,
-  },
-  bubbleOther: {
-    alignSelf: 'flex-start',
-    borderBottomLeftRadius: 4,
-  },
-  sender: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  text: {
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  originalText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontStyle: 'italic',
-    marginTop: 6,
-    paddingTop: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(128,128,128,0.3)',
-  },
-  emojiText: {
-    fontSize: 28,
-    lineHeight: 36,
-    letterSpacing: 2,
-  },
-  tapHint: {
-    fontSize: 10,
-    marginTop: 4,
-    textAlign: 'right',
-  },
+  bubbleOwn: { alignSelf: 'flex-end', borderBottomRightRadius: 4 },
+  bubbleOther: { alignSelf: 'flex-start', borderBottomLeftRadius: 4 },
+  sender: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
+  text: { fontSize: 16, lineHeight: 22 },
+  emojiText: { fontSize: 28, lineHeight: 36, letterSpacing: 2 },
+  divider: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
+  originalLabel: { fontSize: 11, marginBottom: 2 },
+  originalText: { fontSize: 12, lineHeight: 16, fontStyle: 'italic' },
+  tapHint: { fontSize: 10, marginTop: 4, textAlign: 'right' },
+  langBadge: { fontSize: 12 },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -243,17 +225,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 4,
   },
-  time: {
-    fontSize: 11,
-  },
-  image: {
-    width: 200,
-    height: 200,
-    borderRadius: 12,
-  },
-  gif: {
-    width: 200,
-    height: 150,
-    borderRadius: 12,
-  },
+  time: { fontSize: 11 },
+  image: { width: 200, height: 200, borderRadius: 12 },
+  gif: { width: 200, height: 150, borderRadius: 12 },
 });

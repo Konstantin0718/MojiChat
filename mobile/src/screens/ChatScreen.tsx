@@ -130,7 +130,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         currentUser={user}
         conversation={conversationData}
         colors={colors}
-        userLanguage={user?.preferred_language || 'en'}
+        userLanguage={user?.preferred_language || 'bg'}
       />
     ),
     [user, conversationData, colors]

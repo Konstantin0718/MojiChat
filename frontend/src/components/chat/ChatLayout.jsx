@@ -71,7 +71,7 @@ export const ChatLayout = () => {
   const [showFileUploader, setShowFileUploader] = useState(false);
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [userLanguage, setUserLanguage] = useState(user?.preferred_language || 'en');
+  const [userLanguage, setUserLanguage] = useState(user?.preferred_language || 'bg');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeCall, setActiveCall] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
