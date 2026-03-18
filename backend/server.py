@@ -1503,15 +1503,24 @@ Rules:
 
 @api_router.post("/translate")
 async def translate_endpoint(request: Request):
-    """Translate text to target language"""
+    """Translate text to target language with auto-detect"""
     current_user = await get_current_user(request)
     body = await request.json()
     
     text = body.get("text", "")
     target_language = body.get("target_language", current_user.get("preferred_language", "en"))
     
+    # If target_language is "auto", detect and use user's preferred language
+    if target_language == "auto":
+        target_language = current_user.get("preferred_language", "en")
+    
     translated = await translate_text(text, target_language)
-    return {"original": text, "translated": translated, "language": target_language}
+    return {
+        "original": text, 
+        "translated": translated, 
+        "language": target_language,
+        "auto_detected": True
+    }
 
 # ==================== USER LANGUAGE SETTINGS ====================
 

@@ -78,7 +78,7 @@ class TestTranslationEndpoint:
         print(f"✓ Bulgarian 'Здравей' → English '{data['translated']}'")
     
     def test_translate_english_to_bulgarian(self, auth_token):
-        """Test translating 'Hello' (English) to Bulgarian"""
+        """Test translating 'Hello' (English) to Bulgarian with target_language='bg'"""
         response = requests.post(
             f"{BASE_URL}/api/translate",
             headers={"Authorization": f"Bearer {auth_token}"},
@@ -92,6 +92,35 @@ class TestTranslationEndpoint:
         # Bulgarian translation
         assert data["language"] == "bg"
         print(f"✓ English 'Hello' → Bulgarian '{data['translated']}'")
+    
+    def test_translate_auto_uses_user_preferred_language(self, auth_token):
+        """Test that target_language='auto' uses user's preferred language setting"""
+        # First get user's profile to check preferred_language
+        me_response = requests.get(
+            f"{BASE_URL}/api/auth/me",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert me_response.status_code == 200
+        user_data = me_response.json()
+        preferred_lang = user_data.get("preferred_language", "en")
+        print(f"  User's preferred language: {preferred_lang}")
+        
+        # Now test translation with 'auto' - should use preferred language
+        response = requests.post(
+            f"{BASE_URL}/api/translate",
+            headers={"Authorization": f"Bearer {auth_token}"},
+            json={"text": "Hello world", "target_language": "auto"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "translated" in data
+        assert "original" in data
+        assert "language" in data
+        assert data["original"] == "Hello world"
+        # The returned language should match user's preferred language
+        assert data["language"] == preferred_lang, f"Expected language '{preferred_lang}' but got '{data['language']}'"
+        print(f"✓ target_language='auto' correctly translates to user's preferred language '{preferred_lang}'")
+        print(f"  Translated: '{data['translated']}'")
     
     def test_translate_without_auth_fails(self):
         """Test that translation requires authentication"""

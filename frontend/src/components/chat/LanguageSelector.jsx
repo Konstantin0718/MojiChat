@@ -7,6 +7,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { cn } from '../../lib/utils';
 
 const LANGUAGES = {
+  auto: { name: 'Auto-detect', flag: '🌐', native: 'Auto' },
   en: { name: 'English', flag: '🇬🇧', native: 'English' },
   bg: { name: 'Bulgarian', flag: '🇧🇬', native: 'Български' },
   de: { name: 'German', flag: '🇩🇪', native: 'Deutsch' },

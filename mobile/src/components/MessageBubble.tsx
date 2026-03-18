@@ -39,10 +39,12 @@ export const MessageBubble: React.FC<Props> = ({
 
     if (!isRevealed) {
       // Reveal: translate if not already done
-      if (!translatedText && userLanguage) {
+      if (!translatedText) {
         setIsTranslating(true);
         try {
-          const result = await api.translate(message.content, userLanguage);
+          // Use userLanguage or 'auto' for auto-detect
+          const targetLang = userLanguage || 'auto';
+          const result = await api.translate(message.content, targetLang);
           setTranslatedText(result.translated);
         } catch (_) {
           setTranslatedText(null);
