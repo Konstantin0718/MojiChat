@@ -1,170 +1,167 @@
 <analysis>**original_problem_statement:**
-The user requested the creation of a chat application named MojiChat (originally MоjiChat), similar to WhatsApp/Messenger.
+The user wants to build a chat application named MojiChat.
 
 **PRODUCT REQUIREMENTS:**
-- **Core Feature:** Text sent by a user should be converted into emojis, with the original text revealed on click (this feature has been temporarily disabled due to bugs).
+- **Core Feature:** Text sent by a user should be converted into emojis, with the original text revealed on click.
+- **AI-Powered Translation:** On-demand, click-to-translate functionality for messages with source language auto-detection and a manual override selector.
 - **Authentication:** JWT-based auth, Google Social Login, Phone Number registration (Firebase), forgot password, and email verification.
 - **Chat:** Real-time 1-to-1 and group chats via WebSockets.
 - **Real-time Features:** Online status, typing indicators, read receipts.
-- **AI Features:** AI-based text-to-emoji conversion (GPT-4o), automatic message translation (now disabled).
 - **Media & Interactions:** Send images, voice messages, files, GIFs (Giphy), and message reactions.
 - **Advanced Features:** Video calls, message search, push notifications (FCM), Story/Status feature, user blocking.
-- **UI/UX:** Multi-language support, customizable sounds, Dark/Light/System theme.
-- **Platform:** A React Native mobile application for Android and iOS.
+- **UI/UX:** Multi-language support for UI and message translation, customizable sounds, Dark/Light/System theme.
+- **Platform:** A React Native mobile app and a React web application.
 
 **User's preferred language**: Bulgarian (български)
 
 **what currently exists?**
-- A comprehensive FastAPI backend and a React Native mobile app (MojiChat). The original React web app is deprecated.
-- The project name, package ID, and related configurations have been unified to MojiChat to resolve critical build and update issues.
-- The backend supports authentication, chat, file uploads, and has stubs for WebRTC. The problematic automatic translation feature has been removed from the core message sending flow.
-- The mobile app includes authentication screens, chat, settings, and UI skeletons for numerous features. It has undergone multiple refactors, especially the , to simplify logic and fix persistent UI bugs.
-- The agent has successfully configured the project for EAS Builds and OTA updates, resolving several  and configuration errors.
+- The backend is a FastAPI application, now deployed and live on Render, connected to a MongoDB Atlas database.
+- The web frontend is a React application, now deployed and live on Vercel.
+- The mobile frontend is a React Native (Expo) application.
+- The agent successfully migrated user data from a local database to the live MongoDB Atlas instance.
+- Multiple critical bugs on the web frontend deployment (missing dependencies, CORS, build commands) have been resolved.
+- Core chat features are functional on both web and mobile, including on-demand message translation, emoji reveal, and source language badges on messages.
 
 **Last working item**:
-- Last item agent was working: The user reported that messages in the chat were still in the wrong order (newest at the top) and the theme button was flickering. The agent was implementing fixes for these issues.
+- Last item agent was working: The user reported that the web version was not translating texts and requested language selectors for both the UI and message translations on both platforms. The agent identified the web translation bug was due to using the wrong token name ( instead of ) from . The agent fixed this bug and was preparing to add the required language selectors.
 - Status: IN PROGRESS
-- Agent Testing Done: N
-- Which testing method agent to use? both. The frontend needs the testing agent to verify the chat screen's inverted layout, scrolling, and theme switching. The backend needs a curl test to ensure the message endpoint is stable.
+- Agent Testing Done: Y (for the web token fix)
+- Which testing method agent to use? both. The frontend testing agent is needed to verify the new language selectors on both web and mobile. The backend testing agent is needed to confirm the language preference endpoints are stable.
 - User Testing Done: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: Chat messages are in the wrong order and auto-scroll is buggy (P0)**
-    -   **Description:** Despite using an  FlatList, messages are still not displaying correctly (newest should be at the bottom). The user also wants to scroll up freely without the view jumping back down.
+-   **Issue 1: Implement Comprehensive Language Selection Controls (P0)**
+    -   **Description:** The user wants language selectors for message translation to be present in the chat header on both web and mobile apps. They also want a separate language selector for the app's UI language in the Settings screen of both apps.
     -   **Status:** IN PROGRESS
     -   **Is recurring issue?** Y
 
--   **Issue 2: Theme button flickers on the web version (P1)**
-    -   **Description:** The theme toggle button causes a re-render loop, creating a flickering effect.
-    -   **Status:** IN PROGRESS
-
--   **Issue 3: Video/Audio calls are not functional (P2)**
+-   **Issue 2: Video/Audio calls are not functional (P1)**
     -   **Description:** The feature is a UI placeholder. It requires implementing WebRTC signaling via WebSockets and integrating .
     -   **Status:** NOT STARTED
 
--   **Issue 4: Forgot Password flow is incorrect (P2)**
-    -   **Description:** The user wants the feature to use Firebase's  to send a link, not the current implementation which shows a reset token in-app.
+-   **Issue 3: Forgot Password flow is incorrect (P1)**
+    -   **Description:** The current implementation is a placeholder. The user wants it to use Firebase's  to send a password reset link.
     -   **Status:** NOT STARTED
 
--   **Issue 5: Critical Push Notification Failure (P2)**
-    -   **Description:** The user reported an 'Unable to retrieve the FCM server key' error. This prevents push notifications from working correctly.
-    -   **Status:** BLOCKED
+-   **Issue 4: Critical Push Notification Failure (P2)**
+    -   **Description:** An 'Unable to retrieve the FCM server key' error persists, preventing push notifications from working. While a  was added to prevent mobile login from failing, the root cause is not fixed.
+    -   **Status:** BLOCKED (on user providing a valid FCM server key/config)
+    -   **Is recurring issue?** Y
 
--   **Issue 6: Incomplete UI Language Translation (P3)**
-    -   **Description:** Changing the language in settings does not translate the entire application interface.
+-   **Issue 5: Incomplete UI Language Translation (P2)**
+    -   **Description:** Changing the language in settings does not translate the entire application interface across all screens and components.
     -   **Status:** NOT STARTED
 
 **In progress Task List**:
--   **Task 1: Finalize Chat Screen Refactor (P0)**
-    -   **Description:** Correctly implement the inverted  to ensure messages are ordered with the newest at the bottom and that scrolling is smooth.
-    -   **Where to resume:** In . Ensure the  prop for the  is sorted with the newest message at index 0 (using  on the fetched array) and that no manual scroll logic interferes with the  prop.
-    -   **What will be achieved with this?** A stable, usable core chat interface.
+-   **Task 1: Add Language Selectors to Mobile and Web Apps (P0)**
+    -   **Where to resume:**
+        1.  In , add a language selector button to the header. This should open a modal allowing the user to select the target language for message translation.
+        2.  In , ensure a language selector for the UI language exists and is functional.
+        3.  Verify the web app  has a language selector in the header for translation and a separate one in a settings page for the UI.
+    -   **What will be achieved with this?** The user will have full, separate control over the UI language and the message translation language on both platforms, fulfilling a key requirement.
     -   **Status:** IN PROGRESS
     -   **Blocked on something:** None.
 
 **Upcoming and Future Tasks**
 -   **Upcoming Tasks:**
-    -   **P1: Fix Theme Flicker:** Properly manage state in  to prevent the re-render loop.
-    -   **P2: Deploy Backend:** Deploy the FastAPI backend to a persistent hosting service (e.g., Render) using the already created , so the app works when the agent is not active.
-    -   **P2: Implement Firebase Forgot Password:** Refactor the forgot password screen to use .
+    -   **P1: Fix Forgot Password Flow:** Refactor the password reset screen to use Firebase .
+    -   **P1: Fix Push Notifications:** Guide the user to find and configure the correct FCM server key to resolve the root cause of notification failures.
 -   **Future Tasks:**
-    -   **P2: Implement Video/Audio Calls:** Integrate  and build out the backend signaling. This will require a new native build.
-    -   **P2: Fix Push Notifications:** Work with the user to resolve the FCM server key issue.
-    -   **P2: UI Redesign:** The user has previously expressed dissatisfaction with the UI and a redesign task is in the backlog.
-    -   **P3: Complete i18n Integration:** Ensure all text strings across the app are connected to the localization files.
+    -   **P2: Implement Video/Audio Calls:** Integrate  and build out the backend signaling logic.
+    -   **P2: UI Redesign:** User has previously expressed dissatisfaction with the UI.
+    -   **P3: Complete i18n Integration:** Ensure all text strings across both apps are connected to the localization files for complete UI translation.
     -   **P3: Finalize other features:** Stories, User Blocking, Custom Sounds, Message Forwarding.
 
 **Completed work in this session**
-- **Full Project Renaming:** Successfully migrated the project from MijiChat to MojiChat, fixing critical conflicts in , , and EAS project settings.
-- **Chat Component Refactoring:** Performed multiple refactors of  and , removing complex/buggy logic (auto-translation, tap-to-reveal) and simplifying the implementation based on user feedback.
-- **Backend Auto-Translation Removed:** Eliminated the server-side logic that was incorrectly translating messages to Turkish, a major source of user frustration.
-- **EAS Build & Update Debugging:** Resolved numerous build and update failures, including:
-    - Fixing  errors (mismatched packages, multiple lock files).
-    - Correcting the package name in  to match .
-    - Configuring  with channels to enable OTA updates properly.
-- **File Serving for User:** Created a custom backend endpoint to provide the user with a downloadable ZIP archive of the full codebase.
+- **Backend Deployment & DB Migration:** Successfully deployed the FastAPI backend to Render and migrated all data from a local MongoDB to a live MongoDB Atlas instance.
+- **Web App Deployment & Bug Fixing:** Deployed the React frontend to Vercel after fixing numerous critical build issues, including rebuilding , correcting build commands, and resolving CORS and dependency version conflicts.
+- **Emoji Rendering Fix:** Resolved a Unicode bug on the web frontend that caused emojis to display as ◆ diamond symbols.
+- **On-Demand Translation Feature:** Implemented tap-to-reveal on messages, showing the original text alongside an AI-powered translation.
+- **Language Features:** Added inline language flag badges to messages and enhanced the backend to auto-detect the source language for translations.
+- **Mobile Login Resiliency:** Fixed a bug where mobile login would fail if push notification registration failed by wrapping the call in a  block.
+- **Web Translation Fix:** Corrected a bug where web translation failed due to reading an incorrect token name from .
 
 **Earlier issues found/mentioned but not fixed**
--   The critical issue of push notifications failing due to an FCM server key error remains unresolved.
+- The root cause of the push notification failure (FCM server key) is still unresolved.
 
 **Known issue recurrence from previous fork**
--   Push notifications not working from the Firebase Console is a persistent issue from the previous session.
+-   Push notifications not working is a persistent issue. The agent has implemented a workaround to allow login, but the notifications themselves are still broken.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Backend:** FastAPI, Python, MongoDB, WebSockets
--   **Frontend:** React Native, TypeScript, Expo
--   **Builds & Updates:** Expo Application Services (EAS) for native builds and Over-the-Air (OTA) updates.
--   **Localization:** 
+-   **Backend:** FastAPI, Python, MongoDB Atlas, WebSockets
+-   **Frontend (Web):** React, , , Deployed on Vercel
+-   **Frontend (Mobile):** React Native, TypeScript, Expo
+-   **Deployment:** Render (Backend), Vercel (Web), EAS (Mobile)
+-   **Localization:** , on-demand AI translation with GPT-4o
 
 **key DB schema**
--   **users:** {..., email_verified: bool, blocked_users: [ObjectId], phone_number: str}
--   **messages:** {..., content: str, conversation_id: ObjectId, sender_id: ObjectId} (Simplified after removing emoji/translation fields)
+-   **users:** 
+-   **messages:** 
 
 **All files of reference**
--   : The main chat UI. Core of the current debugging effort.
--   : Contains the theme-switching logic that is causing flickering.
--   : Main backend file where auto-translation was removed.
--   : Master config for the mobile app. Has been changed frequently.
--   : Configuration for EAS builds and updates.
-
-**Areas that need refactoring**:
--    requires one final, stable implementation of the inverted list.
--    needs a definitive fix for the re-render loop to stop the flickering.
+-   : Refactored to fix emoji rendering and web translation bug.
+-   : Refactored for emoji display and on-demand translation.
+-   : Needs a language selector added to its header.
+-   : Contains the web app's language selector.
+-   : Contains the  endpoint logic.
+-   : Was completely rebuilt to fix Vercel deployment.
 
 **key api endpoints**
--   : Fetches messages for a chat.
--   : Sends a new message.
--   : User login.
--   : Custom endpoint to download the project's source code as a ZIP file.
+-   : Translates text. Now returns .
+-   : Updates a user's .
 
 **Critical Info for New Agent**
--   **User Trust:** The user is frustrated with recurring bugs. Prioritize stability and accuracy. Confirm each fix with the user before moving on.
--   **OTA Updates:** The underlying issues preventing OTA updates (project name mismatch, config errors) have been fixed. The latest generated APK ( or newer) should be the stable base for future OTA updates. Do not start a new build unless native code or permissions are changed.
--   **Backend Persistence:** The user is aware the backend is not persistent. A high-priority upcoming task is to deploy it to a service like Render using the provided .
--   **Focus on Core Bugs:** Do not work on new features until the core chat UI (message order, scrolling) and theme flickering are definitively solved.
+-   **Live Deployments:** The backend is on Render and the web frontend is on Vercel. Use their live URLs for testing, not the Emergent preview URL.
+-   **Database is Live:** The single source of truth is the MongoDB Atlas database. The user's account and chat history have been migrated.
+-   **Push Notification Workaround:** The agent has put a  around the push notification registration on mobile login. This stops the login from failing but **does not fix the notifications**. Do not remove this workaround until the root FCM key issue is resolved.
+-   **Feature Parity:** The user wants the web and mobile apps to have consistent features, especially regarding language selection. Prioritize bringing the mobile app's language controls up to par with the web app's.
 
 **documents and test reports created in this job**
-- None.
+-   /app/test_reports/iteration_4.json
+-   /app/test_reports/iteration_5.json
+-   /app/test_reports/iteration_6.json
+-   /app/test_reports/iteration_7.json
+-   /app/backend/DEPLOY.md
+-   /app/memory/PRD.md
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User:** Reports chat is empty after an update, suspects  is not being passed. Asks for debug alerts. (Resolved)
-2.  **User:** Confirms update works but chat is empty and username is gone. Asks to fix title, check  and navigation params, and fix theme flicker.
-3.  **User:** Reports messages finally appeared but are in the wrong order (newest on top). Asks for an  FlatList and correct sorting.
-4.  **User:** Repeats the request to fix the inverted list, stop auto-scroll jumps, and fix the theme flicker.
-5.  **User:** Demands a full code ZIP file to review.
-6.  **User:** After reviewing the code, provides a very specific list of fixes for  (remove auto-translate),  (remove reveal logic, fix styles), and  (fix ).
-7.  **User:** Asks for confirmation when all fixes are done and is ready to publish an EAS update.
-8.  **User:** Confirms to publish the update.
-9.  **User:** Discovers the root cause of update failures: a project name mismatch ( on Android vs.  on their Macbook). Demands a full project name unification to  and a new APK.
-10. **User:** Reports that the chat screen is empty because the  function is failing. Asks for specific debug steps: check , fix , and add a debug  to see the error.
+1.  **User:** Asks for  for translation, but also a manual override. Reports 'tap to reveal' is broken on the web. (Partially addressed)
+2.  **Agent:** Acknowledges the request and starts investigating.
+3.  **User:** Adds requests for an , reports web translation is broken, and mobile only translates to English.
+4.  **Agent:** Identifies the root causes for all three issues and begins implementing fixes.
+5.  **User:** Asks for status update on completion of work. (Implicitly)
+6.  **Agent:** Reports completion and successful testing of all fixes.
+7.  **User:** Clarifies that the mobile app should not have a default language and asks for an explanation.
+8.  **Agent:** Explains the hardcoded fallback and asks how the user wants language selection to work on mobile.
+9.  **User:** Confirms they want language selectors for both UI (in settings) and translation (in chat header) on both web and mobile. Reports that web translation is broken again.
+10. **Agent:** Identifies the latest web translation bug is due to a wrong token name in . Fixes it and prepares to implement the new selector requirements.
 
 **Project Health Check:**
--   **Broken:** Chat message ordering, auto-scrolling, WebRTC video/audio calls, Forgot Password flow, Firebase push notifications.
+-   **Broken:** Forgot Password flow, WebRTC video/audio calls, Push Notifications (root cause).
 -   **Mocked:** UI for Stories, User Blocking, Stickers.
+-   **Live:** The backend on Render and the web frontend on Vercel are operational.
 
 **3rd Party Integrations**
--   **OpenAI GPT-4o:** For text-to-emoji conversion (currently disabled in UI). Uses **Emergent LLM Key**.
--   **Google Auth:** For social login (backend implemented, frontend button needed).
+-   **OpenAI GPT-4o:** For text-to-emoji conversion and on-demand message translation. Uses **Emergent LLM Key**.
+-   **Google Auth:** For social login.
 -   **Firebase:** For Phone Authentication and Push Notifications (FCM). Requires user-provided .
--   **WebRTC:** For video calls (not implemented).
+-   **Render:** For backend hosting.
+-   **Vercel:** For web frontend hosting.
 -   **Giphy:** For sending GIFs. User provided an API key.
 
 **Testing status**
--   **Testing agent used after significant changes:** NO
+-   **Testing agent used after significant changes:** YES
 -   **Troubleshoot agent used after agent stuck in loop:** NO
--   **Test files created:** None.
--   **Known regressions:** The chat UI has regressed multiple times during refactoring attempts.
+-   **Test files created:** None, but multiple test reports were generated.
+-   **Known regressions:** The web app translation feature has broken multiple times due to different root causes (CORS, token names).
 
 **Credentials to test flow:**
--   Register/login with any dummy credentials.
--   Giphy API key: 
+-   User account: 
+-   Password: 
+-   (This user and their data are migrated to the live MongoDB Atlas database).
 
 **What agent forgot to execute**
-The agent has been stuck in a loop fixing the chat UI and has not been able to progress on other critical user requests from earlier in the session, including:
--   Implementing the correct Forgot Password flow using Firebase.
--   Deploying the backend to a persistent server.
--   Making progress on the non-functional video/audio calls.
--   Fixing the incomplete UI translations.</analysis>
+- The agent has consistently been reactive to user bug reports rather than proactively implementing the full scope of requested features (e.g., the language selectors were only fully defined after multiple rounds of fixes). The next agent should focus on implementing the complete language selection feature as specified by the user before moving on.</analysis>

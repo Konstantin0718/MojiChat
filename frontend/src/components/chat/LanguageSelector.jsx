@@ -29,7 +29,8 @@ const LANGUAGES = {
 export const LanguageSelector = ({ 
   currentLanguage = 'en', 
   onLanguageChange,
-  variant = 'button' // 'button' | 'inline'
+  variant = 'button', // 'button' | 'inline'
+  label = ''
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedLang, setSelectedLang] = useState(currentLanguage);
@@ -84,7 +85,7 @@ export const LanguageSelector = ({
         <DialogHeader>
           <DialogTitle className="font-heading flex items-center gap-2">
             <Globe className="w-5 h-5" />
-            Select Language
+            {label === 'Превод' ? 'Превод на съобщения' : 'Избери език'}
           </DialogTitle>
         </DialogHeader>
         <ScrollArea className="h-80">

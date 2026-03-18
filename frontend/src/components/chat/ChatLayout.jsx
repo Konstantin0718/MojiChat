@@ -72,6 +72,7 @@ export const ChatLayout = () => {
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [userLanguage, setUserLanguage] = useState(user?.preferred_language || 'bg');
+  const [translationLang, setTranslationLang] = useState(() => localStorage.getItem('mojichat_translation_lang') || 'bg');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeCall, setActiveCall] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
@@ -327,15 +328,22 @@ export const ChatLayout = () => {
     }
   };
 
-  // Update language preference
+  // Update language preference (UI language - saved to server)
   const updateLanguage = async (langCode) => {
     try {
       await api.put('/users/language', { preferred_language: langCode });
       setUserLanguage(langCode);
-      toast.success(`Language changed to ${LANGUAGES[langCode]?.name || langCode}`);
+      toast.success(`Език на интерфейса: ${LANGUAGES[langCode]?.name || langCode}`);
     } catch (error) {
       toast.error('Failed to update language');
     }
+  };
+
+  // Update translation language (local only - stored in localStorage)
+  const updateTranslationLang = (langCode) => {
+    setTranslationLang(langCode);
+    localStorage.setItem('mojichat_translation_lang', langCode);
+    toast.success(`Превод на: ${LANGUAGES[langCode]?.native || langCode}`);
   };
 
   // Start video/audio call
@@ -564,7 +572,7 @@ export const ChatLayout = () => {
         message={msg}
         isOwn={isOwn}
         currentUserId={user?.user_id}
-        userLanguage={userLanguage}
+        userLanguage={translationLang}
         onReaction={(emoji) => addReaction(msg.message_id, emoji)}
       />
     );
@@ -610,15 +618,16 @@ export const ChatLayout = () => {
                 <div>
                   <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
                     <Globe className="w-4 h-4" />
-                    Preferred Language
+                    Език на интерфейса
                   </h4>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Messages will be translated to your preferred language
+                    Промяна на езика на приложението
                   </p>
                   <LanguageSelector
                     currentLanguage={userLanguage}
                     onLanguageChange={updateLanguage}
                     variant="inline"
+                    label="UI"
                   />
                 </div>
                 <div>
@@ -1030,8 +1039,9 @@ export const ChatLayout = () => {
               </div>
               
               <LanguageSelector
-                currentLanguage={userLanguage}
-                onLanguageChange={updateLanguage}
+                currentLanguage={translationLang}
+                onLanguageChange={updateTranslationLang}
+                label="Превод"
               />
             </>
           ) : (

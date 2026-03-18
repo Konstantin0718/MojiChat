@@ -1484,11 +1484,11 @@ async def translate_text(text: str, target_language: str, source_language: str =
         chat = LlmChat(
             api_key=api_key,
             session_id=f"translate-{uuid.uuid4().hex[:8]}",
-            system_message=f"""You are a translator. Translate the given text to {lang_name}.
+            system_message=f"""You are a professional translator. Translate the given text to {lang_name}.
 Rules:
 1. Return ONLY the translated text, nothing else
 2. Preserve the tone and emotion of the original
-3. If text is already in {lang_name}, return it as-is
+3. ALWAYS translate the text to {lang_name}, even if it appears to already be in that language
 4. Keep names, brands, and technical terms unchanged
 5. Maintain formatting (punctuation, capitalization)"""
         ).with_model("openai", "gpt-4o")

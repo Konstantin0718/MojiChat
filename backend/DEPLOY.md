@@ -55,7 +55,7 @@ cd /path/to/mobile
 
 # 2. Обновете API URL-а
 # В файла src/config/index.ts заменете:
-# export const API_URL = 'https://mojichat-preview.preview.emergentagent.com';
+# export const API_URL = 'https://chat-emoji-dev.preview.emergentagent.com';
 # с:
 # export const API_URL = 'https://mojichat-backend.onrender.com';
 

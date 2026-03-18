@@ -40,6 +40,7 @@ export const EmojiRevealCard = ({
   const [isRevealed, setIsRevealed] = useState(false);
   const [translatedText, setTranslatedText] = useState(null);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [lastTranslatedLang, setLastTranslatedLang] = useState(null);
 
   const hasEmoji = !!message.emoji_content;
   const hasTranslation = !!translatedText && translatedText !== message.content;
@@ -55,10 +56,11 @@ export const EmojiRevealCard = ({
   };
 
   const doTranslate = useCallback(async () => {
-    if (translatedText) return; // Already translated
+    // Re-translate if language changed since last translation
+    if (translatedText && lastTranslatedLang === userLanguage) return;
     setIsTranslating(true);
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('mojichat_token');
       const targetLang = userLanguage === 'auto' ? undefined : userLanguage;
       const res = await axios.post(`${API_URL}/api/translate`, 
         { text: message.content, target_language: targetLang || 'bg' },
@@ -66,12 +68,13 @@ export const EmojiRevealCard = ({
       );
       if (res.data?.translated) {
         setTranslatedText(res.data.translated);
+        setLastTranslatedLang(userLanguage);
       }
     } catch (err) {
       console.error('Translation failed:', err);
     }
     setIsTranslating(false);
-  }, [translatedText, userLanguage, message.content]);
+  }, [translatedText, lastTranslatedLang, userLanguage, message.content]);
 
   const handleClick = useCallback(async (e) => {
     e.stopPropagation();
