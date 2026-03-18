@@ -41,7 +41,8 @@ export const EmojiRevealCard = ({
   };
 
   // Check if emoji content is animated (contains multiple emojis in sequence)
-  const isAnimatedEmoji = message.emoji_content?.length > 4;
+  const emojiChars = message.emoji_content ? [...message.emoji_content] : [];
+  const isAnimatedEmoji = emojiChars.length > 4;
 
   const handleReaction = (emoji) => {
     onReaction?.(emoji);
@@ -158,7 +159,7 @@ export const EmojiRevealCard = ({
                   {/* Animated emoji display */}
                   {isAnimatedEmoji ? (
                     <div className="flex flex-wrap gap-1 text-2xl leading-relaxed tracking-wider">
-                      {message.emoji_content?.split('').map((char, idx) => (
+                      {emojiChars.map((char, idx) => (
                         <motion.span
                           key={idx}
                           initial={{ opacity: 0, y: 10 }}
