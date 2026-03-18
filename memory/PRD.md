@@ -1,115 +1,80 @@
-# MojiChat - PRD (Product Requirements Document)
-
-## Version: 2.2.0 - Bug Fixes (Message Ordering & Theme Flicker)
-
----
+# MojiChat - PRD
 
 ## Original Problem Statement
-Create a chat application named "MojiChat", similar to WhatsApp/Messenger, with:
-- Text-to-emoji conversion (AI-powered)
-- Real-time 1-to-1 and group chats via WebSockets
-- Online status, typing indicators, read receipts
-- Media support (images, voice, files, GIFs)
-- Video calls, message search, push notifications
-- Story/Status feature, user blocking
-- Multi-language support, customizable sounds, Dark/Light/System theme
-- React Native mobile app + React web app
+Chat application "MojiChat" similar to WhatsApp/Messenger with AI-powered text-to-emoji conversion, real-time chat, translation, and media support. React web + React Native mobile + FastAPI backend.
 
 ## Architecture
-- **Backend**: FastAPI + MongoDB + WebSockets (port 8001)
-- **Frontend (Web)**: React (port 3000)
-- **Mobile**: React Native / Expo
-- **AI**: OpenAI GPT-4o for emoji conversion (Emergent LLM Key)
-- **Auth**: JWT + Google Social Login
-- **Media**: Giphy API, file uploads
-- **Builds**: EAS Build + OTA Updates
+- **Backend**: FastAPI + MongoDB Atlas (deployed on **Render**: https://mojichat.onrender.com)
+- **Frontend (Web)**: React + TailwindCSS + Shadcn UI (deploy target: **Vercel**)
+- **Mobile**: React Native / Expo SDK 55
+- **AI**: OpenAI GPT-4o via Emergent LLM Key
+- **Auth**: JWT
 
-## What's Been Implemented
+## What's Implemented
 
-### Core
-- JWT Authentication (register, login, logout, me)
-- 1-to-1 and group conversations
-- Message sending/receiving with polling (3s interval)
-- WebSocket for real-time events (typing, online, messages)
-- File upload (images, audio, video, files)
-- Voice messages with recording + playback
-- Giphy GIF search & send
-- Emoji picker
-- Message reactions
-- Message forwarding
-- User search
-- User blocking
-- Online/offline status
-- Read receipts
+### Backend (Render - LIVE)
+- JWT Auth (register, login, me, forgot-password, reset-password, email verification, phone auth)
+- Conversations CRUD + participants
+- Messages: send, get, forward, reactions
+- WebSocket real-time events
+- File uploads (images, audio, video, files)
+- AI emoji conversion (GPT-4o)
+- AI translation (GPT-4o) - on-demand via POST /api/translate
+- Giphy GIF search
+- Status/Stories CRUD
+- Push notifications (FCM - BROKEN)
+- User blocking, online status, typing indicators
 
-### UI/UX
-- Landing page
-- Login/Register pages
-- Chat layout with sidebar + message area
-- Dark/Light theme toggle (fixed - no flickering)
-- Language selector (6 languages)
-- Message search (Cmd+K)
-- Video call UI placeholder
-- Notification settings
-- PWA install prompt
-- Mobile-responsive sidebar (Sheet)
+### Web Frontend
+- Landing page, Login, Register
+- Chat layout with sidebar + messages
+- EmojiRevealCard: emoji display with [...string] Unicode handling
+- Click-to-reveal: shows translated text + original below
+- Smart polling (preserves reveal/translation state)
+- Dark/Light theme toggle (no flicker - useMemo fix)
+- Language selector (8 languages)
+- Message search, reactions, file upload, voice recorder, GIF picker
+- Responsive sidebar
 
 ### Mobile App
-- All screens: Login, Register, ForgotPassword, PhoneAuth, Conversations, Chat, Settings, NewChat, NewGroup, VideoCall, BlockedUsers, NotificationSettings, Status
-- EAS Build configured
-- OTA Updates configured
+- All screens: Login, Register, Chat, Settings, etc.
+- MessageBubble: emoji display + tap-to-reveal with translation
+- Smart polling (preserves state)
+- Theme context with useMemo (no flicker)
+- EAS Build + OTA configured
 
-### Backend Endpoints
-- Auth: 10 endpoints (register, login, logout, me, forgot-password, reset-password, send-verification, verify-email, phone/send-code, phone/verify)
-- Users: 6 endpoints (search, get, blocked, block, unblock, language)
-- Conversations: CRUD + messages + typing
-- Messages: send, get, forward, reactions
-- Status/Stories: CRUD + view
-- Giphy: search, trending
-- WebSocket: /ws/{user_id}
-- Notifications: send-push
-- Files: upload
-- Calls: initiate, active, end (UI only)
+## Bugs Fixed (March 2026)
+1. ✅ Chat message ordering (inverted FlatList)
+2. ✅ Theme toggle flickering (useMemo context value)
+3. ✅ Diamond ◆ emoji symbols (split('') → [...string])
+4. ✅ CORS error (removed withCredentials for JWT auth)
+5. ✅ Login crash on mobile (push notification try-catch)
+6. ✅ Render deploy (MONGO_URL vs MONGODB_URI)
+7. ✅ Data migration to MongoDB Atlas
+8. ✅ Vercel build (package.json 54 deps, craco, tailwindcss v3)
+9. ✅ Smart polling (doesn't reset reveal/translation state)
 
-## Bugs Fixed (March 15, 2026)
-
-### Bug 1: Chat Message Ordering (P0) - FIXED
-- **Problem**: Messages displayed in wrong order (newest at top)
-- **Root Cause**: Inverted FlatList data sorting was incorrect
-- **Fix (Mobile)**: `ChatScreen.tsx` - Sort newest-first for inverted FlatList + `useCallback` for `renderMessage` and `keyExtractor` + `transform: [{scaleY: -1}]` on ListEmptyComponent + `maintainVisibleContentPosition`
-- **Fix (Web)**: Already correct (oldest-first rendering with scrollIntoView)
-- **Backend**: Returns oldest→newest via `reversed(DESC query)` - confirmed correct
-
-### Bug 2: Theme Toggle Flickering (P1) - FIXED
-- **Problem**: Theme toggle button caused re-render loops/flickering
-- **Root Cause**: Context value object recreated every render, causing all consumers to re-render
-- **Fix (Web)**: `ThemeContext.jsx` - Added `useMemo` for context value
-- **Fix (Mobile)**: `ThemeContext.tsx` - Added `useMemo` for context value + `useCallback` for `setTheme`/`toggleTheme` + `useRef` for theme comparison
-
-## Known Issues / Broken Features
-- Video/Audio calls: UI placeholder only, no WebRTC implementation
-- Forgot Password flow: Uses in-app token instead of Firebase `sendPasswordResetEmail`
-- Push Notifications: FCM server key error - BLOCKED
-- UI Language Translation: Changing language doesn't translate full app interface
-- Emoji reveal characters: Some emoji_content shows replacement characters (diamond ?)
-
-## Pending Tasks (Priority Order)
-1. **P2**: Deploy backend to persistent hosting (Render) - Dockerfile exists
-2. **P2**: Implement Firebase "Forgot Password" flow
-3. **P2**: Implement Video/Audio Calls (WebRTC)
-4. **P2**: Fix Push Notifications (FCM key issue)
-5. **P2**: UI Redesign
-6. **P3**: Complete i18n Integration
-7. **P3**: Finalize Stories, User Blocking, Stickers, Custom Sounds, Message Forwarding
+## Pending Tasks
+1. **P1**: Vercel deploy fix (vercel.json cleaned, package.json updated - needs Save to Github + Redeploy)
+2. **P2**: Mobile OTA update (needs to be run from user's Mac - Expo SDK 55 requires matching Expo Go)
+3. **P2**: Firebase "Forgot Password" flow
+4. **P2**: Video/Audio calls (WebRTC)
+5. **P2**: Push Notifications (FCM key issue)
+6. **P2**: UI Redesign
+7. **P3**: Complete i18n
+8. **P3**: Stories, Blocking, Stickers, Custom Sounds finalization
 
 ## Test Credentials
-- User 1: test1@mojichat.com / Test1234!
-- User 2: test2@mojichat.com / Test1234!
+- Email: konstantin_sabev@abv.bg / Password: Banane.com
 - Giphy API Key: wvmYJRpySN3wAkqi4Basf5boEMSlZPtc
+- Render URL: https://mojichat.onrender.com
+- MongoDB Atlas: mongodb+srv://konstantinsabev_db_user:Zaminawamcom@mojichat-cluster.hdvnz1h.mongodb.net/mojichat_db
 
 ## Key Files
 - `/app/backend/server.py` - Main backend
-- `/app/frontend/src/components/chat/ChatLayout.jsx` - Web chat UI
-- `/app/frontend/src/contexts/ThemeContext.jsx` - Web theme (fixed)
-- `/app/mobile/src/screens/ChatScreen.tsx` - Mobile chat (fixed)
-- `/app/mobile/src/contexts/ThemeContext.tsx` - Mobile theme (fixed)
+- `/app/frontend/src/components/chat/EmojiRevealCard.jsx` - Emoji display + translation
+- `/app/frontend/src/components/chat/ChatLayout.jsx` - Web chat (smart polling)
+- `/app/frontend/src/contexts/ThemeContext.jsx` - Web theme (useMemo)
+- `/app/mobile/src/components/MessageBubble.tsx` - Mobile emoji + translation
+- `/app/mobile/src/screens/ChatScreen.tsx` - Mobile chat (smart polling)
+- `/app/mobile/src/contexts/ThemeContext.tsx` - Mobile theme (useMemo)
