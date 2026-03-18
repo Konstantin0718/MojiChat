@@ -134,6 +134,12 @@ class ApiService {
     return response.data;
   }
 
+  async translate(text: string, targetLanguage: string) {
+    const response = await this.api.post('/translate', { text, target_language: targetLanguage });
+    return response.data;
+  }
+
+
   async setTyping(conversationId: string, isTyping: boolean) {
     await this.api.post(`/conversations/${conversationId}/typing`, { is_typing: isTyping });
   }

@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, CheckCheck, Eye, Globe, Sparkles } from 'lucide-react';
+import { Check, CheckCheck, Eye, Globe, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import axios from 'axios';
 
+const API_URL = process.env.REACT_APP_BACKEND_URL;
 const QUICK_REACTIONS = ['❤️', '😂', '😮', '😢', '🔥', '👍', '👎', '🎉'];
 
 export const EmojiRevealCard = ({ 
@@ -16,20 +18,32 @@ export const EmojiRevealCard = ({
 }) => {
   const [isRevealed, setIsRevealed] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
+  const [translatedText, setTranslatedText] = useState(null);
+  const [isTranslating, setIsTranslating] = useState(false);
   
   const isRead = message.read_by?.length > 1 || 
     (message.read_by?.some(id => id !== message.sender_id));
-  
-  // Get translated content if available
-  const getDisplayContent = () => {
-    if (message.translations && message.translations[userLanguage]) {
-      return message.translations[userLanguage];
-    }
-    return message.content;
-  };
 
-  const hasTranslation = message.translations && message.translations[userLanguage] && 
-    message.translations[userLanguage] !== message.content;
+  const hasTranslation = !!translatedText && translatedText !== message.content;
+
+  const handleReveal = async () => {
+    if (!isRevealed && !translatedText) {
+      // Translate on first reveal
+      setIsTranslating(true);
+      try {
+        const token = localStorage.getItem('auth_token');
+        const res = await axios.post(`${API_URL}/api/translate`, 
+          { text: message.content, target_language: userLanguage },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        setTranslatedText(res.data.translated);
+      } catch (_) {
+        setTranslatedText(null);
+      }
+      setIsTranslating(false);
+    }
+    setIsRevealed(!isRevealed);
+  };
   
   const formatTime = (dateString) => {
     const date = new Date(dateString);
@@ -91,8 +105,8 @@ export const EmojiRevealCard = ({
         )}
 
         <div
-          onClick={() => setIsRevealed(!isRevealed)}
-          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setIsRevealed(!isRevealed)}
+          onClick={() => handleReveal()}
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleReveal()}
           role="button"
           tabIndex={0}
           aria-label={isRevealed ? "Hide original text" : "Reveal original text"}
@@ -125,26 +139,33 @@ export const EmojiRevealCard = ({
                   transition={{ duration: 0.2 }}
                   className="space-y-2"
                 >
-                  <div className="flex items-start gap-2">
-                    <Eye className="w-4 h-4 mt-0.5 opacity-50 flex-shrink-0" />
-                    <p className="text-sm leading-relaxed break-words">
-                      {getDisplayContent()}
-                    </p>
-                  </div>
-                  
-                  {/* Translation indicator */}
-                  {hasTranslation && (
-                    <div className="flex items-center gap-1 text-xs opacity-60">
-                      <Globe className="w-3 h-3" />
-                      <span>Translated</span>
+                  {isTranslating ? (
+                    <div className="flex items-center gap-2 py-1">
+                      <Loader2 className="w-4 h-4 animate-spin opacity-50" />
+                      <span className="text-sm opacity-50">Translating...</span>
                     </div>
-                  )}
-                  
-                  {/* Original text if translated */}
-                  {hasTranslation && (
-                    <div className="text-xs opacity-50 italic border-t border-current/20 pt-2 mt-2">
-                      Original: {message.content}
-                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start gap-2">
+                        <Eye className="w-4 h-4 mt-0.5 opacity-50 flex-shrink-0" />
+                        <p className="text-sm leading-relaxed break-words">
+                          {translatedText || message.content}
+                        </p>
+                      </div>
+                      
+                      {/* Translation indicator + original */}
+                      {hasTranslation && (
+                        <>
+                          <div className="flex items-center gap-1 text-xs opacity-60">
+                            <Globe className="w-3 h-3" />
+                            <span>Translated</span>
+                          </div>
+                          <div className="text-xs opacity-50 italic border-t border-current/20 pt-2 mt-2">
+                            {message.content}
+                          </div>
+                        </>
+                      )}
+                    </>
                   )}
                 </motion.div>
               ) : (

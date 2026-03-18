@@ -16,12 +16,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { api } from '../services/api';
+import { MessageBubble } from '../components/MessageBubble';
 
 interface Message {
   message_id: string;
   sender_id: string;
   sender_name: string;
   content: string;
+  emoji_content?: string;
+  translations?: Record<string, string>;
+  reactions?: Record<string, string[]>;
+  read_by?: string[];
+  message_type?: string;
+  file_url?: string;
   created_at: string;
 }
 
@@ -45,6 +52,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const flatListRef = useRef<FlatList>(null);
 
+  const [conversationData, setConversationData] = useState<any>(null);
+
   useEffect(() => {
     if (!conversationId) {
       Alert.alert('Error', 'No conversation ID provided');
@@ -63,6 +72,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     if (!conversationId) return;
     try {
       const conv = await api.getConversation(conversationId);
+      setConversationData(conv);
       if (conv.name) {
         setConversationName(conv.name);
       } else if (conv.participants) {
@@ -77,11 +87,15 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     try {
       const data = await api.getMessages(conversationId);
       if (Array.isArray(data)) {
-        // Backend returns oldest→newest. For inverted FlatList, we need newest first (index 0 = newest).
         const sorted = [...data].sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
-        setMessages(sorted);
+        setMessages(prev => {
+          // Only update if messages changed (preserve reveal/translation state)
+          if (prev.length !== sorted.length) return sorted;
+          if (prev[0]?.message_id !== sorted[0]?.message_id) return sorted;
+          return prev;
+        });
       } else {
         setMessages([]);
       }
@@ -110,37 +124,16 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   };
 
   const renderMessage = useCallback(
-    ({ item }: { item: Message }) => {
-      const isOwn = item.sender_id === user?.user_id;
-
-      return (
-        <View style={[styles.messageRow, isOwn && styles.messageRowOwn]}>
-          <View
-            style={[
-              styles.messageBubble,
-              isOwn ? styles.bubbleOwn : styles.bubbleOther,
-              { backgroundColor: isOwn ? colors.primary : colors.card },
-            ]}
-          >
-            <Text style={[styles.messageText, { color: isOwn ? '#fff' : colors.text }]}>
-              {item.content}
-            </Text>
-            <Text
-              style={[
-                styles.messageTime,
-                { color: isOwn ? 'rgba(255,255,255,0.7)' : colors.textSecondary },
-              ]}
-            >
-              {new Date(item.created_at).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </Text>
-          </View>
-        </View>
-      );
-    },
-    [user?.user_id, colors]
+    ({ item }: { item: Message }) => (
+      <MessageBubble
+        message={item}
+        currentUser={user}
+        conversation={conversationData}
+        colors={colors}
+        userLanguage={user?.preferred_language || 'en'}
+      />
+    ),
+    [user, conversationData, colors]
   );
 
   const keyExtractor = useCallback(
@@ -179,36 +172,6 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     },
     messagesContent: {
       paddingVertical: 12,
-    },
-    messageRow: {
-      marginVertical: 4,
-      flexDirection: 'row',
-      justifyContent: 'flex-start',
-    },
-    messageRowOwn: {
-      justifyContent: 'flex-end',
-    },
-    messageBubble: {
-      maxWidth: '85%',
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: 18,
-    },
-    bubbleOwn: {
-      borderBottomRightRadius: 4,
-    },
-    bubbleOther: {
-      borderBottomLeftRadius: 4,
-    },
-    messageText: {
-      fontSize: 16,
-      lineHeight: 22,
-      flexWrap: 'wrap',
-    },
-    messageTime: {
-      fontSize: 11,
-      marginTop: 4,
-      textAlign: 'right',
     },
     inputContainer: {
       flexDirection: 'row',

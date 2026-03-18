@@ -95,7 +95,15 @@ export const ChatLayout = () => {
     if (!conversationId) return;
     try {
       const response = await api.get(`/conversations/${conversationId}/messages`);
-      setMessages(response.data);
+      const newMsgs = response.data;
+      setMessages(prev => {
+        // Only update if messages actually changed (preserve component state)
+        if (prev.length !== newMsgs.length) return newMsgs;
+        const lastOld = prev[prev.length - 1];
+        const lastNew = newMsgs[newMsgs.length - 1];
+        if (lastOld?.message_id !== lastNew?.message_id) return newMsgs;
+        return prev;
+      });
     } catch (error) {
       console.error('Error fetching messages:', error);
     }
