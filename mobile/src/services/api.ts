@@ -240,6 +240,13 @@ class ApiService {
     return response.data;
   }
 
+  async subscribeFcm(fcmToken: string) {
+    const response = await this.api.post('/notifications/subscribe-fcm', {
+      fcm_token: fcmToken,
+    });
+    return response.data;
+  }
+
   async getNotifications() {
     const response = await this.api.get('/notifications');
     return response.data;

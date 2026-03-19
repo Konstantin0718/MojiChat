@@ -11,12 +11,35 @@ import {
   SafeAreaView,
   ActivityIndicator,
   Alert,
+  Modal,
+  ScrollView,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { api } from '../services/api';
 import { MessageBubble } from '../components/MessageBubble';
+
+const LANGUAGES: Record<string, { name: string; flag: string; native: string }> = {
+  auto: { name: 'Auto-detect', flag: '🌐', native: 'Auto' },
+  en: { name: 'English', flag: '🇬🇧', native: 'English' },
+  bg: { name: 'Bulgarian', flag: '🇧🇬', native: 'Български' },
+  de: { name: 'German', flag: '🇩🇪', native: 'Deutsch' },
+  es: { name: 'Spanish', flag: '🇪🇸', native: 'Español' },
+  fr: { name: 'French', flag: '🇫🇷', native: 'Français' },
+  it: { name: 'Italian', flag: '🇮🇹', native: 'Italiano' },
+  ru: { name: 'Russian', flag: '🇷🇺', native: 'Русский' },
+  tr: { name: 'Turkish', flag: '🇹🇷', native: 'Türkçe' },
+  zh: { name: 'Chinese', flag: '🇨🇳', native: '中文' },
+  ja: { name: 'Japanese', flag: '🇯🇵', native: '日本語' },
+  ko: { name: 'Korean', flag: '🇰🇷', native: '한국어' },
+  ar: { name: 'Arabic', flag: '🇸🇦', native: 'العربية' },
+  pt: { name: 'Portuguese', flag: '🇵🇹', native: 'Português' },
+  nl: { name: 'Dutch', flag: '🇳🇱', native: 'Nederlands' },
+  pl: { name: 'Polish', flag: '🇵🇱', native: 'Polski' },
+  uk: { name: 'Ukrainian', flag: '🇺🇦', native: 'Українська' },
+};
 
 interface Message {
   message_id: string;
@@ -49,10 +72,18 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [conversationName, setConversationName] = useState(paramName || 'Chat');
+  const [translationLang, setTranslationLang] = useState('bg');
+  const [showLangModal, setShowLangModal] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
-
   const [conversationData, setConversationData] = useState<any>(null);
+
+  // Load translation language from AsyncStorage
+  useEffect(() => {
+    AsyncStorage.getItem('mojichat_translation_lang').then((lang) => {
+      if (lang) setTranslationLang(lang);
+    });
+  }, []);
 
   useEffect(() => {
     if (!conversationId) {
@@ -91,7 +122,6 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
         setMessages(prev => {
-          // Only update if messages changed (preserve reveal/translation state)
           if (prev.length !== sorted.length) return sorted;
           if (prev[0]?.message_id !== sorted[0]?.message_id) return sorted;
           return prev;
@@ -123,6 +153,12 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   };
 
+  const selectLanguage = async (langCode: string) => {
+    setTranslationLang(langCode);
+    await AsyncStorage.setItem('mojichat_translation_lang', langCode);
+    setShowLangModal(false);
+  };
+
   const renderMessage = useCallback(
     ({ item }: { item: Message }) => (
       <MessageBubble
@@ -130,16 +166,18 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         currentUser={user}
         conversation={conversationData}
         colors={colors}
-        userLanguage={user?.preferred_language || 'bg'}
+        translationLanguage={translationLang}
       />
     ),
-    [user, conversationData, colors]
+    [user, conversationData, colors, translationLang]
   );
 
   const keyExtractor = useCallback(
     (item: Message, index: number) => item.message_id || `msg-${index}`,
     []
   );
+
+  const currentLangData = LANGUAGES[translationLang] || LANGUAGES.bg;
 
   const styles = StyleSheet.create({
     container: {
@@ -165,6 +203,22 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       fontWeight: '600',
       color: colors.text,
       marginLeft: 8,
+    },
+    langButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.background,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: 4,
+    },
+    langButtonText: {
+      fontSize: 13,
+      fontWeight: '500',
+      color: colors.text,
     },
     messagesList: {
       flex: 1,
@@ -215,12 +269,64 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       justifyContent: 'center',
       alignItems: 'center',
       paddingVertical: 40,
-      // Flip text back upright inside inverted FlatList
       transform: [{ scaleY: -1 }],
     },
     emptyText: {
       color: colors.textSecondary,
       fontSize: 16,
+    },
+    // Modal styles
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    modalContent: {
+      width: '85%',
+      maxHeight: '70%',
+      backgroundColor: colors.card,
+      borderRadius: 20,
+      padding: 20,
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: colors.text,
+      textAlign: 'center',
+      marginBottom: 16,
+    },
+    langOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      marginBottom: 4,
+    },
+    langOptionActive: {
+      backgroundColor: colors.primary + '20',
+      borderWidth: 2,
+      borderColor: colors.primary,
+    },
+    langOptionInactive: {
+      backgroundColor: colors.background,
+    },
+    langFlag: {
+      fontSize: 24,
+      marginRight: 12,
+    },
+    langName: {
+      fontSize: 16,
+      fontWeight: '500',
+      color: colors.text,
+    },
+    langNameNative: {
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+    langCheck: {
+      marginLeft: 'auto',
     },
   });
 
@@ -247,9 +353,57 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           <Text style={styles.headerTitle} numberOfLines={1}>
             {conversationName}
           </Text>
+          {/* Translation Language Selector */}
+          <TouchableOpacity
+            style={styles.langButton}
+            onPress={() => setShowLangModal(true)}
+          >
+            <Text style={{ fontSize: 18 }}>{currentLangData.flag}</Text>
+            <Text style={styles.langButtonText}>{currentLangData.native}</Text>
+            <Ionicons name="globe-outline" size={16} color={colors.text} />
+          </TouchableOpacity>
         </View>
 
-        {/* Messages - inverted: data[0] (newest) renders at the bottom */}
+        {/* Language Selection Modal */}
+        <Modal
+          visible={showLangModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowLangModal(false)}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowLangModal(false)}
+          >
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Превод на съобщения</Text>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {Object.entries(LANGUAGES).map(([code, data]) => (
+                  <TouchableOpacity
+                    key={code}
+                    style={[
+                      styles.langOption,
+                      translationLang === code ? styles.langOptionActive : styles.langOptionInactive,
+                    ]}
+                    onPress={() => selectLanguage(code)}
+                  >
+                    <Text style={styles.langFlag}>{data.flag}</Text>
+                    <View>
+                      <Text style={styles.langName}>{data.native}</Text>
+                      <Text style={styles.langNameNative}>{data.name}</Text>
+                    </View>
+                    {translationLang === code && (
+                      <Ionicons name="checkmark-circle" size={22} color={colors.primary} style={styles.langCheck} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Messages */}
         <FlatList
           ref={flatListRef}
           inverted
@@ -269,7 +423,6 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
               </Text>
             </View>
           }
-          // No manual scroll-to logic - let inverted handle it naturally
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         />
 

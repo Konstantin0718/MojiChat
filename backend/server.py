@@ -53,6 +53,23 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 # Giphy API Key
 GIPHY_API_KEY = os.environ.get('GIPHY_API_KEY', '')
 
+# ==================== FIREBASE ADMIN SDK ====================
+import firebase_admin
+from firebase_admin import credentials, messaging as fcm_messaging
+
+firebase_app = None
+try:
+    firebase_cred_path = ROOT_DIR / 'firebase-service-account.json'
+    if firebase_cred_path.exists():
+        cred = credentials.Certificate(str(firebase_cred_path))
+        firebase_app = firebase_admin.initialize_app(cred)
+        logging.info("Firebase Admin SDK initialized successfully")
+    else:
+        logging.warning("Firebase service account file not found, FCM push disabled")
+except Exception as e:
+    logging.error(f"Firebase Admin SDK init error: {e}")
+    firebase_app = None
+
 # ==================== WEBSOCKET MANAGER ====================
 
 class ConnectionManager:
@@ -2157,7 +2174,31 @@ async def subscribe_push(subscription: PushSubscription, request: Request):
         upsert=True
     )
     
-    return {"status": "subscribed"}
+    return {"status": "subscribed", "firebase_enabled": firebase_app is not None}
+
+@api_router.post("/notifications/subscribe-fcm")
+async def subscribe_fcm(request: Request):
+    """Subscribe with FCM device token"""
+    current_user = await get_current_user(request)
+    body = await request.json()
+    fcm_token = body.get("fcm_token")
+    
+    if not fcm_token:
+        raise HTTPException(status_code=400, detail="fcm_token is required")
+    
+    await db.push_subscriptions.update_one(
+        {"user_id": current_user["user_id"], "endpoint": fcm_token},
+        {"$set": {
+            "user_id": current_user["user_id"],
+            "endpoint": fcm_token,
+            "token_type": "fcm",
+            "keys": {"fcm": True},
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }},
+        upsert=True
+    )
+    
+    return {"status": "subscribed", "token_type": "fcm"}
 
 @api_router.delete("/notifications/unsubscribe")
 async def unsubscribe_push(request: Request):
@@ -2227,13 +2268,36 @@ class SendPushRequest(BaseModel):
 
 @api_router.post("/notifications/send-push")
 async def send_push_notification(push_data: SendPushRequest, request: Request):
-    """Send push notification via Expo Push API"""
+    """Send push notification via Expo Push API or FCM"""
     current_user = await get_current_user(request)
     
-    # Expo Push API endpoint
+    # Try FCM first if we have Firebase Admin SDK and it's an FCM token
+    if firebase_app and push_data.expo_token and not push_data.expo_token.startswith("ExponentPushToken"):
+        try:
+            fcm_message = fcm_messaging.Message(
+                notification=fcm_messaging.Notification(
+                    title=push_data.title,
+                    body=push_data.body,
+                ),
+                data=push_data.data if push_data.data else {},
+                token=push_data.expo_token,
+                android=fcm_messaging.AndroidConfig(
+                    priority='high',
+                    notification=fcm_messaging.AndroidNotification(
+                        sound='default',
+                        channel_id='messages',
+                    ),
+                ),
+            )
+            response = fcm_messaging.send(fcm_message)
+            logger.info(f"FCM push sent: {response}")
+            return {"success": True, "message": "FCM push notification sent!", "details": {"message_id": response}}
+        except Exception as e:
+            logger.error(f"FCM push error: {e}")
+
+    # Fallback to Expo Push API
     EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
     
-    # Prepare the message
     message = {
         "to": push_data.expo_token,
         "title": push_data.title,
@@ -2264,7 +2328,6 @@ async def send_push_notification(push_data: SendPushRequest, request: Request):
             logger.info(f"Expo Push API response: {result}")
             
             if response.status_code == 200:
-                # Check for errors in the response
                 if "data" in result:
                     ticket = result["data"]
                     if ticket.get("status") == "ok":

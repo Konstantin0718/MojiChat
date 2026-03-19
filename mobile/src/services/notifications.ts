@@ -181,12 +181,23 @@ class NotificationService {
 
       // Step 6: Register with backend
       if (this.expoPushToken) {
-        console.log('\n📋 Step 6: Registering token with backend...');
+        console.log('\n📋 Step 6: Registering Expo token with backend...');
         try {
           await api.subscribePush(this.expoPushToken);
-          console.log('   ✅ Token registered with backend');
+          console.log('   ✅ Expo token registered with backend');
         } catch (backendError) {
-          console.log('   ⚠️ Failed to register with backend:', backendError);
+          console.log('   ⚠️ Failed to register Expo token with backend:', backendError);
+        }
+      }
+
+      // Step 7: Register FCM token with backend (for Firebase Cloud Messaging)
+      if (this.fcmToken) {
+        console.log('\n📋 Step 7: Registering FCM token with backend...');
+        try {
+          await api.subscribeFcm(this.fcmToken);
+          console.log('   ✅ FCM token registered with backend');
+        } catch (fcmBackendError) {
+          console.log('   ⚠️ Failed to register FCM token with backend:', fcmBackendError);
         }
       }
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -39,7 +39,7 @@ interface Props {
   currentUser: User | null;
   conversation: Conversation | null;
   colors: any;
-  userLanguage?: string;
+  translationLanguage?: string;
 }
 
 export const MessageBubble: React.FC<Props> = ({
@@ -47,34 +47,41 @@ export const MessageBubble: React.FC<Props> = ({
   currentUser,
   conversation,
   colors,
-  userLanguage = 'bg',
+  translationLanguage = 'bg',
 }) => {
   const isOwn = message.sender_id === currentUser?.user_id;
   const [isRevealed, setIsRevealed] = useState(false);
   const [translatedText, setTranslatedText] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [lastTranslatedLang, setLastTranslatedLang] = useState<string | null>(null);
 
   const hasEmoji = !!message.emoji_content;
   const detectedLang = detectLanguage(message.content);
   const langFlag = LANG_FLAGS[detectedLang] || '🌐';
+  const hasTranslation = !!translatedText && translatedText !== message.content;
 
-  const doTranslate = async () => {
-    if (translatedText) return;
+  const doTranslate = useCallback(async () => {
+    // Skip if already translated with same language
+    if (translatedText && lastTranslatedLang === translationLanguage) return;
     setIsTranslating(true);
     try {
-      const targetLang = userLanguage === 'auto' ? 'bg' : (userLanguage || 'bg');
+      const targetLang = translationLanguage === 'auto' ? 'bg' : (translationLanguage || 'bg');
       const result = await api.translate(message.content, targetLang);
       setTranslatedText(result.translated);
+      setLastTranslatedLang(translationLanguage);
     } catch (_) {
       setTranslatedText(null);
     }
     setIsTranslating(false);
-  };
+  }, [translatedText, lastTranslatedLang, translationLanguage, message.content]);
 
   const handleTap = async () => {
     if (!isRevealed) {
       setIsRevealed(true);
-      await doTranslate();
+      // Only translate received messages, NOT own messages
+      if (!isOwn) {
+        await doTranslate();
+      }
     } else {
       setIsRevealed(false);
     }
@@ -129,25 +136,36 @@ export const MessageBubble: React.FC<Props> = ({
       )}
 
       {isRevealed ? (
-        /* REVEALED: translation + original */
+        /* REVEALED STATE */
         <View>
-          {isTranslating ? (
-            <ActivityIndicator size="small" color={isOwn ? '#fff' : colors.primary} />
+          {isOwn ? (
+            /* OWN MESSAGE: just show original text, no translation */
+            <Text style={[styles.text, { color: '#fff' }]}>
+              {message.content}
+            </Text>
           ) : (
+            /* RECEIVED MESSAGE: show translation + original */
             <>
-              <Text style={[styles.text, { color: isOwn ? '#fff' : colors.text }]}>
-                {translatedText || message.content}
-              </Text>
-              {translatedText && translatedText !== message.content && (
+              {isTranslating ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
                 <>
-                  <View style={[styles.divider, { borderTopColor: isOwn ? 'rgba(255,255,255,0.2)' : 'rgba(128,128,128,0.2)' }]}>
-                    <Text style={[styles.originalLabel, { color: isOwn ? 'rgba(255,255,255,0.5)' : colors.textSecondary }]}>
-                      Original ({langFlag}):
-                    </Text>
-                    <Text style={[styles.originalText, { color: isOwn ? 'rgba(255,255,255,0.5)' : colors.textSecondary }]}>
-                      {message.content}
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
+                    <Ionicons name="language" size={16} color={colors.primary} style={{ marginTop: 2 }} />
+                    <Text style={[styles.text, { color: colors.text, flex: 1 }]}>
+                      {translatedText || message.content}
                     </Text>
                   </View>
+                  {hasTranslation && (
+                    <View style={[styles.divider, { borderTopColor: 'rgba(128,128,128,0.2)' }]}>
+                      <Text style={[styles.originalLabel, { color: colors.textSecondary }]}>
+                        Original ({langFlag}):
+                      </Text>
+                      <Text style={[styles.originalText, { color: colors.textSecondary }]}>
+                        {message.content}
+                      </Text>
+                    </View>
+                  )}
                 </>
               )}
             </>
@@ -165,11 +183,16 @@ export const MessageBubble: React.FC<Props> = ({
           </Text>
         </View>
       ) : (
-        /* PLAIN TEXT - tap to translate */
+        /* PLAIN TEXT */
         <View>
           <Text style={[styles.text, { color: isOwn ? '#fff' : colors.text }]}>
             {message.content}
           </Text>
+          {!isOwn && (
+            <Text style={[styles.tapHint, { color: colors.textSecondary }]}>
+              tap to translate
+            </Text>
+          )}
         </View>
       )}
 
