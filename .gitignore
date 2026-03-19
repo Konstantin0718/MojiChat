@@ -160,3 +160,7 @@ frontend/node_modules/.cache/default-development/0.pack
 *.env
 *.env.*
 firebase-service-account.json
+-e 
+# Environment files
+*.env
+*.env.*
