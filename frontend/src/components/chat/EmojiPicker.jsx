@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Smile, X } from 'lucide-react';
+import { Smile, X, Search } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { cn } from '../../lib/utils';
+import axios from 'axios';
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 const EMOJI_CATEGORIES = {
   smileys: {
@@ -60,7 +63,7 @@ const ANIMATED_STICKERS = [
   { id: 'diamond', emoji: '💎', animation: 'sparkle' },
 ];
 
-export const EmojiPicker = ({ onSelect, onClose }) => {
+export const EmojiPicker = ({ onSelect, onClose, onGifSelect }) => {
   const [activeTab, setActiveTab] = useState('emojis');
   const [recentEmojis, setRecentEmojis] = useState(() => {
     try {
@@ -69,6 +72,33 @@ export const EmojiPicker = ({ onSelect, onClose }) => {
       return [];
     }
   });
+  const [gifQuery, setGifQuery] = useState('');
+  const [gifs, setGifs] = useState([]);
+  const [gifsLoading, setGifsLoading] = useState(false);
+
+  const loadGifs = useCallback(async (query = '') => {
+    setGifsLoading(true);
+    try {
+      const token = localStorage.getItem('mojichat_token');
+      const endpoint = query.trim() ? '/api/giphy/search' : '/api/giphy/trending';
+      const params = query.trim() ? { q: query, limit: 20 } : { limit: 20 };
+      const res = await axios.get(`${API_URL}${endpoint}`, {
+        params,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      setGifs(res.data?.gifs || []);
+    } catch (e) {
+      console.error('Giphy error:', e);
+    }
+    setGifsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'gifs') {
+      const timer = setTimeout(() => loadGifs(gifQuery), 400);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, gifQuery, loadGifs]);
 
   const handleEmojiSelect = (emoji, isAnimated = false) => {
     // Add to recent
@@ -193,45 +223,51 @@ export const EmojiPicker = ({ onSelect, onClose }) => {
           </ScrollArea>
         </TabsContent>
 
-        {/* GIFs Tab */}
+        {/* GIFs Tab - Real Giphy */}
         <TabsContent value="gifs" className="m-0">
+          <div className="px-3 pt-2 pb-1">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={gifQuery}
+                onChange={(e) => setGifQuery(e.target.value)}
+                placeholder="Search GIFs..."
+                className="w-full pl-8 pr-3 py-2 text-sm bg-muted rounded-lg border-none outline-none focus:ring-1 focus:ring-primary/50"
+                data-testid="gif-search-input"
+              />
+            </div>
+          </div>
           <ScrollArea className="h-64">
             <div className="p-3">
-              <p className="text-xs text-muted-foreground mb-2">Popular GIFs</p>
-              <div className="grid grid-cols-2 gap-2">
-                {/* GIF-like animated emoji combinations */}
-                {[
-                  { emojis: ['🎉', '🎊', '✨', '🎈'], label: 'Party' },
-                  { emojis: ['❤️', '💕', '💖', '💗'], label: 'Love' },
-                  { emojis: ['😂', '🤣', '😆', '😄'], label: 'Laugh' },
-                  { emojis: ['👋', '🙋', '🤗', '😊'], label: 'Hello' },
-                  { emojis: ['👏', '🎊', '🥳', '🎉'], label: 'Congrats' },
-                  { emojis: ['😢', '😭', '💔', '🥺'], label: 'Sad' },
-                  { emojis: ['🔥', '💥', '⚡', '💫'], label: 'Fire' },
-                  { emojis: ['🌟', '✨', '⭐', '💫'], label: 'Stars' },
-                ].map((gif, idx) => (
-                  <motion.button
-                    key={idx}
-                    onClick={() => handleEmojiSelect(gif.emojis.join(''), true)}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="p-3 bg-muted rounded-xl hover:bg-primary/10 transition-colors text-left"
-                  >
-                    <div className="flex gap-1 text-2xl mb-1">
-                      {gif.emojis.map((e, i) => (
-                        <motion.span
-                          key={i}
-                          animate={{ y: [0, -5, 0] }}
-                          transition={{ duration: 0.5, delay: i * 0.1, repeat: Infinity }}
-                        >
-                          {e}
-                        </motion.span>
-                      ))}
-                    </div>
-                    <p className="text-xs text-muted-foreground">{gif.label}</p>
-                  </motion.button>
-                ))}
-              </div>
+              {gifsLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : gifs.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-8">
+                  {gifQuery ? 'No GIFs found' : 'Loading...'}
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {gifs.map((gif) => (
+                    <button
+                      key={gif.id}
+                      onClick={() => onGifSelect?.(gif)}
+                      className="overflow-hidden rounded-lg hover:opacity-80 transition-opacity"
+                      data-testid={`gif-${gif.id}`}
+                    >
+                      <img
+                        src={gif.preview_url}
+                        alt={gif.title}
+                        className="w-full h-24 object-cover bg-muted"
+                        loading="lazy"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="text-center text-[10px] text-muted-foreground mt-2">Powered by GIPHY</p>
             </div>
           </ScrollArea>
         </TabsContent>

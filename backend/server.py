@@ -59,13 +59,15 @@ from firebase_admin import credentials, messaging as fcm_messaging
 
 firebase_app = None
 try:
-    firebase_cred_path = ROOT_DIR / 'firebase-service-account.json'
-    if firebase_cred_path.exists():
-        cred = credentials.Certificate(str(firebase_cred_path))
+    firebase_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
+    if firebase_json:
+        import json as json_module
+        cred_dict = json_module.loads(firebase_json)
+        cred = credentials.Certificate(cred_dict)
         firebase_app = firebase_admin.initialize_app(cred)
-        logging.info("Firebase Admin SDK initialized successfully")
+        logging.info("Firebase Admin SDK initialized from env var")
     else:
-        logging.warning("Firebase service account file not found, FCM push disabled")
+        logging.warning("FIREBASE_SERVICE_ACCOUNT_JSON not set, FCM push disabled")
 except Exception as e:
     logging.error(f"Firebase Admin SDK init error: {e}")
     firebase_app = None

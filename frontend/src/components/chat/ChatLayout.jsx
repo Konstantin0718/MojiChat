@@ -23,7 +23,8 @@ import {
   Video,
   Phone,
   PhoneOff,
-  Bell
+  Bell,
+  Camera
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { ThemeToggle } from '../ui/ThemeToggle';
@@ -70,6 +71,7 @@ export const ChatLayout = () => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showFileUploader, setShowFileUploader] = useState(false);
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [userLanguage, setUserLanguage] = useState(user?.preferred_language || 'bg');
   const [translationLang, setTranslationLang] = useState(() => localStorage.getItem('mojichat_translation_lang') || 'bg');
@@ -325,6 +327,68 @@ export const ChatLayout = () => {
       await fetchMessages();
     } catch (error) {
       console.error('Failed to add reaction:', error);
+    }
+  };
+
+  // Send GIF message
+  const sendGifMessage = async (gif) => {
+    if (!conversationId || sending) return;
+    setSending(true);
+    try {
+      await api.post(`/conversations/${conversationId}/messages`, {
+        content: gif.title || 'GIF',
+        message_type: 'gif',
+        file_url: gif.original_url || gif.url,
+      });
+      setShowEmojiPicker(false);
+      await fetchMessages();
+    } catch (error) {
+      toast.error('Failed to send GIF');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Camera capture
+  const handleCameraCapture = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.autoplay = true;
+      await video.play();
+
+      // Wait a moment for camera to warm up
+      await new Promise(r => setTimeout(r, 500));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+
+      // Stop camera
+      stream.getTracks().forEach(t => t.stop());
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const formData = new FormData();
+        formData.append('file', blob, `camera_${Date.now()}.jpg`);
+        try {
+          const uploadRes = await api.post('/upload', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          await api.post(`/conversations/${conversationId}/messages`, {
+            content: 'Photo',
+            message_type: 'image',
+            file_url: uploadRes.data.file_url,
+          });
+          await fetchMessages();
+        } catch (e) {
+          toast.error('Failed to send photo');
+        }
+      }, 'image/jpeg', 0.85);
+    } catch (err) {
+      toast.error('Camera not available');
     }
   };
 
@@ -1113,6 +1177,18 @@ export const ChatLayout = () => {
                   <Paperclip className="w-5 h-5" />
                 </Button>
 
+                {/* Camera button */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCameraCapture}
+                  className="rounded-full"
+                  data-testid="camera-btn"
+                >
+                  <Camera className="w-5 h-5" />
+                </Button>
+
                 {/* Voice recorder or input */}
                 {showVoiceRecorder ? (
                   <div className="flex-1">
@@ -1155,6 +1231,9 @@ export const ChatLayout = () => {
                               onSelect={(emoji) => {
                                 setNewMessage(prev => prev + emoji);
                                 setShowEmojiPicker(false);
+                              }}
+                              onGifSelect={(gif) => {
+                                sendGifMessage(gif);
                               }}
                               onClose={() => setShowEmojiPicker(false)}
                             />

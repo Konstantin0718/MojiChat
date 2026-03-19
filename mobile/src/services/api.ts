@@ -125,7 +125,8 @@ class ApiService {
     return response.data;
   }
 
-  async sendMessage(conversationId: string, content: string, messageType: string = 'text', fileData?: any) {
+  async sendMessage(conversationId: string, content: string, messageType: string = 'text', fileUrlOrData?: any) {
+    const fileData = typeof fileUrlOrData === 'string' ? { file_url: fileUrlOrData } : (fileUrlOrData || {});
     const response = await this.api.post(`/conversations/${conversationId}/messages`, {
       content,
       message_type: messageType,
@@ -150,12 +151,14 @@ class ApiService {
   }
 
   // Files
-  async uploadFile(uri: string, fileName: string, mimeType: string) {
+  async uploadFile(uri: string, fileName?: string, mimeType?: string) {
+    const name = fileName || uri.split('/').pop() || 'file';
+    const type = mimeType || 'application/octet-stream';
     const formData = new FormData();
     formData.append('file', {
       uri,
-      name: fileName,
-      type: mimeType,
+      name,
+      type,
     } as any);
 
     const response = await this.api.post('/upload', formData, {
