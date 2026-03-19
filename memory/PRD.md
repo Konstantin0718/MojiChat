@@ -1,11 +1,11 @@
 # MojiChat - PRD
 
 ## Original Problem Statement
-Chat application "MojiChat" similar to WhatsApp/Messenger with AI-powered text-to-emoji conversion, real-time chat, translation, and media support.
+Chat application "MojiChat" - WhatsApp-like with AI emoji conversion, real-time chat, translation, media.
 
 ## Architecture
-- **Backend**: FastAPI + MongoDB Atlas + Firebase Admin SDK (Render: https://mojichat.onrender.com)
-- **Frontend (Web)**: React + TailwindCSS + Shadcn UI (Vercel)
+- **Backend**: FastAPI + MongoDB Atlas + Firebase Admin SDK (env var)
+- **Frontend (Web)**: React + TailwindCSS + Shadcn UI
 - **Mobile**: React Native / Expo SDK 55
 - **AI**: OpenAI GPT-4o via Emergent LLM Key
 
@@ -15,50 +15,43 @@ Chat application "MojiChat" similar to WhatsApp/Messenger with AI-powered text-t
 - JWT Auth, conversations, messages, WebSocket, file uploads, voice, Giphy, reactions
 
 ### Emoji + Translation
-- **Emoji display**: Unicode emojis (no diamond symbols)
-- **Click-to-reveal**: Messages translate on click
-- **Auto-detect language**: 17 manual languages + auto-detect
-- **Inline language badges**: flag emoji per message
+- Click-to-reveal, auto-detect language, 17 languages + auto, inline language badges
+- Separate translation language (chat header, localStorage) and UI language (settings, server)
+- Mobile: own messages don't translate, received messages translate on tap
 
-### Language Selectors (March 18, 2026)
-- **Translation language** (chat header): Stored in localStorage(`mojichat_translation_lang`), dialog "Превод на съобщения"
-- **UI language** (Settings): Stored on server via `PUT /api/users/language`, section "Език на интерфейса"
-- Both selectors independent on web AND mobile
+### Chat Toolbar (Web + Mobile) - March 19, 2026
+- **Voice messages**: Functional recording + sending (MediaRecorder on web, expo-av on mobile)
+- **Giphy GIFs**: Real Giphy API integration with search and trending
+- **Emoji picker**: Full emoji categories + stickers + GIF tabs
+- **File attachment**: Drag & drop on web, DocumentPicker on mobile
+- **Camera**: getUserMedia capture on web, ImagePicker.launchCameraAsync on mobile
+- **Gallery**: Image picker for photos/videos
 
-### Mobile Translation Fix (March 19, 2026)
-- **Own messages**: Tap reveals original text only, NO translation API call
-- **Received messages**: Tap triggers translation (same as web)
-- **Language selector**: Button in chat header opens modal with all 17 languages
-- **Translation language**: Persisted in AsyncStorage(`mojichat_translation_lang`)
-
-### Push Notifications - Firebase Admin SDK (March 19, 2026)
-- Firebase service account key configured (`firebase-service-account.json`)
-- Firebase Admin SDK initialized on backend startup
-- FCM token registration: `POST /api/notifications/subscribe-fcm`
-- Push sending: FCM first (native tokens), Expo Push API fallback
-- Mobile notification service registers both Expo + FCM tokens
+### Firebase (from env var - safe for GitHub)
+- Service account JSON stored in FIREBASE_SERVICE_ACCOUNT_JSON env var
+- firebase-service-account.json file DELETED from code
+- FCM push via Firebase Admin SDK
+- FCM + Expo token registration endpoints
 
 ### Infrastructure
-- Render backend (LIVE), MongoDB Atlas, Vercel config ready
+- Render backend, MongoDB Atlas, Vercel web frontend
 
 ## Bugs Fixed
-1. Chat ordering, Theme flicker, Diamond emojis, CORS, Login crash
-2. Render deploy, Data migration, Vercel build config
-3. Smart polling, EmojiRevealCard click, Translation defaults
-4. Translation returning untranslated text (GPT prompt fix)
-5. Translation/UI language selectors merged - now separated
-6. Mobile own messages translating (removed - now just shows original)
-7. Mobile received messages not translating (fixed - same as web)
+1-5. Previous fixes (emoji, translation, CORS, etc.)
+6. Firebase key in code blocking GitHub push - moved to env var
+7. Mobile own messages translating - removed
+8. Mobile received messages not translating - fixed
+9. Fake GIFs in emoji picker - replaced with real Giphy
 
 ## Pending Tasks
-1. **P1**: Save to Github + Vercel Redeploy + Mobile OTA
-2. **P1**: Firebase "Forgot Password" flow (use sendPasswordResetEmail)
+1. **P1**: Save to Github + Vercel Redeploy + Render redeploy
+2. **P1**: Firebase "Forgot Password" flow
 3. **P2**: Video/Audio Calls (WebRTC)
 4. **P2**: UI Redesign
-5. **P3**: Full i18n integration, Stories, Blocking, Stickers, Custom Sounds
+5. **P3**: Full i18n, Stories, Blocking, Stickers, Custom Sounds
 
 ## Credentials
-- User: konstantin_sabev@abv.bg / Banane.com (preferred_language: bg)
+- User: konstantin_sabev@abv.bg / Banane.com
 - Render: https://mojichat.onrender.com
-- Atlas: mongodb+srv://konstantinsabev_db_user:Zaminawamcom@mojichat-cluster.hdvnz1h.mongodb.net/mojichat_db
 - Firebase project: mijichat-7d13c
+- Giphy API Key: wvmYJRpySN3wAkqi4Basf5boEMSlZPtc
