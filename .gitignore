@@ -60,3 +60,7 @@ venv/
 
 # Build caches
 .cache/
+-e 
+# Environment files
+*.env
+*.env.*
