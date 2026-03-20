@@ -9,6 +9,7 @@ import os
 import logging
 import json
 import asyncio
+import time
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict
@@ -33,15 +34,36 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'default_secret')
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
 
+if JWT_SECRET == "default_secret":
+    logging.warning("JWT_SECRET is using default_secret. Set JWT_SECRET in production for security.")
+
 app = FastAPI(title="MojiChat API")
+
+# ==================== CORS ====================
+# Browsers block `allow_credentials=true` when `allow_origins` is wildcard (`*`),
+# so we adapt based on the configured `CORS_ORIGINS`.
+_cors_origins_raw = os.environ.get('CORS_ORIGINS', '*')
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(',') if o.strip()]
+_allow_credentials = _cors_origins_raw.strip() != '*' and len(_cors_origins) > 0
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins if _cors_origins else ['*'],
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ==================== SECURITY HEADERS ====================
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # Keep CSP unset to avoid breaking existing frontends.
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "microphone=(), camera=(), geolocation=()")
+    return response
 
 api_router = APIRouter(prefix="/api")
 security = HTTPBearer(auto_error=False)
@@ -198,6 +220,45 @@ class ConnectionManager:
 
 # Global WebSocket manager
 ws_manager = ConnectionManager()
+
+# ==================== SIMPLE RATE LIMITING ====================
+# In-memory limiter (good enough for a single backend instance on Render).
+# If you later scale horizontally, consider Redis-based rate limiting.
+_rate_lock = asyncio.Lock()
+_rate_state: Dict[str, List[float]] = {}
+
+
+def _get_client_ip(request: Request) -> str:
+    # Prefer X-Forwarded-For when behind a proxy (Render).
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+async def enforce_rate_limit(request: Request, bucket: str, limit: int, window_seconds: int):
+    ip = _get_client_ip(request)
+    now = time.time()
+    key = f"{bucket}:{ip}"
+
+    async with _rate_lock:
+        timestamps = _rate_state.get(key, [])
+        # Keep only timestamps within the current window
+        timestamps = [t for t in timestamps if now - t < window_seconds]
+
+        if len(timestamps) >= limit:
+            oldest = min(timestamps) if timestamps else now
+            retry_after = max(1, int(window_seconds - (now - oldest)))
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Please try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+
+        timestamps.append(now)
+        _rate_state[key] = timestamps
 
 # Supported languages for translation
 SUPPORTED_LANGUAGES = {
@@ -521,7 +582,9 @@ async def register(user_data: UserCreate, response: Response):
     }
 
 @api_router.post("/auth/login")
-async def login(user_data: UserLogin, response: Response):
+async def login(request: Request, user_data: UserLogin, response: Response):
+    # Rate limit to reduce brute-force attempts.
+    await enforce_rate_limit(request, bucket="auth_login", limit=10, window_seconds=600)
     user = await db.users.find_one({"email": user_data.email}, {"_id": 0})
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -676,8 +739,10 @@ async def logout(request: Request, response: Response):
 # ==================== PASSWORD RESET ====================
 
 @api_router.post("/auth/forgot-password")
-async def forgot_password(data: PasswordResetRequest):
+async def forgot_password(request: Request, data: PasswordResetRequest):
     """Send password reset email"""
+    # Rate limit to reduce abuse of reset flow.
+    await enforce_rate_limit(request, bucket="auth_forgot_password", limit=5, window_seconds=1800)
     user = await db.users.find_one({"email": data.email}, {"_id": 0})
     
     # Always return success to prevent email enumeration
@@ -1590,7 +1655,26 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         f.write(content)
     
     # Determine file type
-    mime_type = file.content_type or mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
+    mime_type = (file.content_type or mimetypes.guess_type(file.filename)[0] or "application/octet-stream").lower()
+    # Basic whitelist to reduce abuse from unexpected file types.
+    allowed_mime_prefixes = (
+        "image/",
+        "video/",
+        "audio/",
+        "text/plain",
+        "text/",
+        "application/pdf",
+        "application/zip",
+        "application/json",
+        "application/xml",
+        # Common office formats
+        "application/vnd.openxmlformats-officedocument",
+        "application/msword",
+        "application/vnd.ms-excel",
+        "application/vnd.ms-powerpoint",
+    )
+    if not any(mime_type.startswith(p) for p in allowed_mime_prefixes):
+        raise HTTPException(status_code=400, detail="Unsupported file type")
     if mime_type.startswith("image/"):
         file_type = "image"
     elif mime_type.startswith("video/"):
@@ -1645,6 +1729,11 @@ async def upload_voice(request: Request):
         audio_bytes = base64.b64decode(audio_data.split(",")[1] if "," in audio_data else audio_data)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid audio data")
+
+    # Validate voice size (avoid very large payloads / abuse).
+    MAX_VOICE_BYTES = 20 * 1024 * 1024  # 20MB
+    if len(audio_bytes) > MAX_VOICE_BYTES:
+        raise HTTPException(status_code=400, detail="Voice message is too large")
     
     # Save file
     file_id = f"voice_{uuid.uuid4().hex[:16]}.webm"
@@ -2483,14 +2572,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
 
 # Include router and configure app
 app.include_router(api_router)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Mount uploads directory for static file serving
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
