@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -51,7 +52,7 @@ import { Toaster, toast } from 'sonner';
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 export const ChatLayout = () => {
-  const { user, logout, api } = useAuth();
+  const { user, logout, api, token } = useAuth();
   const navigate = useNavigate();
   const { conversationId } = useParams();
   
@@ -82,6 +83,8 @@ export const ChatLayout = () => {
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const inputRef = useRef(null);
+  const conversationIdRef = useRef(conversationId);
+  useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
 
   // Fetch conversations
   const fetchConversations = useCallback(async () => {
@@ -134,6 +137,48 @@ export const ChatLayout = () => {
     }
   }, [api, conversationId]);
 
+  // ==================== WEBSOCKET ====================
+  const wsHandlers = useMemo(() => ({
+    onNewMessage: (data) => {
+      // Refresh messages if the event is for the currently open conversation.
+      if (data.conversation_id === conversationIdRef.current) {
+        fetchMessages();
+      }
+      // Always refresh conversation list (unread count, last message preview).
+      fetchConversations();
+    },
+    onTyping: (data) => {
+      if (data.conversation_id !== conversationIdRef.current) return;
+      if (data.is_typing) {
+        setTypingUsers((prev) => {
+          const already = prev.find((u) => u.user_id === data.user_id);
+          if (already) return prev;
+          return [...prev, { user_id: data.user_id, user_name: data.user_name }];
+        });
+      } else {
+        setTypingUsers((prev) => prev.filter((u) => u.user_id !== data.user_id));
+      }
+    },
+    onOnlineStatus: (data) => {
+      // Update online badge in conversation list without a full API call.
+      setConversations((prev) =>
+        prev.map((conv) => ({
+          ...conv,
+          participants: conv.participants?.map((p) =>
+            p.user_id === data.user_id ? { ...p, is_online: data.is_online } : p
+          ),
+        }))
+      );
+    },
+    onIncomingCall: (data) => {
+      if (data.initiator_id !== user?.user_id && data.status === 'ringing') {
+        setIncomingCall(data);
+      }
+    },
+  }), [fetchMessages, fetchConversations, user?.user_id]); // eslint-disable-line
+
+  useWebSocket(user, token, wsHandlers);
+
   // Initial load
   useEffect(() => {
     fetchConversations();
@@ -150,17 +195,14 @@ export const ChatLayout = () => {
     }
   }, [conversationId, fetchConversationDetails, fetchMessages]);
 
-  // Polling for new messages and typing status
+  // Fallback polling (15s) — keeps UI in sync if WebSocket reconnects or misses an event.
   useEffect(() => {
     const interval = setInterval(() => {
       fetchConversations();
-      if (conversationId) {
-        fetchMessages();
-        fetchTypingStatus();
-      }
-    }, 2000);
+      if (conversationId) fetchMessages();
+    }, 15000);
     return () => clearInterval(interval);
-  }, [conversationId, fetchConversations, fetchMessages, fetchTypingStatus]);
+  }, [conversationId, fetchConversations, fetchMessages]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -173,28 +215,6 @@ export const ChatLayout = () => {
       setUserLanguage(user.preferred_language);
     }
   }, [user]);
-
-  // Check for active/incoming calls
-  useEffect(() => {
-    const checkCalls = async () => {
-      try {
-        const response = await api.get('/calls/active');
-        const calls = response.data;
-        
-        if (calls.length > 0) {
-          const call = calls[0];
-          if (call.initiator_id !== user?.user_id && call.status === 'ringing') {
-            setIncomingCall(call);
-          }
-        }
-      } catch (error) {
-        // Ignore
-      }
-    };
-    
-    const interval = setInterval(checkCalls, 3000);
-    return () => clearInterval(interval);
-  }, [api, user]);
 
   // Keyboard shortcut for search
   useEffect(() => {
