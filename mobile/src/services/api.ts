@@ -93,6 +93,28 @@ class ApiService {
     return response.data;
   }
 
+  async updateProfile(formData: FormData) {
+    const response = await this.api.put('/users/profile', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async getInviteLink() {
+    const response = await this.api.get('/users/invite-link');
+    return response.data;
+  }
+
+  async joinViaInvite(inviteCode: string) {
+    const response = await this.api.post(`/users/join/${inviteCode}`);
+    return response.data;
+  }
+
+  async deleteMessage(messageId: string) {
+    const response = await this.api.delete(`/messages/${messageId}`);
+    return response.data;
+  }
+
   async heartbeat() {
     try {
       await this.api.post('/users/heartbeat');

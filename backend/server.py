@@ -1632,6 +1632,110 @@ async def get_languages():
     """Get list of supported languages"""
     return {"languages": SUPPORTED_LANGUAGES}
 
+# ==================== PROFILE PICTURE ====================
+
+@api_router.put("/users/profile")
+async def update_profile(request: Request, file: UploadFile = File(None), name: str = Form(None)):
+    """Update user profile: name and/or profile picture."""
+    current_user = await get_current_user(request)
+    update_data = {}
+
+    if name and name.strip():
+        update_data["name"] = name.strip()
+
+    if file:
+        MAX_SIZE = 5 * 1024 * 1024  # 5 MB
+        content = await file.read()
+        if len(content) > MAX_SIZE:
+            raise HTTPException(status_code=400, detail="Image too large. Max 5MB.")
+
+        mime = (file.content_type or "").lower()
+        if not mime.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Only image files are allowed for profile picture.")
+
+        ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+        file_id = f"avatar_{current_user['user_id']}{ext}"
+        file_path = UPLOADS_DIR / file_id
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        update_data["picture"] = f"/api/files/{file_id}"
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="Nothing to update.")
+
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {"$set": update_data}
+    )
+
+    updated = await db.users.find_one({"user_id": current_user["user_id"]}, {"_id": 0, "password": 0})
+    return {
+        "user_id": updated["user_id"],
+        "email": updated["email"],
+        "name": updated["name"],
+        "picture": updated.get("picture"),
+        "preferred_language": updated.get("preferred_language", "en"),
+    }
+
+# ==================== INVITE LINKS ====================
+
+@api_router.get("/users/invite-link")
+async def get_invite_link(request: Request):
+    """Get or create a personal invite link for the current user."""
+    current_user = await get_current_user(request)
+    user_id = current_user["user_id"]
+
+    existing = await db.invite_links.find_one({"user_id": user_id}, {"_id": 0})
+    if existing:
+        return {"invite_code": existing["invite_code"], "invite_link": existing["invite_link"]}
+
+    invite_code = uuid.uuid4().hex[:10]
+    base_url = os.environ.get("FRONTEND_URL", "https://moji-chat-gamma.vercel.app")
+    invite_link = f"{base_url}/join/{invite_code}"
+
+    await db.invite_links.insert_one({
+        "user_id": user_id,
+        "invite_code": invite_code,
+        "invite_link": invite_link,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
+    return {"invite_code": invite_code, "invite_link": invite_link}
+
+
+@api_router.post("/users/join/{invite_code}")
+async def join_via_invite(invite_code: str, request: Request):
+    """Start a conversation with the user who owns this invite link."""
+    current_user = await get_current_user(request)
+
+    invite = await db.invite_links.find_one({"invite_code": invite_code}, {"_id": 0})
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invalid invite link.")
+
+    owner_id = invite["user_id"]
+    if owner_id == current_user["user_id"]:
+        raise HTTPException(status_code=400, detail="You cannot invite yourself.")
+
+    # Check if conversation already exists
+    existing = await db.conversations.find_one({
+        "participant_ids": {"$all": [current_user["user_id"], owner_id]},
+        "is_group": False
+    })
+    if existing:
+        return {"conversation_id": existing["conversation_id"], "already_exists": True}
+
+    conv_id = f"conv_{uuid.uuid4().hex[:12]}"
+    await db.conversations.insert_one({
+        "conversation_id": conv_id,
+        "participant_ids": [current_user["user_id"], owner_id],
+        "is_group": False,
+        "name": None,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
+    return {"conversation_id": conv_id, "already_exists": False}
+
 # ==================== FILE UPLOAD ====================
 
 @api_router.post("/upload")
@@ -1748,6 +1852,44 @@ async def upload_voice(request: Request):
         "duration": duration,
         "file_size": len(audio_bytes)
     }
+
+# ==================== DELETE MESSAGE ====================
+
+@api_router.delete("/messages/{message_id}")
+async def delete_message(message_id: str, request: Request):
+    """Delete a message. Only the sender can delete their own message."""
+    current_user = await get_current_user(request)
+
+    message = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    if message["sender_id"] != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="You can only delete your own messages")
+
+    # Soft-delete: replace content with deleted marker so other clients can update UI
+    await db.messages.update_one(
+        {"message_id": message_id},
+        {"$set": {
+            "deleted": True,
+            "content": "",
+            "emoji_content": "",
+            "file_url": None,
+            "deleted_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+    # Notify conversation participants via WebSocket
+    await ws_manager.broadcast_to_conversation(
+        message["conversation_id"],
+        {
+            "type": "message_deleted",
+            "message_id": message_id,
+            "conversation_id": message["conversation_id"],
+        }
+    )
+
+    return {"message": "Deleted", "message_id": message_id}
 
 # ==================== MESSAGE REACTIONS ====================
 
@@ -2643,6 +2785,10 @@ async def create_db_indexes():
         await db.statuses.create_index(
             "created_at", expireAfterSeconds=86400, background=True
         )
+
+        # ── invite_links ───────────────────────────────────────────────────
+        await db.invite_links.create_index("user_id", unique=True, background=True)
+        await db.invite_links.create_index("invite_code", unique=True, background=True)
 
         logger.info("MongoDB indexes created/verified successfully.")
     except Exception as e:

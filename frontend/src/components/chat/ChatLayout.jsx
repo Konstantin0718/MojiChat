@@ -25,7 +25,14 @@ import {
   Phone,
   PhoneOff,
   Bell,
-  Camera
+  Camera,
+  Trash2,
+  Ban,
+  Link,
+  Check,
+  CheckCheck,
+  QrCode,
+  Upload
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { ThemeToggle } from '../ui/ThemeToggle';
@@ -79,7 +86,17 @@ export const ChatLayout = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeCall, setActiveCall] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
-  
+  // Profile picture
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarInputRef = useRef(null);
+  // Invite link
+  const [inviteLink, setInviteLink] = useState(null);
+  const [inviteLinkLoading, setInviteLinkLoading] = useState(false);
+  // Block
+  const [blockedUsers, setBlockedUsers] = useState([]);
+  // Seen receipts: map message_id -> [user_ids who read it]
+  const [seenMap, setSeenMap] = useState({});
+
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const inputRef = useRef(null);
@@ -173,6 +190,21 @@ export const ChatLayout = () => {
     onIncomingCall: (data) => {
       if (data.initiator_id !== user?.user_id && data.status === 'ringing') {
         setIncomingCall(data);
+      }
+    },
+    onMessageDeleted: (data) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.message_id === data.message_id ? { ...m, deleted: true, content: '', emoji_content: '' } : m
+        )
+      );
+    },
+    onMessageRead: (data) => {
+      if (data.message_id) {
+        setSeenMap((prev) => ({
+          ...prev,
+          [data.message_id]: [...new Set([...(prev[data.message_id] || []), data.reader_id])],
+        }));
       }
     },
   }), [fetchMessages, fetchConversations, user?.user_id]); // eslint-disable-line
@@ -519,6 +551,88 @@ export const ChatLayout = () => {
     }
   };
 
+  // Upload profile avatar
+  const uploadAvatar = async (file) => {
+    if (!file) return;
+    setAvatarUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.put('/users/profile', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      // Update user object in auth context via localStorage trick
+      const stored = localStorage.getItem('mojichat_user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        parsed.picture = res.data.picture;
+        localStorage.setItem('mojichat_user', JSON.stringify(parsed));
+      }
+      toast.success('Profile picture updated!');
+      window.location.reload();
+    } catch (e) {
+      toast.error('Failed to update profile picture');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  // Load invite link
+  const loadInviteLink = async () => {
+    if (inviteLink) return;
+    setInviteLinkLoading(true);
+    try {
+      const res = await api.get('/users/invite-link');
+      setInviteLink(res.data.invite_link);
+    } catch (e) {
+      toast.error('Could not load invite link');
+    } finally {
+      setInviteLinkLoading(false);
+    }
+  };
+
+  // Delete message
+  const deleteMessage = async (messageId) => {
+    try {
+      await api.delete(`/messages/${messageId}`);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.message_id === messageId ? { ...m, deleted: true, content: '', emoji_content: '' } : m
+        )
+      );
+    } catch (e) {
+      toast.error('Could not delete message');
+    }
+  };
+
+  // Load blocked users
+  const loadBlockedUsers = useCallback(async () => {
+    try {
+      const res = await api.get('/users/blocked');
+      setBlockedUsers(res.data.map((u) => u.user_id));
+    } catch (e) {}
+  }, [api]);
+
+  useEffect(() => { loadBlockedUsers(); }, [loadBlockedUsers]);
+
+  // Block / unblock user
+  const toggleBlock = async (userId) => {
+    const isBlocked = blockedUsers.includes(userId);
+    try {
+      if (isBlocked) {
+        await api.delete(`/users/${userId}/block`);
+        setBlockedUsers((prev) => prev.filter((id) => id !== userId));
+        toast.success('User unblocked');
+      } else {
+        await api.post(`/users/${userId}/block`);
+        setBlockedUsers((prev) => [...prev, userId]);
+        toast.success('User blocked');
+      }
+    } catch (e) {
+      toast.error('Action failed');
+    }
+  };
+
   // Get conversation display name
   const getConversationName = (conv) => {
     if (conv.name) return conv.name;
@@ -536,9 +650,36 @@ export const ChatLayout = () => {
     navigate('/');
   };
 
+  // Seen receipt tick for own messages
+  const renderSeenTick = (msg) => {
+    if (msg.sender_id !== user?.user_id) return null;
+    const readers = seenMap[msg.message_id] || msg.read_by || [];
+    const otherReaders = readers.filter((id) => id !== user?.user_id);
+    if (otherReaders.length > 0) {
+      return <CheckCheck className="w-3.5 h-3.5 text-blue-400 inline-block ml-1" />;
+    }
+    return <Check className="w-3.5 h-3.5 text-muted-foreground inline-block ml-1" />;
+  };
+
   // Render message based on type
   const renderMessage = (msg) => {
     const isOwn = msg.sender_id === user?.user_id;
+
+    // Deleted message placeholder
+    if (msg.deleted) {
+      return (
+        <motion.div
+          key={msg.message_id}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className={cn('flex', isOwn ? 'justify-end' : 'justify-start')}
+        >
+          <span className="italic text-xs text-muted-foreground px-3 py-1.5 bg-muted rounded-2xl">
+            🗑 Message deleted
+          </span>
+        </motion.div>
+      );
+    }
     
     // For file/media messages
     if (msg.message_type === 'image' && msg.file_url) {
@@ -649,16 +790,38 @@ export const ChatLayout = () => {
       );
     }
 
-    // Default: text message with emoji reveal
+    // Default: text message with emoji reveal + delete + seen
     return (
-      <EmojiRevealCard
-        key={msg.message_id}
-        message={msg}
-        isOwn={isOwn}
-        currentUserId={user?.user_id}
-        userLanguage={translationLang}
-        onReaction={(emoji) => addReaction(msg.message_id, emoji)}
-      />
+      <div key={msg.message_id} className={cn('group flex', isOwn ? 'justify-end' : 'justify-start')}>
+        <div className="relative">
+          <EmojiRevealCard
+            message={msg}
+            isOwn={isOwn}
+            currentUserId={user?.user_id}
+            userLanguage={translationLang}
+            onReaction={(emoji) => addReaction(msg.message_id, emoji)}
+          />
+          <div className={cn(
+            'absolute top-1 hidden group-hover:flex items-center gap-1',
+            isOwn ? 'right-full mr-2' : 'left-full ml-2'
+          )}>
+            {isOwn && (
+              <button
+                onClick={() => deleteMessage(msg.message_id)}
+                className="p-1 rounded-full bg-destructive/10 hover:bg-destructive/20 text-destructive"
+                title="Delete message"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {isOwn && (
+            <div className="flex justify-end mt-0.5 pr-1">
+              {renderSeenTick(msg)}
+            </div>
+          )}
+        </div>
+      </div>
     );
   };
 
@@ -699,6 +862,77 @@ export const ChatLayout = () => {
                 <DialogTitle className="font-heading">Settings</DialogTitle>
               </DialogHeader>
               <div className="space-y-6">
+
+                {/* Avatar upload */}
+                <div>
+                  <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                    <Upload className="w-4 h-4" />
+                    Profile Picture
+                  </h4>
+                  <div className="flex items-center gap-4">
+                    <Avatar className="w-16 h-16">
+                      <AvatarImage src={user?.picture} />
+                      <AvatarFallback className="text-xl bg-primary text-primary-foreground font-bold">
+                        {user?.name?.[0]?.toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <input
+                        ref={avatarInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => uploadAvatar(e.target.files[0])}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={avatarUploading}
+                        onClick={() => avatarInputRef.current?.click()}
+                      >
+                        {avatarUploading ? 'Uploading...' : 'Change Photo'}
+                      </Button>
+                      <p className="text-xs text-muted-foreground mt-1">JPG, PNG — max 5MB</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Invite link */}
+                <div>
+                  <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                    <Link className="w-4 h-4" />
+                    Invite Link
+                  </h4>
+                  {inviteLink ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          readOnly
+                          value={inviteLink}
+                          className="flex-1 text-xs bg-muted rounded-lg px-3 py-2 border-none outline-none"
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => { navigator.clipboard.writeText(inviteLink); toast.success('Copied!'); }}
+                        >
+                          Copy
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Share this link so people can start a chat with you.</p>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={inviteLinkLoading}
+                      onClick={loadInviteLink}
+                    >
+                      {inviteLinkLoading ? 'Loading...' : 'Generate Invite Link'}
+                    </Button>
+                  )}
+                </div>
+
                 <div>
                   <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
                     <Globe className="w-4 h-4" />
@@ -1122,6 +1356,22 @@ export const ChatLayout = () => {
                 </Button>
               </div>
               
+              {!currentConversation.is_group && (() => {
+                const other = getOtherParticipant(currentConversation);
+                const isBlocked = other && blockedUsers.includes(other.user_id);
+                return other ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title={isBlocked ? 'Unblock user' : 'Block user'}
+                    onClick={() => toggleBlock(other.user_id)}
+                    className={cn('rounded-full', isBlocked && 'text-destructive')}
+                  >
+                    <Ban className="w-5 h-5" />
+                  </Button>
+                ) : null;
+              })()}
+
               <LanguageSelector
                 currentLanguage={translationLang}
                 onLanguageChange={updateTranslationLang}

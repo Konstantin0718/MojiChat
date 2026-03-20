@@ -11,9 +11,12 @@ import {
   Modal,
   FlatList,
   Switch,
+  Share,
+  Clipboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -35,6 +38,9 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [emojiModeEnabled, setEmojiModeEnabled] = useState(true);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteLinkLoading, setInviteLinkLoading] = useState(false);
 
   // Load emoji mode setting
   useEffect(() => {
@@ -131,6 +137,54 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     setShowThemeModal(false);
   };
 
+  const handlePickAvatar = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(t('error'), 'Permission to access photos is required.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+
+    setAvatarUploading(true);
+    try {
+      const asset = result.assets[0];
+      const formData = new FormData();
+      const fileName = asset.uri.split('/').pop() || 'avatar.jpg';
+      const mimeType = asset.mimeType || 'image/jpeg';
+      formData.append('file', { uri: asset.uri, name: fileName, type: mimeType } as any);
+      const res = await api.updateProfile(formData);
+      if (updateUser) updateUser({ picture: res.picture });
+      Alert.alert(t('success'), 'Profile picture updated!');
+    } catch (e) {
+      Alert.alert(t('error'), 'Failed to update profile picture');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const handleInviteLink = async () => {
+    if (inviteLink) {
+      Share.share({ message: inviteLink });
+      return;
+    }
+    setInviteLinkLoading(true);
+    try {
+      const res = await api.getInviteLink();
+      setInviteLink(res.invite_link);
+      Share.share({ message: res.invite_link });
+    } catch (e) {
+      Alert.alert(t('error'), 'Could not load invite link');
+    } finally {
+      setInviteLinkLoading(false);
+    }
+  };
+
   const styles = createStyles(colors);
 
   const themeOptions = [
@@ -153,15 +207,36 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
       <ScrollView contentContainerStyle={styles.content}>
         {/* Profile Section */}
         <View style={styles.profileSection}>
-          {user?.picture ? (
-            <Image source={{ uri: user.picture }} style={styles.profileImage} />
-          ) : (
-            <View style={[styles.profileImage, { backgroundColor: colors.primary }]}>
-              <Text style={styles.profileInitial}>{user?.name?.[0]?.toUpperCase()}</Text>
+          <TouchableOpacity onPress={handlePickAvatar} disabled={avatarUploading} style={{ position: 'relative' }}>
+            {user?.picture ? (
+              <Image source={{ uri: user.picture }} style={styles.profileImage} />
+            ) : (
+              <View style={[styles.profileImage, { backgroundColor: colors.primary }]}>
+                <Text style={styles.profileInitial}>{user?.name?.[0]?.toUpperCase()}</Text>
+              </View>
+            )}
+            <View style={[styles.cameraOverlay, { backgroundColor: colors.primary }]}>
+              {avatarUploading
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Ionicons name="camera" size={14} color="#fff" />
+              }
             </View>
-          )}
+          </TouchableOpacity>
           <Text style={styles.profileName}>{user?.name}</Text>
           <Text style={styles.profileEmail}>{user?.email || user?.phone_number}</Text>
+          <TouchableOpacity
+            style={[styles.inviteButton, { backgroundColor: colors.primary + '20', borderColor: colors.primary }]}
+            onPress={handleInviteLink}
+            disabled={inviteLinkLoading}
+          >
+            {inviteLinkLoading
+              ? <ActivityIndicator size="small" color={colors.primary} />
+              : <Ionicons name="share-social" size={16} color={colors.primary} />
+            }
+            <Text style={[styles.inviteButtonText, { color: colors.primary }]}>
+              {inviteLink ? 'Share My Invite Link' : 'Get Invite Link'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Status Section */}
@@ -458,6 +533,18 @@ const createStyles = (colors: any) =>
       fontSize: 32,
       fontWeight: 'bold',
     },
+    cameraOverlay: {
+      position: 'absolute',
+      bottom: 0,
+      right: 0,
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 2,
+      borderColor: colors.background,
+    },
     profileName: {
       fontSize: 20,
       fontWeight: 'bold',
@@ -468,6 +555,20 @@ const createStyles = (colors: any) =>
       fontSize: 14,
       color: colors.textSecondary,
       marginTop: 4,
+    },
+    inviteButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 20,
+      borderWidth: 1,
+      marginTop: 12,
+    },
+    inviteButtonText: {
+      fontSize: 14,
+      fontWeight: '600',
     },
     statusButton: {
       flexDirection: 'row',
