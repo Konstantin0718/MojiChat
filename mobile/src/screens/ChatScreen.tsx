@@ -248,6 +248,19 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     setShowLangModal(false);
   };
 
+  const handleDeleteMessage = useCallback(async (messageId: string) => {
+    try {
+      await api.deleteMessage(messageId);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.message_id === messageId ? { ...m, deleted: true, content: '', emoji_content: '' } : m
+        )
+      );
+    } catch (e) {
+      Alert.alert('Error', 'Could not delete message');
+    }
+  }, []);
+
   // ============ RENDER ============
 
   const renderMessage = useCallback(
@@ -258,9 +271,10 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         conversation={conversationData}
         colors={colors}
         translationLanguage={translationLang}
+        onDelete={handleDeleteMessage}
       />
     ),
-    [user, conversationData, colors, translationLang]
+    [user, conversationData, colors, translationLang, handleDeleteMessage]
   );
 
   const keyExtractor = useCallback(

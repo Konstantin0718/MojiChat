@@ -28,6 +28,7 @@ export interface Message {
   reactions?: Record<string, string[]>;
   created_at: string;
   read_by: string[];
+  deleted?: boolean;
 }
 
 export interface Conversation {

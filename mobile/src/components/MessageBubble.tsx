@@ -6,6 +6,7 @@ import {
   Image,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Message, User, Conversation } from '../types';
@@ -40,6 +41,7 @@ interface Props {
   conversation: Conversation | null;
   colors: any;
   translationLanguage?: string;
+  onDelete?: (messageId: string) => void;
 }
 
 export const MessageBubble: React.FC<Props> = ({
@@ -48,9 +50,29 @@ export const MessageBubble: React.FC<Props> = ({
   conversation,
   colors,
   translationLanguage = 'bg',
+  onDelete,
 }) => {
   const isOwn = message.sender_id === currentUser?.user_id;
   const [isRevealed, setIsRevealed] = useState(false);
+
+  const handleLongPress = () => {
+    if (!isOwn || !onDelete) return;
+    Alert.alert('Delete Message', 'Are you sure you want to delete this message?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => onDelete(message.message_id) },
+    ]);
+  };
+
+  // Deleted message
+  if (message.deleted) {
+    return (
+      <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+        <Text style={[styles.deletedText, { color: colors.textSecondary }]}>
+          🗑 Message deleted
+        </Text>
+      </View>
+    );
+  }
   const [translatedText, setTranslatedText] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [lastTranslatedLang, setLastTranslatedLang] = useState<string | null>(null);
@@ -123,6 +145,7 @@ export const MessageBubble: React.FC<Props> = ({
     <TouchableOpacity
       activeOpacity={0.7}
       onPress={handleTap}
+      onLongPress={handleLongPress}
       style={[
         styles.bubble,
         isOwn ? styles.bubbleOwn : styles.bubbleOther,
@@ -224,6 +247,7 @@ const styles = StyleSheet.create({
   container: { marginVertical: 4 },
   containerOwn: { alignSelf: 'flex-end' },
   containerOther: { alignSelf: 'flex-start' },
+  deletedText: { fontSize: 13, fontStyle: 'italic', paddingVertical: 6, paddingHorizontal: 12 },
   bubble: {
     maxWidth: '85%',
     paddingHorizontal: 14,

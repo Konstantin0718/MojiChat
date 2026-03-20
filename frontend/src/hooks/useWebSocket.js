@@ -62,6 +62,9 @@ export function useWebSocket(user, token, handlers = {}) {
           case 'incoming_call':
             h.onIncomingCall?.(data);
             break;
+          case 'message_deleted':
+            h.onMessageDeleted?.(data);
+            break;
           case 'pong':
             break;
           default:
