@@ -2576,6 +2576,79 @@ app.include_router(api_router)
 # Mount uploads directory for static file serving
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
+
+@app.on_event("startup")
+async def create_db_indexes():
+    """
+    Create MongoDB indexes on startup.
+    MongoDB is idempotent for index creation — safe to run on every restart.
+    """
+    try:
+        # ── users ──────────────────────────────────────────────────────────
+        await db.users.create_index("user_id", unique=True, background=True)
+        await db.users.create_index("email", unique=True, background=True)
+        await db.users.create_index("phone_number", sparse=True, background=True)
+
+        # ── conversations ──────────────────────────────────────────────────
+        await db.conversations.create_index("conversation_id", unique=True, background=True)
+        # Finding all conversations a user belongs to (used on every page load)
+        await db.conversations.create_index("participant_ids", background=True)
+
+        # ── messages ───────────────────────────────────────────────────────
+        await db.messages.create_index("message_id", unique=True, background=True)
+        # Fetching messages for a conversation sorted by time (most common query)
+        await db.messages.create_index(
+            [("conversation_id", 1), ("created_at", -1)],
+            background=True,
+        )
+        # Full-text search on message content
+        await db.messages.create_index(
+            [("content", "text"), ("sender_name", "text")],
+            background=True,
+        )
+
+        # ── typing_status ──────────────────────────────────────────────────
+        await db.typing_status.create_index(
+            [("conversation_id", 1), ("user_id", 1)],
+            unique=True,
+            background=True,
+        )
+        # Auto-expire typing status after 10 seconds if the client crashes
+        await db.typing_status.create_index(
+            "timestamp", expireAfterSeconds=10, background=True
+        )
+
+        # ── calls ──────────────────────────────────────────────────────────
+        await db.calls.create_index("call_id", unique=True, background=True)
+        await db.calls.create_index("conversation_id", background=True)
+
+        # ── notifications ──────────────────────────────────────────────────
+        await db.notifications.create_index("user_id", background=True)
+        await db.notifications.create_index("created_at", background=True)
+
+        # ── push_subscriptions ─────────────────────────────────────────────
+        await db.push_subscriptions.create_index("user_id", unique=True, background=True)
+
+        # ── user_sessions ──────────────────────────────────────────────────
+        await db.user_sessions.create_index("session_token", unique=True, background=True)
+        await db.user_sessions.create_index("user_id", background=True)
+
+        # ── password_resets ────────────────────────────────────────────────
+        await db.password_resets.create_index("token", unique=True, background=True)
+        await db.password_resets.create_index("email", background=True)
+
+        # ── statuses ───────────────────────────────────────────────────────
+        await db.statuses.create_index("user_id", background=True)
+        # Auto-expire statuses after 24 hours (like WhatsApp Stories)
+        await db.statuses.create_index(
+            "created_at", expireAfterSeconds=86400, background=True
+        )
+
+        logger.info("MongoDB indexes created/verified successfully.")
+    except Exception as e:
+        logger.error(f"Failed to create MongoDB indexes: {e}")
+
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
