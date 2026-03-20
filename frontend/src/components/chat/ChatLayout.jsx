@@ -175,7 +175,7 @@ export const ChatLayout = () => {
         setIncomingCall(data);
       }
     },
-  }), [fetchMessages, fetchConversations, user?.user_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [fetchMessages, fetchConversations, user?.user_id]); // eslint-disable-line
 
   useWebSocket(user, token, wsHandlers);
 

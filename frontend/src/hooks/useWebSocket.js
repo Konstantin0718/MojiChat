@@ -90,7 +90,7 @@ export function useWebSocket(user, token, handlers = {}) {
     }, 30000);
 
     ws._pingInterval = pingInterval;
-  }, [user?.user_id, token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.user_id, token]); // eslint-disable-line
 
   useEffect(() => {
     mountedRef.current = true;
