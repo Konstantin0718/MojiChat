@@ -317,7 +317,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       {/* KeyboardAvoidingView wraps messages + input */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
       >
         {/* Messages */}
@@ -389,7 +389,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
 
         {/* Input Area */}
         {showVoiceRecorder ? (
-          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: 8 + insets.bottom }]}>
             <VoiceRecorder
               colors={colors}
               onSend={sendVoiceMessage}
@@ -397,7 +397,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             />
           </View>
         ) : (
-          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: 8 + insets.bottom }]}>
             {/* Plus/attachment button */}
             <TouchableOpacity
               style={s.inputBtn}
@@ -447,8 +447,6 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           </View>
         )}
       </KeyboardAvoidingView>
-      {/* Bottom safe area spacer so input clears home indicator / nav bar */}
-      <View style={{ height: insets.bottom, backgroundColor: colors.card }} />
 
       {/* Giphy Modal */}
       <Modal visible={showGiphyPicker} animationType="slide" onRequestClose={() => setShowGiphyPicker(false)}>
