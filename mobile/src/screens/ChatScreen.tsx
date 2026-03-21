@@ -15,6 +15,7 @@ import {
   ScrollView,
   Keyboard,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -93,6 +94,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const flatListRef = useRef<FlatList>(null);
   const [conversationData, setConversationData] = useState<any>(null);
+  const insets = useSafeAreaInsets();
 
   // Load translation language from AsyncStorage
   useEffect(() => {
@@ -293,7 +295,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   }
 
   return (
-    <SafeAreaView style={[s.container, { backgroundColor: colors.background }]}>
+    <View style={[s.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       {/* Header */}
       <View style={[s.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={s.headerBtn}>
@@ -315,8 +317,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       {/* KeyboardAvoidingView wraps messages + input */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
       >
         {/* Messages */}
         <FlatList
@@ -445,6 +447,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           </View>
         )}
       </KeyboardAvoidingView>
+      {/* Bottom safe area spacer so input clears home indicator / nav bar */}
+      <View style={{ height: insets.bottom, backgroundColor: colors.card }} />
 
       {/* Giphy Modal */}
       <Modal visible={showGiphyPicker} animationType="slide" onRequestClose={() => setShowGiphyPicker(false)}>
@@ -487,7 +491,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           </View>
         </TouchableOpacity>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -496,7 +500,7 @@ const s = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 50 : 10,
+    paddingTop: 10,
     paddingBottom: 12,
     paddingHorizontal: 8,
     borderBottomWidth: 1,
@@ -522,7 +526,7 @@ const s = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 8,
     paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    paddingBottom: 8,
     borderTopWidth: 1,
     gap: 4,
   },

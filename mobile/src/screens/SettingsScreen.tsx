@@ -20,7 +20,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { APP_CONFIG } from '../config';
+import { APP_CONFIG, API_URL } from '../config';
 import { notificationService } from '../services/notifications';
 import { api } from '../services/api';
 
@@ -159,7 +159,8 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
       const mimeType = asset.mimeType || 'image/jpeg';
       formData.append('file', { uri: asset.uri, name: fileName, type: mimeType } as any);
       const res = await api.updateProfile(formData);
-      if (updateUser) updateUser({ picture: res.picture });
+      const pictureUrl = res.picture?.startsWith('http') ? res.picture : `${API_URL}${res.picture}`;
+      if (updateUser) updateUser({ picture: pictureUrl });
       Alert.alert(t('success'), 'Profile picture updated!');
     } catch (e) {
       Alert.alert(t('error'), 'Failed to update profile picture');
