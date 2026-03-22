@@ -25,6 +25,7 @@ import { api } from '../services/api';
 import { MessageBubble } from '../components/MessageBubble';
 import { VoiceRecorder } from '../components/VoiceRecorder';
 import { GiphyPicker } from '../components/GiphyPicker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const LANGUAGES: Record<string, { name: string; flag: string; native: string }> = {
   auto: { name: 'Auto-detect', flag: '🌐', native: 'Auto' },
@@ -78,7 +79,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const { user } = useAuth();
   const { colors } = useTheme();
-
+  const insets = useSafeAreaInsets();
+  
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -315,8 +317,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       {/* KeyboardAvoidingView wraps messages + input */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         {/* Messages */}
         <FlatList
@@ -395,7 +397,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             />
           </View>
         ) : (
-          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: insets.bottom + 12 }]}>
             {/* Plus/attachment button */}
             <TouchableOpacity
               style={s.inputBtn}
@@ -496,7 +498,7 @@ const s = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 50 : 10,
+    paddingTop: Platform.OS === 'ios' ? 50 : 25,  //
     paddingBottom: 12,
     paddingHorizontal: 8,
     borderBottomWidth: 1,
@@ -522,7 +524,7 @@ const s = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 8,
     paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 30,
     borderTopWidth: 1,
     gap: 4,
   },

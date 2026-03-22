@@ -1452,6 +1452,34 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     # Broadcast new message via WebSocket
     await ws_manager.send_new_message(conversation_id, response_data, current_user["user_id"])
     
+    # Send FCM push notification to offline participants
+    if firebase_app:
+        try:
+            other_participant_ids = [p for p in conv["participant_ids"] if p != current_user["user_id"]]
+            for recipient_id in other_participant_ids:
+                recipient = await db.users.find_one({"user_id": recipient_id}, {"_id": 0})
+                if recipient:
+                    fcm_tokens = await db.fcm_tokens.find({"user_id": recipient_id}, {"_id": 0}).to_list(10)
+                    for token_doc in fcm_tokens:
+                        try:
+                            message = fcm_messaging.Message(
+                                notification=fcm_messaging.Notification(
+                                    title=current_user["name"],
+                                    body=emoji_content or msg_data.content,
+                                ),
+                                data={
+                                    "conversation_id": conversation_id,
+                                    "sender_id": current_user["user_id"],
+                                    "type": "new_message"
+                                },
+                                token=token_doc["token"],
+                            )
+                            fcm_messaging.send(message)
+                        except Exception as e:
+                            logger.error(f"FCM send error: {e}")
+        except Exception as e:
+            logger.error(f"FCM push error: {e}")
+    
     return response_data
 
 @api_router.get("/conversations/{conversation_id}/messages")
