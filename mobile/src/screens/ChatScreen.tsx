@@ -496,7 +496,7 @@ const s = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 50 : 0,  //
+    paddingTop: Platform.OS === 'ios' ? 50 : 25,  //
     paddingBottom: 12,
     paddingHorizontal: 8,
     borderBottomWidth: 1,
@@ -522,7 +522,7 @@ const s = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 8,
     paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 30,
     borderTopWidth: 1,
     gap: 4,
   },
