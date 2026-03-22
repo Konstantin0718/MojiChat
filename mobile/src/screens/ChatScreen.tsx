@@ -25,6 +25,7 @@ import { api } from '../services/api';
 import { MessageBubble } from '../components/MessageBubble';
 import { VoiceRecorder } from '../components/VoiceRecorder';
 import { GiphyPicker } from '../components/GiphyPicker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const LANGUAGES: Record<string, { name: string; flag: string; native: string }> = {
   auto: { name: 'Auto-detect', flag: '🌐', native: 'Auto' },
@@ -78,7 +79,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const { user } = useAuth();
   const { colors } = useTheme();
-
+  const insets = useSafeAreaInsets();
+  
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -395,7 +397,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             />
           </View>
         ) : (
-          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: insets.bottom + 12 }]}>
             {/* Plus/attachment button */}
             <TouchableOpacity
               style={s.inputBtn}
