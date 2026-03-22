@@ -315,7 +315,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       {/* KeyboardAvoidingView wraps messages + input */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         {/* Messages */}
@@ -496,7 +496,7 @@ const s = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 50 : 10,
+    paddingTop: Platform.OS === 'ios' ? 50 : 0,  //
     paddingBottom: 12,
     paddingHorizontal: 8,
     borderBottomWidth: 1,
