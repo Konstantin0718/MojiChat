@@ -95,12 +95,39 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
   const stopRecording = async () => {
     if (!recording) return;
-
     try {
       setIsRecording(false);
       await recording.stopAndUnloadAsync();
       
       const uri = recording.getURI();
+      
+      if (!uri) {
+        Alert.alert('Error', 'Recording URI is null');
+        setRecording(null);
+        setDuration(0);
+        return;
+      }
+
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists || fileInfo.size === 0) {
+        Alert.alert('Error', 'Recording file is empty');
+        setRecording(null);
+        setDuration(0);
+        return;
+      }
+
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      onSend(`data:audio/m4a;base64,${base64}`, duration);
+      setRecording(null);
+      setDuration(0);
+    } catch (error) {
+      console.error('Failed to stop recording:', error);
+      Alert.alert('Error', `Failed to save recording: ${error}`);
+    }
+  };
       if (uri) {
         // Read file as base64
         const base64 = await FileSystem.readAsStringAsync(uri, {
