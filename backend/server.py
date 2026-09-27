@@ -762,14 +762,12 @@ async def forgot_password(request: Request, data: PasswordResetRequest):
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     
-    # In production, send email here
-    # For now, return token for testing
+    # In production, send the reset link via email here. The token is logged
+    # server-side for development/testing but MUST NOT be returned in the
+    # response body, otherwise anyone could reset any account's password.
     logger.info(f"Password reset token for {data.email}: {reset_token}")
-    
-    return {
-        "message": "If this email exists, a reset link has been sent",
-        "reset_token": reset_token  # Remove in production
-    }
+
+    return {"message": "If this email exists, a reset link has been sent"}
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: PasswordResetConfirm):
