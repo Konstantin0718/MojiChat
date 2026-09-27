@@ -762,14 +762,17 @@ async def forgot_password(request: Request, data: PasswordResetRequest):
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     
-    # In production, send email here
-    # For now, return token for testing
+    # In production, send the reset link via email here. The token is logged
+    # server-side for development/testing but MUST NOT be returned in the
+    # response body by default, otherwise anyone could reset any account's
+    # password. For local development the token can be surfaced explicitly by
+    # setting EXPOSE_RESET_TOKEN=true (never enable this in production).
     logger.info(f"Password reset token for {data.email}: {reset_token}")
-    
-    return {
-        "message": "If this email exists, a reset link has been sent",
-        "reset_token": reset_token  # Remove in production
-    }
+
+    response_body = {"message": "If this email exists, a reset link has been sent"}
+    if os.environ.get("EXPOSE_RESET_TOKEN", "").lower() in ("1", "true", "yes"):
+        response_body["reset_token"] = reset_token
+    return response_body
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: PasswordResetConfirm):
@@ -1002,15 +1005,6 @@ async def search_users(q: str, request: Request):
     ).to_list(20)
     
     return users
-
-@api_router.get("/users/{user_id}")
-async def get_user(user_id: str, request: Request):
-    await get_current_user(request)
-    
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
 
 # ==================== BLOCKED USERS ====================
 
@@ -1763,6 +1757,19 @@ async def join_via_invite(invite_code: str, request: Request):
     })
 
     return {"conversation_id": conv_id, "already_exists": False}
+
+# ==================== GET USER BY ID ====================
+# NOTE: This dynamic route must be registered AFTER all specific `/users/...`
+# GET routes (e.g. /users/blocked, /users/invite-link); otherwise it shadows
+# them and they return 404.
+@api_router.get("/users/{user_id}")
+async def get_user(user_id: str, request: Request):
+    await get_current_user(request)
+
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
 
 # ==================== FILE UPLOAD ====================
 

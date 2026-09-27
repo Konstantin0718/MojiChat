@@ -150,6 +150,15 @@ export default function LoginPage() {
                   data-testid="password-input"
                 />
               </div>
+              <div className="text-right">
+                <Link
+                  to="/forgot-password"
+                  className="text-sm text-primary hover:underline font-medium"
+                  data-testid="forgot-password-link"
+                >
+                  Forgot password?
+                </Link>
+              </div>
             </div>
 
             <Button
