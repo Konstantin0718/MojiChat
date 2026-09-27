@@ -1003,15 +1003,6 @@ async def search_users(q: str, request: Request):
     
     return users
 
-@api_router.get("/users/{user_id}")
-async def get_user(user_id: str, request: Request):
-    await get_current_user(request)
-    
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
 # ==================== BLOCKED USERS ====================
 
 @api_router.get("/users/blocked")
@@ -1763,6 +1754,19 @@ async def join_via_invite(invite_code: str, request: Request):
     })
 
     return {"conversation_id": conv_id, "already_exists": False}
+
+# ==================== GET USER BY ID ====================
+# NOTE: This dynamic route must be registered AFTER all specific `/users/...`
+# GET routes (e.g. /users/blocked, /users/invite-link); otherwise it shadows
+# them and they return 404.
+@api_router.get("/users/{user_id}")
+async def get_user(user_id: str, request: Request):
+    await get_current_user(request)
+
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
 
 # ==================== FILE UPLOAD ====================
 
