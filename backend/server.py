@@ -764,10 +764,15 @@ async def forgot_password(request: Request, data: PasswordResetRequest):
     
     # In production, send the reset link via email here. The token is logged
     # server-side for development/testing but MUST NOT be returned in the
-    # response body, otherwise anyone could reset any account's password.
+    # response body by default, otherwise anyone could reset any account's
+    # password. For local development the token can be surfaced explicitly by
+    # setting EXPOSE_RESET_TOKEN=true (never enable this in production).
     logger.info(f"Password reset token for {data.email}: {reset_token}")
 
-    return {"message": "If this email exists, a reset link has been sent"}
+    response_body = {"message": "If this email exists, a reset link has been sent"}
+    if os.environ.get("EXPOSE_RESET_TOKEN", "").lower() in ("1", "true", "yes"):
+        response_body["reset_token"] = reset_token
+    return response_body
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: PasswordResetConfirm):
