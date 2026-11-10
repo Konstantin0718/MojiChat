@@ -21,6 +21,8 @@ import httpx
 import base64
 import mimetypes
 import re
+import smtplib
+from email.message import EmailMessage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -752,6 +754,57 @@ async def logout(request: Request, response: Response):
 
 # ==================== PASSWORD RESET ====================
 
+def _reset_email_configured() -> bool:
+    return bool(
+        os.environ.get("SMTP_HOST")
+        and os.environ.get("SMTP_FROM")
+        and os.environ.get("FRONTEND_URL")
+    )
+
+
+def _send_reset_email(to_email: str, reset_token: str) -> None:
+    """Send the reset link. Never log the token or the link."""
+    # uvicorn configures logging before this module's basicConfig runs.
+    log = logging.getLogger("uvicorn.error")
+    if not _reset_email_configured():
+        log.info("Password reset email is not configured")
+        return
+
+    frontend = os.environ["FRONTEND_URL"].rstrip("/")
+    link = f"{frontend}/forgot-password?token={reset_token}"
+    message = EmailMessage()
+    message["Subject"] = "Reset your MojiChat password"
+    message["From"] = os.environ["SMTP_FROM"]
+    message["To"] = to_email
+    message.set_content(
+        "Choose a new MojiChat password with this link. It expires in one hour.\n\n"
+        f"{link}\n\n"
+        "If you did not ask for this, you can ignore the email.\n"
+    )
+
+    host = os.environ["SMTP_HOST"]
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    username = os.environ.get("SMTP_USERNAME") or ""
+    password = os.environ.get("SMTP_PASSWORD") or ""
+    use_tls = os.environ.get("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
+    try:
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
+                if username:
+                    smtp.login(username, password)
+                smtp.send_message(message)
+        else:
+            with smtplib.SMTP(host, port, timeout=20) as smtp:
+                if use_tls:
+                    smtp.starttls()
+                if username:
+                    smtp.login(username, password)
+                smtp.send_message(message)
+        log.info("Password reset email sent to %s", to_email)
+    except Exception as exc:
+        log.error("Password reset email failed for %s: %s", to_email, exc)
+
+
 @api_router.post("/auth/forgot-password")
 async def forgot_password(request: Request, data: PasswordResetRequest):
     """Send password reset email"""
@@ -776,11 +829,10 @@ async def forgot_password(request: Request, data: PasswordResetRequest):
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     
-    # In production, send the reset link via email here. The token is never
-    # logged or returned, otherwise anyone with log access could reset an
-    # account. Local development can opt in with EXPOSE_RESET_TOKEN=true
-    # (never enable this in production). Email delivery is not wired up yet.
+    # The token is never logged. Local development can opt in with
+    # EXPOSE_RESET_TOKEN=true (never enable this in production).
     logger.info("Password reset requested for %s", data.email)
+    await asyncio.to_thread(_send_reset_email, data.email, reset_token)
 
     response_body = {"message": "If this email exists, a reset link has been sent"}
     if os.environ.get("EXPOSE_RESET_TOKEN", "").lower() in ("1", "true", "yes"):
@@ -2073,8 +2125,10 @@ async def _fetch_giphy(path: str, params: dict, offset: int) -> dict:
 
 
 @api_router.get("/giphy/search")
-async def search_giphy(q: str, limit: int = 20, offset: int = 0, request: Request = None):
-    """Search for GIFs using Giphy API"""
+async def search_giphy(q: str, request: Request, limit: int = 20, offset: int = 0):
+    """Search for GIFs using Giphy API. Auth is required before a key is configured."""
+    await get_current_user(request)
+    await enforce_rate_limit(request, bucket="giphy", limit=30, window_seconds=60)
     return await _fetch_giphy(
         "search",
         {
@@ -2089,8 +2143,10 @@ async def search_giphy(q: str, limit: int = 20, offset: int = 0, request: Reques
     )
 
 @api_router.get("/giphy/trending")
-async def trending_giphy(limit: int = 20, offset: int = 0, request: Request = None):
-    """Get trending GIFs from Giphy"""
+async def trending_giphy(request: Request, limit: int = 20, offset: int = 0):
+    """Get trending GIFs from Giphy. Auth is required before a key is configured."""
+    await get_current_user(request)
+    await enforce_rate_limit(request, bucket="giphy", limit=30, window_seconds=60)
     return await _fetch_giphy(
         "trending",
         {

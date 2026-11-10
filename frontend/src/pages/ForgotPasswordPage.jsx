@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Mail, Lock, KeyRound, ArrowRight, Loader2, ArrowLeft } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Loader2, ArrowLeft } from 'lucide-react';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -13,9 +13,10 @@ const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 export default function ForgotPasswordPage() {
   const navigate = useNavigate();
-  const [step, setStep] = useState('request'); // 'request' | 'reset'
+  const [params] = useSearchParams();
+  const token = params.get('token') || '';
   const [email, setEmail] = useState('');
-  const [token, setToken] = useState('');
+  const [emailSent, setEmailSent] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -30,12 +31,7 @@ export default function ForgotPasswordPage() {
     try {
       const res = await axios.post(`${API_URL}/api/auth/forgot-password`, { email });
       toast.success(res.data?.message || 'If this email exists, a reset link has been sent');
-      // In development the backend may return the token directly.
-      if (res.data?.reset_token) {
-        setToken(res.data.reset_token);
-        toast.info('Dev mode: reset token pre-filled');
-      }
-      setStep('reset');
+      setEmailSent(true);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Something went wrong');
     } finally {
@@ -46,7 +42,7 @@ export default function ForgotPasswordPage() {
   const resetPassword = async (e) => {
     e.preventDefault();
     if (!token || !newPassword) {
-      toast.error('Please fill in all fields');
+      toast.error('Open the reset link from your email');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -89,83 +85,22 @@ export default function ForgotPasswordPage() {
             </Link>
 
             <h1 className="text-4xl font-heading font-bold mb-2">
-              {step === 'request' ? 'Forgot password?' : 'Reset password'}
+              {token ? 'Reset password' : 'Forgot password?'}
             </h1>
             <p className="text-muted-foreground">
-              {step === 'request'
-                ? "Enter your email and we'll send you a reset link."
-                : 'Enter the reset token and choose a new password.'}
+              {token
+                ? 'Choose a new password for your account.'
+                : "Enter your email and we'll send you a reset link."}
             </p>
           </motion.div>
 
-          {step === 'request' ? (
-            <motion.form
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              onSubmit={requestReset}
-              className="space-y-5"
-            >
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium">Email</Label>
-                <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-12 py-6 rounded-xl"
-                    data-testid="forgot-email-input"
-                  />
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full py-6 rounded-xl text-base shadow-neon"
-                disabled={loading}
-                data-testid="forgot-submit-btn"
-              >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
-                  <>Send reset link<ArrowRight className="w-5 h-5 ml-2" /></>
-                )}
-              </Button>
-
-              <p className="text-center text-sm text-muted-foreground">
-                Already have a token?{' '}
-                <button
-                  type="button"
-                  className="text-primary hover:underline font-medium"
-                  onClick={() => setStep('reset')}
-                >
-                  Enter it here
-                </button>
-              </p>
-            </motion.form>
-          ) : (
+          {token ? (
             <motion.form
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               onSubmit={resetPassword}
               className="space-y-5"
             >
-              <div className="space-y-2">
-                <Label htmlFor="token" className="text-sm font-medium">Reset token</Label>
-                <div className="relative">
-                  <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                  <Input
-                    id="token"
-                    type="text"
-                    placeholder="Paste your reset token"
-                    value={token}
-                    onChange={(e) => setToken(e.target.value)}
-                    className="pl-12 py-6 rounded-xl"
-                    data-testid="reset-token-input"
-                  />
-                </div>
-              </div>
-
               <div className="space-y-2">
                 <Label htmlFor="new-password" className="text-sm font-medium">New password</Label>
                 <div className="relative">
@@ -205,6 +140,44 @@ export default function ForgotPasswordPage() {
                 data-testid="reset-submit-btn"
               >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Reset password'}
+              </Button>
+            </motion.form>
+          ) : emailSent ? (
+            <p className="text-muted-foreground" data-testid="reset-email-sent">
+              If an account exists for {email}, you will receive a reset link. Open that link to choose a new password.
+            </p>
+          ) : (
+            <motion.form
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              onSubmit={requestReset}
+              className="space-y-5"
+            >
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-sm font-medium">Email</Label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="pl-12 py-6 rounded-xl"
+                    data-testid="forgot-email-input"
+                  />
+                </div>
+              </div>
+
+              <Button
+                type="submit"
+                className="w-full py-6 rounded-xl text-base shadow-neon"
+                disabled={loading}
+                data-testid="forgot-submit-btn"
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+                  <>Send reset link<ArrowRight className="w-5 h-5 ml-2" /></>
+                )}
               </Button>
             </motion.form>
           )}

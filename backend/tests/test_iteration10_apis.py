@@ -165,53 +165,19 @@ class TestFileUpload:
 
 
 class TestGiphy:
-    """Giphy API integration tests"""
-    
-    def test_giphy_trending_returns_gifs(self):
-        """Test GET /api/giphy/trending returns GIFs"""
+    """Giphy routes require a logged-in user before any API key is used."""
+
+    def test_giphy_trending_requires_auth(self):
         response = requests.get(f"{BASE_URL}/api/giphy/trending")
-        assert response.status_code == 200, f"Giphy trending failed: {response.text}"
-        data = response.json()
-        assert "gifs" in data, "gifs not in response"
-        assert isinstance(data["gifs"], list), "gifs should be a list"
-        if data.get("available") is False:
-            assert data["gifs"] == []
-            print("✓ Giphy trending is unavailable without an API key")
-            return
-        assert len(data["gifs"]) > 0, "gifs list should not be empty"
-        
-        # Verify GIF structure
-        gif = data["gifs"][0]
-        assert "id" in gif, "GIF missing id"
-        assert "url" in gif, "GIF missing url"
-        assert "preview_url" in gif, "GIF missing preview_url"
-        print(f"✓ Giphy trending returned {len(data['gifs'])} GIFs")
-    
-    def test_giphy_search_returns_gifs(self):
-        """Test GET /api/giphy/search?q=cat returns GIFs"""
+        assert response.status_code == 401, f"Giphy trending should require auth, got: {response.status_code}"
+
+    def test_giphy_search_requires_auth(self):
         response = requests.get(f"{BASE_URL}/api/giphy/search", params={"q": "cat"})
-        assert response.status_code == 200, f"Giphy search failed: {response.text}"
-        data = response.json()
-        assert "gifs" in data, "gifs not in response"
-        assert isinstance(data["gifs"], list), "gifs should be a list"
-        if data.get("available") is False:
-            assert data["gifs"] == []
-            print("✓ Giphy search is unavailable without an API key")
-            return
-        assert len(data["gifs"]) > 0, "gifs list should not be empty for 'cat' search"
-        
-        # Verify GIF structure
-        gif = data["gifs"][0]
-        assert "id" in gif, "GIF missing id"
-        assert "url" in gif, "GIF missing url"
-        print(f"✓ Giphy search for 'cat' returned {len(data['gifs'])} GIFs")
-    
-    def test_giphy_search_empty_query(self):
-        """Test GET /api/giphy/search with empty query"""
+        assert response.status_code == 401, f"Giphy search should require auth, got: {response.status_code}"
+
+    def test_giphy_search_empty_query_requires_auth(self):
         response = requests.get(f"{BASE_URL}/api/giphy/search", params={"q": ""})
-        # Empty query might return trending or error - just check it doesn't crash
-        assert response.status_code in [200, 400], f"Unexpected status: {response.status_code}"
-        print(f"✓ Giphy search with empty query handled (status: {response.status_code})")
+        assert response.status_code == 401, f"Unexpected status: {response.status_code}"
 
 
 class TestConversationsAndMessages:
