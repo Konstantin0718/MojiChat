@@ -54,6 +54,9 @@ export const MessageBubble: React.FC<Props> = ({
 }) => {
   const isOwn = message.sender_id === currentUser?.user_id;
   const [isRevealed, setIsRevealed] = useState(false);
+  const [translatedText, setTranslatedText] = useState<string | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [lastTranslatedLang, setLastTranslatedLang] = useState<string | null>(null);
 
   const handleLongPress = () => {
     if (!isOwn || !onDelete) return;
@@ -73,9 +76,6 @@ export const MessageBubble: React.FC<Props> = ({
       </View>
     );
   }
-  const [translatedText, setTranslatedText] = useState<string | null>(null);
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [lastTranslatedLang, setLastTranslatedLang] = useState<string | null>(null);
 
   const hasEmoji = !!message.emoji_content;
   const detectedLang = detectLanguage(message.content);

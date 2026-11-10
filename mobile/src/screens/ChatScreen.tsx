@@ -66,6 +66,7 @@ interface Message {
   message_type?: string;
   file_url?: string;
   created_at: string;
+  deleted?: boolean;
 }
 
 interface Props {
@@ -91,10 +92,19 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [showGiphyPicker, setShowGiphyPicker] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const flatListRef = useRef<FlatList>(null);
   const [conversationData, setConversationData] = useState<any>(null);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => setKeyboardHeight(e.endCoordinates.height));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   // Load translation language from AsyncStorage
   useEffect(() => {
@@ -197,7 +207,9 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       quality: 0.8,
     });
     if (!result.canceled && result.assets[0]) {
-      await uploadAndSendFile(result.assets[0].uri, result.assets[0].type === 'video' ? 'video' : 'image');
+      const asset = result.assets[0];
+      const mimeType = asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg');
+      await uploadAndSendFile(asset.uri, asset.type === 'video' ? 'video' : 'image', undefined, mimeType);
     }
   };
 
@@ -209,7 +221,9 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     }
     const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
     if (!result.canceled && result.assets[0]) {
-      await uploadAndSendFile(result.assets[0].uri, 'image');
+      const asset = result.assets[0];
+      const mimeType = asset.mimeType || 'image/jpeg';
+      await uploadAndSendFile(asset.uri, 'image', undefined, mimeType);
     }
   };
 
@@ -217,19 +231,20 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*' });
       if (!result.canceled && result.assets?.[0]) {
-        await uploadAndSendFile(result.assets[0].uri, 'file', result.assets[0].name);
+        const asset = result.assets[0];
+        await uploadAndSendFile(asset.uri, 'file', asset.name, asset.mimeType);
       }
     } catch (e) {
       Alert.alert('Error', 'Failed to pick file');
     }
   };
 
-  const uploadAndSendFile = async (uri: string, type: string, fileName?: string) => {
+  const uploadAndSendFile = async (uri: string, type: string, fileName?: string, mimeType?: string) => {
     if (!conversationId) return;
     setSending(true);
     setShowToolbar(false);
     try {
-      const uploadRes = await api.uploadFile(uri, fileName);
+      const uploadRes = await api.uploadFile(uri, fileName, mimeType);
       await api.sendMessage(
         conversationId,
         fileName || (type === 'image' ? 'Photo' : 'File'),
@@ -294,6 +309,10 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     );
   }
 
+  // On Android: manually compute bottom space from keyboard + nav bar
+  // On iOS: KeyboardAvoidingView handles it, just need nav bar padding
+  const androidBottomPadding = keyboardHeight > 0 ? keyboardHeight : insets.bottom;
+
   return (
     <View style={[s.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       {/* Header */}
@@ -314,11 +333,12 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* KeyboardAvoidingView wraps messages + input */}
+      {/* iOS: KeyboardAvoidingView handles keyboard push-up
+          Android: plain View with direct paddingBottom from keyboard/nav bar listener */}
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={{ flex: 1, paddingBottom: Platform.OS === 'android' ? androidBottomPadding : insets.bottom }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 56 : 0}
       >
         {/* Messages */}
         <FlatList
@@ -389,7 +409,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
 
         {/* Input Area */}
         {showVoiceRecorder ? (
-          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: 8 + insets.bottom }]}>
+          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
             <VoiceRecorder
               colors={colors}
               onSend={sendVoiceMessage}
@@ -397,7 +417,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             />
           </View>
         ) : (
-          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: 8 + insets.bottom }]}>
+          <View style={[s.inputContainer, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
             {/* Plus/attachment button */}
             <TouchableOpacity
               style={s.inputBtn}
