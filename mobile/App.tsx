@@ -28,6 +28,20 @@ import { StatusScreen } from './src/screens/StatusScreen';
 
 const Stack = createNativeStackNavigator();
 
+// https://<FRONTEND_URL>/forgot-password?token=... and mojichat://forgot-password?token=...
+const linking = {
+  prefixes: [
+    'mojichat://',
+    'https://moji-chat-gamma.vercel.app',
+    'http://localhost:3000',
+  ],
+  config: {
+    screens: {
+      ForgotPassword: 'forgot-password',
+    },
+  },
+};
+
 // Auth Stack (Login/Register)
 const AuthStack = () => {
   const { colors } = useTheme();
@@ -67,6 +81,7 @@ const AppStack = () => {
       <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
       <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
       <Stack.Screen name="Status" component={StatusScreen} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
     </Stack.Navigator>
   );
 };
@@ -134,7 +149,7 @@ const RootNavigator = () => {
   };
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer theme={navTheme} linking={linking}>
       {isAuthenticated ? <AppStack /> : <AuthStack />}
     </NavigationContainer>
   );
