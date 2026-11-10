@@ -6,6 +6,7 @@ import {
   Image,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Message, User, Conversation } from '../types';
@@ -120,7 +121,17 @@ export const MessageBubble: React.FC<Props> = ({
           <Text style={{ color: colors.primary, fontWeight: '600' }}>Forward</Text>
         </TouchableOpacity>
         {isOwn && onDelete ? (
-          <TouchableOpacity onPress={() => { setShowActions(false); onDelete(message.message_id); }}>
+          <TouchableOpacity onPress={() => {
+            setShowActions(false);
+            Alert.alert(
+              'Delete message',
+              'This permanently deletes the message. There is no undo.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete', style: 'destructive', onPress: () => onDelete(message.message_id) },
+              ],
+            );
+          }}>
             <Text style={{ color: '#EF4444', fontWeight: '600' }}>Delete</Text>
           </TouchableOpacity>
         ) : null}
