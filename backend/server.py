@@ -20,6 +20,7 @@ import jwt
 import httpx
 import base64
 import mimetypes
+import re
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -989,14 +990,20 @@ async def verify_phone_and_register(data: PhoneVerificationConfirm, response: Re
 @api_router.get("/users/search")
 async def search_users(q: str, request: Request):
     current_user = await get_current_user(request)
-    
+    query = (q or "").strip()
+    if not query:
+        return []
+    # User input is a literal substring. Escaping stops regex metacharacters
+    # from changing the match or throwing a Mongo regex error.
+    safe_q = re.escape(query)
+
     users = await db.users.find(
         {
             "$and": [
                 {"user_id": {"$ne": current_user["user_id"]}},
                 {"$or": [
-                    {"name": {"$regex": q, "$options": "i"}},
-                    {"email": {"$regex": q, "$options": "i"}}
+                    {"name": {"$regex": safe_q, "$options": "i"}},
+                    {"email": {"$regex": safe_q, "$options": "i"}}
                 ]}
             ]
         },
@@ -1989,98 +1996,94 @@ async def remove_reaction(message_id: str, emoji: str, request: Request):
 
 # ==================== GIPHY INTEGRATION ====================
 
+def giphy_unavailable(offset: int = 0, reason: str = "not_configured") -> dict:
+    """Soft response used when GIFs cannot be loaded. Never a 500."""
+    return {
+        "available": False,
+        "results": [],
+        "gifs": [],
+        "total_count": 0,
+        "offset": offset,
+        "reason": reason,
+    }
+
+
+def _gifs_from_giphy_payload(data: dict) -> list:
+    gifs = []
+    for gif in data.get("data", []):
+        try:
+            images = gif["images"]
+            gifs.append({
+                "id": gif["id"],
+                "title": gif.get("title", ""),
+                "url": images["fixed_height"]["url"],
+                "preview_url": images["fixed_height_small"]["url"],
+                "original_url": images["original"]["url"],
+                "width": int(images["fixed_height"]["width"]),
+                "height": int(images["fixed_height"]["height"]),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    return gifs
+
+
+def _giphy_success(gifs: list, total_count: int, offset: int) -> dict:
+    return {
+        "available": True,
+        "results": gifs,
+        "gifs": gifs,
+        "total_count": total_count,
+        "offset": offset,
+    }
+
+
+async def _fetch_giphy(path: str, params: dict, offset: int) -> dict:
+    if not GIPHY_API_KEY:
+        return giphy_unavailable(offset, "not_configured")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"https://api.giphy.com/v1/gifs/{path}", params=params)
+        if response.status_code != 200:
+            logger.warning("Giphy %s returned %s", path, response.status_code)
+            return giphy_unavailable(offset, "upstream")
+        data = response.json()
+        gifs = _gifs_from_giphy_payload(data)
+        total = data.get("pagination", {}).get("total_count", 0)
+        return _giphy_success(gifs, total, offset)
+    except Exception as e:
+        logger.error(f"Giphy API error: {e}")
+        return giphy_unavailable(offset, "upstream")
+
+
 @api_router.get("/giphy/search")
 async def search_giphy(q: str, limit: int = 20, offset: int = 0, request: Request = None):
     """Search for GIFs using Giphy API"""
-    if not GIPHY_API_KEY:
-        raise HTTPException(status_code=500, detail="Giphy API key not configured")
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "https://api.giphy.com/v1/gifs/search",
-                params={
-                    "api_key": GIPHY_API_KEY,
-                    "q": q,
-                    "limit": min(limit, 50),
-                    "offset": offset,
-                    "rating": "g",
-                    "lang": "en"
-                }
-            )
-            
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail="Giphy API error")
-            
-            data = response.json()
-            
-            # Transform to simpler format
-            gifs = []
-            for gif in data.get("data", []):
-                gifs.append({
-                    "id": gif["id"],
-                    "title": gif.get("title", ""),
-                    "url": gif["images"]["fixed_height"]["url"],
-                    "preview_url": gif["images"]["fixed_height_small"]["url"],
-                    "original_url": gif["images"]["original"]["url"],
-                    "width": int(gif["images"]["fixed_height"]["width"]),
-                    "height": int(gif["images"]["fixed_height"]["height"]),
-                })
-            
-            return {
-                "gifs": gifs,
-                "total_count": data.get("pagination", {}).get("total_count", 0),
-                "offset": offset
-            }
-            
-    except httpx.HTTPError as e:
-        logger.error(f"Giphy API error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to search GIFs")
+    return await _fetch_giphy(
+        "search",
+        {
+            "api_key": GIPHY_API_KEY,
+            "q": q,
+            "limit": min(limit, 50),
+            "offset": offset,
+            "rating": "g",
+            "lang": "en",
+        },
+        offset,
+    )
 
 @api_router.get("/giphy/trending")
 async def trending_giphy(limit: int = 20, offset: int = 0, request: Request = None):
     """Get trending GIFs from Giphy"""
-    if not GIPHY_API_KEY:
-        raise HTTPException(status_code=500, detail="Giphy API key not configured")
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "https://api.giphy.com/v1/gifs/trending",
-                params={
-                    "api_key": GIPHY_API_KEY,
-                    "limit": min(limit, 50),
-                    "offset": offset,
-                    "rating": "g"
-                }
-            )
-            
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail="Giphy API error")
-            
-            data = response.json()
-            
-            gifs = []
-            for gif in data.get("data", []):
-                gifs.append({
-                    "id": gif["id"],
-                    "title": gif.get("title", ""),
-                    "url": gif["images"]["fixed_height"]["url"],
-                    "preview_url": gif["images"]["fixed_height_small"]["url"],
-                    "original_url": gif["images"]["original"]["url"],
-                    "width": int(gif["images"]["fixed_height"]["width"]),
-                    "height": int(gif["images"]["fixed_height"]["height"]),
-                })
-            
-            return {
-                "gifs": gifs,
-                "total_count": data.get("pagination", {}).get("total_count", 0),
-                "offset": offset
-            }
-            
-    except httpx.HTTPError as e:
-        logger.error(f"Giphy API error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get trending GIFs")
+    return await _fetch_giphy(
+        "trending",
+        {
+            "api_key": GIPHY_API_KEY,
+            "limit": min(limit, 50),
+            "offset": offset,
+            "rating": "g",
+        },
+        offset,
+    )
 
 # ==================== STICKERS & GIFS ====================
 
