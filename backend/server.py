@@ -1451,7 +1451,17 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     
     # Broadcast new message via WebSocket
     await ws_manager.send_new_message(conversation_id, response_data, current_user["user_id"])
-    
+
+    # Push notifications to other participants (was missing — clients only got WS in foreground)
+    await notify_participants_new_message_push(
+        conv,
+        current_user["user_id"],
+        current_user.get("name") or "MojiChat",
+        msg_data,
+        conversation_id,
+        message_id,
+    )
+
     return response_data
 
 @api_router.get("/conversations/{conversation_id}/messages")
@@ -2386,6 +2396,150 @@ async def get_active_calls(request: Request):
 
 # ==================== PUSH NOTIFICATIONS ====================
 
+def _push_preview_body(msg_data: MessageCreate) -> str:
+    """Short line for notification body."""
+    mt = (msg_data.message_type or "text").lower()
+    if mt == "text":
+        t = (msg_data.content or "").strip()
+        return (t[:120] + "…") if len(t) > 120 else (t or "New message")
+    return {
+        "image": "📷 Photo",
+        "video": "🎥 Video",
+        "audio": "🎤 Voice message",
+        "file": "📎 File",
+        "gif": "GIF",
+    }.get(mt, "New message")
+
+
+def _fcm_string_data(data: Optional[dict]) -> dict:
+    if not data:
+        return {}
+    return {str(k): str(v) for k, v in data.items()}
+
+
+async def _deliver_push_to_token(
+    token: str,
+    title: str,
+    body: str,
+    data: Optional[dict] = None,
+    android_channel_id: str = "default",
+) -> dict:
+    """Send one push via FCM (non-Expo token) or Expo Push API. Returns status dict."""
+    if not token:
+        return {"success": False, "message": "No token"}
+
+    if firebase_app and not str(token).startswith("ExponentPushToken"):
+        try:
+            fcm_message = fcm_messaging.Message(
+                notification=fcm_messaging.Notification(title=title, body=body),
+                data=_fcm_string_data(data),
+                token=token,
+                android=fcm_messaging.AndroidConfig(
+                    priority="high",
+                    notification=fcm_messaging.AndroidNotification(
+                        sound="default",
+                        channel_id=android_channel_id,
+                    ),
+                ),
+            )
+            response = fcm_messaging.send(fcm_message)
+            logger.info(f"FCM push sent: {response}")
+            return {"success": True, "message": "FCM push notification sent!", "details": {"message_id": str(response)}}
+        except Exception as e:
+            logger.error(f"FCM push error: {e}")
+            return {"success": False, "message": str(e)}
+
+    EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+    message = {
+        "to": token,
+        "title": title,
+        "body": body,
+        "sound": "default",
+        "priority": "high",
+        "channelId": android_channel_id,
+    }
+    if data:
+        message["data"] = data
+
+    logger.info(f"Sending push notification to: {token[:30]}...")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                EXPO_PUSH_URL,
+                json=message,
+                headers={
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip, deflate",
+                    "Content-Type": "application/json",
+                },
+            )
+            result = response.json()
+            logger.info(f"Expo Push API response: {result}")
+
+            if response.status_code == 200 and "data" in result:
+                ticket = result["data"]
+                if ticket.get("status") == "ok":
+                    return {
+                        "success": True,
+                        "message": "Push notification sent successfully!",
+                        "ticket_id": ticket.get("id"),
+                        "details": ticket,
+                    }
+                return {
+                    "success": False,
+                    "message": f"Push failed: {ticket.get('message', 'Unknown error')}",
+                    "details": ticket,
+                }
+            if response.status_code == 200:
+                return {"success": True, "message": "Request sent", "details": result}
+            return {"success": False, "message": f"HTTP {response.status_code}", "details": result}
+    except Exception as e:
+        logger.error(f"Push notification error: {e}")
+        return {"success": False, "message": str(e)}
+
+
+async def notify_participants_new_message_push(
+    conv: dict,
+    sender_id: str,
+    sender_name: str,
+    msg_data: MessageCreate,
+    conversation_id: str,
+    message_id: str,
+) -> None:
+    """Notify all participants except sender that a new message arrived (Expo / FCM)."""
+    participant_ids = conv.get("participant_ids") or []
+    targets = [uid for uid in participant_ids if uid != sender_id]
+    if not targets:
+        return
+
+    preview = _push_preview_body(msg_data)
+    title = sender_name or "MojiChat"
+    payload = {
+        "type": "new_message",
+        "conversation_id": conversation_id,
+        "message_id": message_id,
+    }
+
+    async def one(uid: str):
+        try:
+            sub = await db.push_subscriptions.find_one({"user_id": uid}, {"_id": 0})
+            if not sub:
+                return
+            tok = sub.get("endpoint")
+            if not tok:
+                return
+            res = await _deliver_push_to_token(
+                tok, title, preview, payload, android_channel_id="messages"
+            )
+            if not res.get("success"):
+                logger.warning(f"new_message push for user {uid}: {res.get('message')}")
+        except Exception as e:
+            logger.warning(f"new_message push error for user {uid}: {e}")
+
+    await asyncio.gather(*[one(uid) for uid in targets], return_exceptions=True)
+
+
 class PushSubscription(BaseModel):
     endpoint: str
     keys: dict
@@ -2395,13 +2549,14 @@ async def subscribe_push(subscription: PushSubscription, request: Request):
     """Subscribe to push notifications"""
     current_user = await get_current_user(request)
     
-    # Store subscription
+    # One row per user_id (unique index). Always replace token on re-login / new device.
     await db.push_subscriptions.update_one(
-        {"user_id": current_user["user_id"], "endpoint": subscription.endpoint},
+        {"user_id": current_user["user_id"]},
         {"$set": {
             "user_id": current_user["user_id"],
             "endpoint": subscription.endpoint,
             "keys": subscription.keys,
+            "token_type": "expo",
             "created_at": datetime.now(timezone.utc).isoformat()
         }},
         upsert=True
@@ -2420,7 +2575,7 @@ async def subscribe_fcm(request: Request):
         raise HTTPException(status_code=400, detail="fcm_token is required")
     
     await db.push_subscriptions.update_one(
-        {"user_id": current_user["user_id"], "endpoint": fcm_token},
+        {"user_id": current_user["user_id"]},
         {"$set": {
             "user_id": current_user["user_id"],
             "endpoint": fcm_token,
@@ -2502,103 +2657,19 @@ class SendPushRequest(BaseModel):
 @api_router.post("/notifications/send-push")
 async def send_push_notification(push_data: SendPushRequest, request: Request):
     """Send push notification via Expo Push API or FCM"""
-    current_user = await get_current_user(request)
-    
-    # Try FCM first if we have Firebase Admin SDK and it's an FCM token
-    if firebase_app and push_data.expo_token and not push_data.expo_token.startswith("ExponentPushToken"):
-        try:
-            fcm_message = fcm_messaging.Message(
-                notification=fcm_messaging.Notification(
-                    title=push_data.title,
-                    body=push_data.body,
-                ),
-                data=push_data.data if push_data.data else {},
-                token=push_data.expo_token,
-                android=fcm_messaging.AndroidConfig(
-                    priority='high',
-                    notification=fcm_messaging.AndroidNotification(
-                        sound='default',
-                        channel_id='messages',
-                    ),
-                ),
-            )
-            response = fcm_messaging.send(fcm_message)
-            logger.info(f"FCM push sent: {response}")
-            return {"success": True, "message": "FCM push notification sent!", "details": {"message_id": response}}
-        except Exception as e:
-            logger.error(f"FCM push error: {e}")
-
-    # Fallback to Expo Push API
-    EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
-    
-    message = {
-        "to": push_data.expo_token,
-        "title": push_data.title,
-        "body": push_data.body,
-        "sound": "default",
-        "priority": "high",
-        "channelId": "default",
-    }
-    
-    if push_data.data:
-        message["data"] = push_data.data
-    
-    logger.info(f"Sending push notification to: {push_data.expo_token[:30]}...")
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                EXPO_PUSH_URL,
-                json=message,
-                headers={
-                    "Accept": "application/json",
-                    "Accept-Encoding": "gzip, deflate",
-                    "Content-Type": "application/json",
-                }
-            )
-            
-            result = response.json()
-            logger.info(f"Expo Push API response: {result}")
-            
-            if response.status_code == 200:
-                if "data" in result:
-                    ticket = result["data"]
-                    if ticket.get("status") == "ok":
-                        return {
-                            "success": True,
-                            "message": "Push notification sent successfully!",
-                            "ticket_id": ticket.get("id"),
-                            "details": ticket
-                        }
-                    else:
-                        return {
-                            "success": False,
-                            "message": f"Push failed: {ticket.get('message', 'Unknown error')}",
-                            "details": ticket
-                        }
-                return {
-                    "success": True,
-                    "message": "Request sent",
-                    "details": result
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"HTTP {response.status_code}",
-                    "details": result
-                }
-                
-    except Exception as e:
-        logger.error(f"Push notification error: {e}")
-        return {
-            "success": False,
-            "message": str(e)
-        }
+    await get_current_user(request)
+    return await _deliver_push_to_token(
+        push_data.expo_token,
+        push_data.title,
+        push_data.body,
+        push_data.data,
+        android_channel_id="default",
+    )
 
 @api_router.post("/notifications/send-to-user/{user_id}")
 async def send_push_to_user(user_id: str, request: Request):
     """Send push notification to a specific user (for testing)"""
-    current_user = await get_current_user(request)
+    await get_current_user(request)
     body = await request.json()
     
     # Get user's push token
@@ -2610,13 +2681,12 @@ async def send_push_to_user(user_id: str, request: Request):
     if not subscription:
         raise HTTPException(status_code=404, detail="User has no push subscription")
     
-    expo_token = subscription.get("endpoint")
-    if not expo_token or not expo_token.startswith("ExponentPushToken"):
-        raise HTTPException(status_code=400, detail="Invalid push token")
+    token = subscription.get("endpoint")
+    if not token:
+        raise HTTPException(status_code=400, detail="No push token stored")
     
-    # Send via Expo
     push_request = SendPushRequest(
-        expo_token=expo_token,
+        expo_token=token,
         title=body.get("title", "New Message"),
         body=body.get("body", "You have a new message!"),
         data=body.get("data")
