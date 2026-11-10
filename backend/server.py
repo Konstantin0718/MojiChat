@@ -219,6 +219,19 @@ class ConnectionManager:
         }
         await self.broadcast_to_conversation(conversation_id, message, exclude_user=reader_id)
 
+    async def send_block_update(self, blocker_id: str, blocked_id: str, blocked: bool):
+        """Tell both people's open sessions that a block changed."""
+        message = {
+            "type": "block:update",
+            "blocker_id": blocker_id,
+            "blocked_id": blocked_id,
+            "blocked": blocked,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.send_to_user(blocked_id, message)
+        if blocker_id != blocked_id:
+            await self.send_to_user(blocker_id, message)
+
 # Global WebSocket manager
 ws_manager = ConnectionManager()
 
@@ -1069,6 +1082,7 @@ async def block_user(user_id: str, request: Request):
         "blocked_id": user_id,
         "blocked_at": datetime.now(timezone.utc).isoformat()
     })
+    await ws_manager.send_block_update(current_user["user_id"], user_id, True)
     
     return {"message": "User blocked successfully"}
 
@@ -1084,6 +1098,8 @@ async def unblock_user(user_id: str, request: Request):
     
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Block record not found")
+
+    await ws_manager.send_block_update(current_user["user_id"], user_id, False)
     
     return {"message": "User unblocked successfully"}
 
@@ -1592,15 +1608,14 @@ async def convert_emoji(data: EmojiConvertRequest, request: Request):
 
 # ==================== TRANSLATION ====================
 
-async def translate_text(text: str, target_language: str, source_language: str = "auto") -> str:
-    """Translate text to target language using AI"""
+async def translate_text(text: str, target_language: str, source_language: str = "auto"):
+    """Return (available, text). available is false when translation cannot run."""
+    api_key = os.environ.get('EMERGENT_LLM_KEY')
+    if not api_key:
+        return False, text
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
-        
-        api_key = os.environ.get('EMERGENT_LLM_KEY')
-        if not api_key:
-            return text
-        
+
         lang_name = SUPPORTED_LANGUAGES.get(target_language, "English")
         
         chat = LlmChat(
@@ -1617,11 +1632,11 @@ Rules:
         
         user_message = UserMessage(text=f"Translate to {lang_name}: {text}")
         response = await chat.send_message(user_message)
-        return response.strip() if response else text
-        
+        return True, (response.strip() if response else text)
+
     except Exception as e:
         logger.error(f"Translation error: {e}")
-        return text
+        return False, text
 
 @api_router.post("/translate")
 async def translate_endpoint(request: Request):
@@ -1636,12 +1651,14 @@ async def translate_endpoint(request: Request):
     if target_language == "auto":
         target_language = current_user.get("preferred_language", "en")
     
-    translated = await translate_text(text, target_language)
+    available, translated = await translate_text(text, target_language)
     return {
-        "original": text, 
-        "translated": translated, 
+        "available": available,
+        "text": translated if available else text,
+        "original": text,
+        "translated": translated if available else text,
         "language": target_language,
-        "auto_detected": True
+        "auto_detected": True,
     }
 
 # ==================== USER LANGUAGE SETTINGS ====================

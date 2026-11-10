@@ -44,6 +44,7 @@ export const EmojiRevealCard = ({
   const [isTranslating, setIsTranslating] = useState(false);
   const [lastTranslatedLang, setLastTranslatedLang] = useState(null);
   const [showReactions, setShowReactions] = useState(false);
+  const [translationNote, setTranslationNote] = useState('');
 
   const hasEmoji = !!message.emoji_content;
   const hasTranslation = !!translatedText && translatedText !== message.content;
@@ -69,10 +70,16 @@ export const EmojiRevealCard = ({
         { text: message.content, target_language: targetLang || 'bg' },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (res.data?.translated) {
-        setTranslatedText(res.data.translated);
-        setLastTranslatedLang(userLanguage);
+      if (res.data?.available === false) {
+        setTranslatedText(null);
+        setTranslationNote('Translation is not available');
+      } else {
+        setTranslationNote('');
+        if (res.data?.translated) {
+          setTranslatedText(res.data.translated);
+        }
       }
+      setLastTranslatedLang(userLanguage);
     } catch (err) {
       console.error('Translation failed:', err);
     }
@@ -137,7 +144,7 @@ export const EmojiRevealCard = ({
                 <div className="flex items-start gap-2">
                   <Languages className="w-4 h-4 mt-0.5 opacity-60 flex-shrink-0" />
                   <p className="text-sm leading-relaxed break-words">
-                    {translatedText || message.content}
+                    {translationNote || translatedText || message.content}
                   </p>
                 </div>
                 

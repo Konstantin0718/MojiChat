@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, Square, Send, Trash2, Play, Pause } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -10,6 +10,7 @@ export const VoiceRecorder = ({ onSend, onCancel }) => {
   const [duration, setDuration] = useState(0);
   const [audioUrl, setAudioUrl] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [micError, setMicError] = useState('');
   
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -26,7 +27,8 @@ export const VoiceRecorder = ({ onSend, onCancel }) => {
     };
   }, []);
 
-  const startRecording = async () => {
+  const startRecording = useCallback(async () => {
+    setMicError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -57,9 +59,16 @@ export const VoiceRecorder = ({ onSend, onCancel }) => {
 
     } catch (error) {
       console.error('Error accessing microphone:', error);
-      alert('Unable to access microphone. Please check permissions.');
+      setIsRecording(false);
+      setMicError('Unable to access the microphone. Allow microphone access, then try again.');
     }
-  };
+  }, []);
+
+  // The toolbar mic already opened this recorder, so start immediately
+  // instead of asking for a second click.
+  useEffect(() => {
+    startRecording();
+  }, [startRecording]);
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
@@ -115,6 +124,9 @@ export const VoiceRecorder = ({ onSend, onCancel }) => {
 
   return (
     <div className="flex items-center gap-3" data-testid="voice-recorder">
+      {micError && (
+        <p className="text-sm text-destructive" data-testid="mic-error">{micError}</p>
+      )}
       {audioUrl && (
         <audio 
           ref={audioRef} 

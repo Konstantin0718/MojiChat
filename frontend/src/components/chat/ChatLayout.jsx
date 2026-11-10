@@ -96,6 +96,7 @@ export const ChatLayout = () => {
   const [inviteLinkLoading, setInviteLinkLoading] = useState(false);
   // Block
   const [blockedUsers, setBlockedUsers] = useState([]);
+  const [blockedByUsers, setBlockedByUsers] = useState([]);
   const [forwardMessage, setForwardMessage] = useState(null);
   const [forwardIds, setForwardIds] = useState([]);
   const [forwarding, setForwarding] = useState(false);
@@ -210,6 +211,22 @@ export const ChatLayout = () => {
           ...prev,
           [data.message_id]: [...new Set([...(prev[data.message_id] || []), data.reader_id])],
         }));
+      }
+    },
+    onBlockUpdate: (data) => {
+      if (data.blocker_id === user?.user_id) {
+        setBlockedUsers((prev) => (
+          data.blocked
+            ? [...new Set([...prev, data.blocked_id])]
+            : prev.filter((id) => id !== data.blocked_id)
+        ));
+      }
+      if (data.blocked_id === user?.user_id) {
+        setBlockedByUsers((prev) => (
+          data.blocked
+            ? [...new Set([...prev, data.blocker_id])]
+            : prev.filter((id) => id !== data.blocker_id)
+        ));
       }
     },
   }), [fetchMessages, fetchConversations, user?.user_id]); // eslint-disable-line
@@ -1553,6 +1570,21 @@ export const ChatLayout = () => {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {!currentConversation.is_group && (() => {
+              const other = getOtherParticipant(currentConversation);
+              if (!other) return null;
+              const blockedThem = blockedUsers.includes(other.user_id);
+              const blockedMe = blockedByUsers.includes(other.user_id);
+              if (!blockedThem && !blockedMe) return null;
+              return (
+                <p className="text-center text-sm text-destructive py-2" data-testid="blocked-banner">
+                  {blockedThem
+                    ? 'You blocked this user. Unblock them to send messages.'
+                    : 'You cannot send messages because this user blocked you.'}
+                </p>
+              );
+            })()}
 
             {/* Message Input */}
             <div className="p-4 border-t border-border bg-card">

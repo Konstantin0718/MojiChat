@@ -57,6 +57,7 @@ export const MessageBubble: React.FC<Props> = ({
   const [translatedText, setTranslatedText] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [lastTranslatedLang, setLastTranslatedLang] = useState<string | null>(null);
+  const [translationNote, setTranslationNote] = useState<string | null>(null);
 
   const handleLongPress = () => {
     if (!isOwn || !onDelete) return;
@@ -89,7 +90,13 @@ export const MessageBubble: React.FC<Props> = ({
     try {
       const targetLang = translationLanguage === 'auto' ? 'bg' : (translationLanguage || 'bg');
       const result = await api.translate(message.content, targetLang);
-      setTranslatedText(result.translated);
+      if (result?.available === false) {
+        setTranslatedText(null);
+        setTranslationNote('Translation is not available');
+      } else {
+        setTranslationNote(null);
+        setTranslatedText(result.translated);
+      }
       setLastTranslatedLang(translationLanguage);
     } catch (_) {
       setTranslatedText(null);
@@ -176,7 +183,7 @@ export const MessageBubble: React.FC<Props> = ({
                   <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
                     <Ionicons name="language" size={16} color={colors.primary} style={{ marginTop: 2 }} />
                     <Text style={[styles.text, { color: colors.text, flex: 1 }]}>
-                      {translatedText || message.content}
+                      {translationNote || translatedText || message.content}
                     </Text>
                   </View>
                   {hasTranslation && (
