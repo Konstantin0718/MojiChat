@@ -54,6 +54,10 @@ export const MessageBubble: React.FC<Props> = ({
 }) => {
   const isOwn = message.sender_id === currentUser?.user_id;
   const [isRevealed, setIsRevealed] = useState(false);
+  const [translatedText, setTranslatedText] = useState<string | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [lastTranslatedLang, setLastTranslatedLang] = useState<string | null>(null);
+  const [translationNote, setTranslationNote] = useState<string | null>(null);
 
   const handleLongPress = () => {
     if (!isOwn || !onDelete) return;
@@ -63,7 +67,28 @@ export const MessageBubble: React.FC<Props> = ({
     ]);
   };
 
-  // Deleted message
+  const doTranslate = useCallback(async () => {
+    // Skip if already translated with same language
+    if (translatedText && lastTranslatedLang === translationLanguage) return;
+    setIsTranslating(true);
+    try {
+      const targetLang = translationLanguage === 'auto' ? 'bg' : (translationLanguage || 'bg');
+      const result = await api.translate(message.content, targetLang);
+      if (result?.available === false) {
+        setTranslatedText(null);
+        setTranslationNote('Translation is not available');
+      } else {
+        setTranslationNote(null);
+        setTranslatedText(result.translated);
+      }
+      setLastTranslatedLang(translationLanguage);
+    } catch (_) {
+      setTranslatedText(null);
+    }
+    setIsTranslating(false);
+  }, [translatedText, lastTranslatedLang, translationLanguage, message.content]);
+
+  // Deleted message — kept below every hook so hook order stays stable.
   if (message.deleted) {
     return (
       <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
@@ -73,29 +98,11 @@ export const MessageBubble: React.FC<Props> = ({
       </View>
     );
   }
-  const [translatedText, setTranslatedText] = useState<string | null>(null);
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [lastTranslatedLang, setLastTranslatedLang] = useState<string | null>(null);
 
   const hasEmoji = !!message.emoji_content;
   const detectedLang = detectLanguage(message.content);
   const langFlag = LANG_FLAGS[detectedLang] || '🌐';
   const hasTranslation = !!translatedText && translatedText !== message.content;
-
-  const doTranslate = useCallback(async () => {
-    // Skip if already translated with same language
-    if (translatedText && lastTranslatedLang === translationLanguage) return;
-    setIsTranslating(true);
-    try {
-      const targetLang = translationLanguage === 'auto' ? 'bg' : (translationLanguage || 'bg');
-      const result = await api.translate(message.content, targetLang);
-      setTranslatedText(result.translated);
-      setLastTranslatedLang(translationLanguage);
-    } catch (_) {
-      setTranslatedText(null);
-    }
-    setIsTranslating(false);
-  }, [translatedText, lastTranslatedLang, translationLanguage, message.content]);
 
   const handleTap = async () => {
     if (!isRevealed) {
@@ -176,7 +183,7 @@ export const MessageBubble: React.FC<Props> = ({
                   <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
                     <Ionicons name="language" size={16} color={colors.primary} style={{ marginTop: 2 }} />
                     <Text style={[styles.text, { color: colors.text, flex: 1 }]}>
-                      {translatedText || message.content}
+                      {translationNote || translatedText || message.content}
                     </Text>
                   </View>
                   {hasTranslation && (

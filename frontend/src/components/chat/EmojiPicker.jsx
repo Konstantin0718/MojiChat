@@ -75,6 +75,7 @@ export const EmojiPicker = ({ onSelect, onClose, onGifSelect }) => {
   const [gifQuery, setGifQuery] = useState('');
   const [gifs, setGifs] = useState([]);
   const [gifsLoading, setGifsLoading] = useState(false);
+  const [gifsUnavailable, setGifsUnavailable] = useState(false);
 
   const loadGifs = useCallback(async (query = '') => {
     setGifsLoading(true);
@@ -86,9 +87,13 @@ export const EmojiPicker = ({ onSelect, onClose, onGifSelect }) => {
         params,
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      setGifs(res.data?.gifs || []);
+      const list = res.data?.gifs || res.data?.results || [];
+      setGifs(list);
+      setGifsUnavailable(res.data?.available === false);
     } catch (e) {
       console.error('Giphy error:', e);
+      setGifs([]);
+      setGifsUnavailable(true);
     }
     setGifsLoading(false);
   }, []);
@@ -246,7 +251,7 @@ export const EmojiPicker = ({ onSelect, onClose, onGifSelect }) => {
                 </div>
               ) : gifs.length === 0 ? (
                 <p className="text-center text-sm text-muted-foreground py-8">
-                  {gifQuery ? 'No GIFs found' : 'Loading...'}
+                  {gifsUnavailable ? 'GIFs are not available right now' : gifQuery ? 'No GIFs found' : 'No GIFs found'}
                 </p>
               ) : (
                 <div className="grid grid-cols-2 gap-2">

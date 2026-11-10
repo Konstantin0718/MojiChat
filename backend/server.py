@@ -20,6 +20,7 @@ import jwt
 import httpx
 import base64
 import mimetypes
+import re
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -217,6 +218,19 @@ class ConnectionManager:
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         await self.broadcast_to_conversation(conversation_id, message, exclude_user=reader_id)
+
+    async def send_block_update(self, blocker_id: str, blocked_id: str, blocked: bool):
+        """Tell both people's open sessions that a block changed."""
+        message = {
+            "type": "block:update",
+            "blocker_id": blocker_id,
+            "blocked_id": blocked_id,
+            "blocked": blocked,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.send_to_user(blocked_id, message)
+        if blocker_id != blocked_id:
+            await self.send_to_user(blocker_id, message)
 
 # Global WebSocket manager
 ws_manager = ConnectionManager()
@@ -762,14 +776,16 @@ async def forgot_password(request: Request, data: PasswordResetRequest):
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     
-    # In production, send email here
-    # For now, return token for testing
-    logger.info(f"Password reset token for {data.email}: {reset_token}")
-    
-    return {
-        "message": "If this email exists, a reset link has been sent",
-        "reset_token": reset_token  # Remove in production
-    }
+    # In production, send the reset link via email here. The token is never
+    # logged or returned, otherwise anyone with log access could reset an
+    # account. Local development can opt in with EXPOSE_RESET_TOKEN=true
+    # (never enable this in production). Email delivery is not wired up yet.
+    logger.info("Password reset requested for %s", data.email)
+
+    response_body = {"message": "If this email exists, a reset link has been sent"}
+    if os.environ.get("EXPOSE_RESET_TOKEN", "").lower() in ("1", "true", "yes"):
+        response_body["reset_token"] = reset_token
+    return response_body
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: PasswordResetConfirm):
@@ -987,14 +1003,20 @@ async def verify_phone_and_register(data: PhoneVerificationConfirm, response: Re
 @api_router.get("/users/search")
 async def search_users(q: str, request: Request):
     current_user = await get_current_user(request)
-    
+    query = (q or "").strip()
+    if not query:
+        return []
+    # User input is a literal substring. Escaping stops regex metacharacters
+    # from changing the match or throwing a Mongo regex error.
+    safe_q = re.escape(query)
+
     users = await db.users.find(
         {
             "$and": [
                 {"user_id": {"$ne": current_user["user_id"]}},
                 {"$or": [
-                    {"name": {"$regex": q, "$options": "i"}},
-                    {"email": {"$regex": q, "$options": "i"}}
+                    {"name": {"$regex": safe_q, "$options": "i"}},
+                    {"email": {"$regex": safe_q, "$options": "i"}}
                 ]}
             ]
         },
@@ -1002,15 +1024,6 @@ async def search_users(q: str, request: Request):
     ).to_list(20)
     
     return users
-
-@api_router.get("/users/{user_id}")
-async def get_user(user_id: str, request: Request):
-    await get_current_user(request)
-    
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
 
 # ==================== BLOCKED USERS ====================
 
@@ -1069,6 +1082,7 @@ async def block_user(user_id: str, request: Request):
         "blocked_id": user_id,
         "blocked_at": datetime.now(timezone.utc).isoformat()
     })
+    await ws_manager.send_block_update(current_user["user_id"], user_id, True)
     
     return {"message": "User blocked successfully"}
 
@@ -1084,6 +1098,8 @@ async def unblock_user(user_id: str, request: Request):
     
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Block record not found")
+
+    await ws_manager.send_block_update(current_user["user_id"], user_id, False)
     
     return {"message": "User unblocked successfully"}
 
@@ -1381,6 +1397,26 @@ async def add_member(conversation_id: str, request: Request):
     
     return {"message": "Member added"}
 
+async def messaging_block_detail(sender_id: str, participant_ids: List[str]) -> Optional[str]:
+    """Return an explicit error if a block exists between the sender and anyone else."""
+    others = [pid for pid in participant_ids if pid and pid != sender_id]
+    if not others:
+        return None
+    blocked_sender = await db.blocked_users.find_one(
+        {"blocker_id": {"$in": others}, "blocked_id": sender_id},
+        {"_id": 1},
+    )
+    if blocked_sender:
+        return "You cannot send messages because you are blocked in this conversation"
+    sender_blocked = await db.blocked_users.find_one(
+        {"blocker_id": sender_id, "blocked_id": {"$in": others}},
+        {"_id": 1},
+    )
+    if sender_blocked:
+        return "You cannot send messages because you blocked a participant in this conversation"
+    return None
+
+
 # ==================== MESSAGE ENDPOINTS ====================
 
 @api_router.post("/conversations/{conversation_id}/messages")
@@ -1394,6 +1430,12 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    block_detail = await messaging_block_detail(
+        current_user["user_id"], conv.get("participant_ids") or []
+    )
+    if block_detail:
+        raise HTTPException(status_code=403, detail=block_detail)
     
     # Convert text to emoji (only for text messages)
     emoji_content = ""
@@ -1451,35 +1493,19 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     
     # Broadcast new message via WebSocket
     await ws_manager.send_new_message(conversation_id, response_data, current_user["user_id"])
-    
-    # Send FCM push notification to offline participants
-    if firebase_app:
-        try:
-            other_participant_ids = [p for p in conv["participant_ids"] if p != current_user["user_id"]]
-            for recipient_id in other_participant_ids:
-                recipient = await db.users.find_one({"user_id": recipient_id}, {"_id": 0})
-                if recipient:
-                    fcm_tokens = await db.fcm_tokens.find({"user_id": recipient_id}, {"_id": 0}).to_list(10)
-                    for token_doc in fcm_tokens:
-                        try:
-                            message = fcm_messaging.Message(
-                                notification=fcm_messaging.Notification(
-                                    title=current_user["name"],
-                                    body=emoji_content or msg_data.content,
-                                ),
-                                data={
-                                    "conversation_id": conversation_id,
-                                    "sender_id": current_user["user_id"],
-                                    "type": "new_message"
-                                },
-                                token=token_doc["token"],
-                            )
-                            fcm_messaging.send(message)
-                        except Exception as e:
-                            logger.error(f"FCM send error: {e}")
-        except Exception as e:
-            logger.error(f"FCM push error: {e}")
-    
+
+    # One push path. Origin c389de4 sent via db.fcm_tokens, but nothing writes that
+    # collection: clients store Expo/FCM tokens in push_subscriptions. Delivery still
+    # uses the existing FCM Admin SDK or Expo Push API inside _deliver_push_to_token.
+    await notify_participants_new_message_push(
+        conv,
+        current_user["user_id"],
+        current_user.get("name") or "MojiChat",
+        msg_data,
+        conversation_id,
+        message_id,
+    )
+
     return response_data
 
 @api_router.get("/conversations/{conversation_id}/messages")
@@ -1582,15 +1608,14 @@ async def convert_emoji(data: EmojiConvertRequest, request: Request):
 
 # ==================== TRANSLATION ====================
 
-async def translate_text(text: str, target_language: str, source_language: str = "auto") -> str:
-    """Translate text to target language using AI"""
+async def translate_text(text: str, target_language: str, source_language: str = "auto"):
+    """Return (available, text). available is false when translation cannot run."""
+    api_key = os.environ.get('EMERGENT_LLM_KEY')
+    if not api_key:
+        return False, text
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
-        
-        api_key = os.environ.get('EMERGENT_LLM_KEY')
-        if not api_key:
-            return text
-        
+
         lang_name = SUPPORTED_LANGUAGES.get(target_language, "English")
         
         chat = LlmChat(
@@ -1607,11 +1632,11 @@ Rules:
         
         user_message = UserMessage(text=f"Translate to {lang_name}: {text}")
         response = await chat.send_message(user_message)
-        return response.strip() if response else text
-        
+        return True, (response.strip() if response else text)
+
     except Exception as e:
         logger.error(f"Translation error: {e}")
-        return text
+        return False, text
 
 @api_router.post("/translate")
 async def translate_endpoint(request: Request):
@@ -1626,12 +1651,14 @@ async def translate_endpoint(request: Request):
     if target_language == "auto":
         target_language = current_user.get("preferred_language", "en")
     
-    translated = await translate_text(text, target_language)
+    available, translated = await translate_text(text, target_language)
     return {
-        "original": text, 
-        "translated": translated, 
+        "available": available,
+        "text": translated if available else text,
+        "original": text,
+        "translated": translated if available else text,
         "language": target_language,
-        "auto_detected": True
+        "auto_detected": True,
     }
 
 # ==================== USER LANGUAGE SETTINGS ====================
@@ -1763,6 +1790,19 @@ async def join_via_invite(invite_code: str, request: Request):
     })
 
     return {"conversation_id": conv_id, "already_exists": False}
+
+# ==================== GET USER BY ID ====================
+# NOTE: This dynamic route must be registered AFTER all specific `/users/...`
+# GET routes (e.g. /users/blocked, /users/invite-link); otherwise it shadows
+# them and they return 404.
+@api_router.get("/users/{user_id}")
+async def get_user(user_id: str, request: Request):
+    await get_current_user(request)
+
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
 
 # ==================== FILE UPLOAD ====================
 
@@ -1973,98 +2013,94 @@ async def remove_reaction(message_id: str, emoji: str, request: Request):
 
 # ==================== GIPHY INTEGRATION ====================
 
+def giphy_unavailable(offset: int = 0, reason: str = "not_configured") -> dict:
+    """Soft response used when GIFs cannot be loaded. Never a 500."""
+    return {
+        "available": False,
+        "results": [],
+        "gifs": [],
+        "total_count": 0,
+        "offset": offset,
+        "reason": reason,
+    }
+
+
+def _gifs_from_giphy_payload(data: dict) -> list:
+    gifs = []
+    for gif in data.get("data", []):
+        try:
+            images = gif["images"]
+            gifs.append({
+                "id": gif["id"],
+                "title": gif.get("title", ""),
+                "url": images["fixed_height"]["url"],
+                "preview_url": images["fixed_height_small"]["url"],
+                "original_url": images["original"]["url"],
+                "width": int(images["fixed_height"]["width"]),
+                "height": int(images["fixed_height"]["height"]),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    return gifs
+
+
+def _giphy_success(gifs: list, total_count: int, offset: int) -> dict:
+    return {
+        "available": True,
+        "results": gifs,
+        "gifs": gifs,
+        "total_count": total_count,
+        "offset": offset,
+    }
+
+
+async def _fetch_giphy(path: str, params: dict, offset: int) -> dict:
+    if not GIPHY_API_KEY:
+        return giphy_unavailable(offset, "not_configured")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"https://api.giphy.com/v1/gifs/{path}", params=params)
+        if response.status_code != 200:
+            logger.warning("Giphy %s returned %s", path, response.status_code)
+            return giphy_unavailable(offset, "upstream")
+        data = response.json()
+        gifs = _gifs_from_giphy_payload(data)
+        total = data.get("pagination", {}).get("total_count", 0)
+        return _giphy_success(gifs, total, offset)
+    except Exception as e:
+        logger.error(f"Giphy API error: {e}")
+        return giphy_unavailable(offset, "upstream")
+
+
 @api_router.get("/giphy/search")
 async def search_giphy(q: str, limit: int = 20, offset: int = 0, request: Request = None):
     """Search for GIFs using Giphy API"""
-    if not GIPHY_API_KEY:
-        raise HTTPException(status_code=500, detail="Giphy API key not configured")
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "https://api.giphy.com/v1/gifs/search",
-                params={
-                    "api_key": GIPHY_API_KEY,
-                    "q": q,
-                    "limit": min(limit, 50),
-                    "offset": offset,
-                    "rating": "g",
-                    "lang": "en"
-                }
-            )
-            
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail="Giphy API error")
-            
-            data = response.json()
-            
-            # Transform to simpler format
-            gifs = []
-            for gif in data.get("data", []):
-                gifs.append({
-                    "id": gif["id"],
-                    "title": gif.get("title", ""),
-                    "url": gif["images"]["fixed_height"]["url"],
-                    "preview_url": gif["images"]["fixed_height_small"]["url"],
-                    "original_url": gif["images"]["original"]["url"],
-                    "width": int(gif["images"]["fixed_height"]["width"]),
-                    "height": int(gif["images"]["fixed_height"]["height"]),
-                })
-            
-            return {
-                "gifs": gifs,
-                "total_count": data.get("pagination", {}).get("total_count", 0),
-                "offset": offset
-            }
-            
-    except httpx.HTTPError as e:
-        logger.error(f"Giphy API error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to search GIFs")
+    return await _fetch_giphy(
+        "search",
+        {
+            "api_key": GIPHY_API_KEY,
+            "q": q,
+            "limit": min(limit, 50),
+            "offset": offset,
+            "rating": "g",
+            "lang": "en",
+        },
+        offset,
+    )
 
 @api_router.get("/giphy/trending")
 async def trending_giphy(limit: int = 20, offset: int = 0, request: Request = None):
     """Get trending GIFs from Giphy"""
-    if not GIPHY_API_KEY:
-        raise HTTPException(status_code=500, detail="Giphy API key not configured")
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "https://api.giphy.com/v1/gifs/trending",
-                params={
-                    "api_key": GIPHY_API_KEY,
-                    "limit": min(limit, 50),
-                    "offset": offset,
-                    "rating": "g"
-                }
-            )
-            
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail="Giphy API error")
-            
-            data = response.json()
-            
-            gifs = []
-            for gif in data.get("data", []):
-                gifs.append({
-                    "id": gif["id"],
-                    "title": gif.get("title", ""),
-                    "url": gif["images"]["fixed_height"]["url"],
-                    "preview_url": gif["images"]["fixed_height_small"]["url"],
-                    "original_url": gif["images"]["original"]["url"],
-                    "width": int(gif["images"]["fixed_height"]["width"]),
-                    "height": int(gif["images"]["fixed_height"]["height"]),
-                })
-            
-            return {
-                "gifs": gifs,
-                "total_count": data.get("pagination", {}).get("total_count", 0),
-                "offset": offset
-            }
-            
-    except httpx.HTTPError as e:
-        logger.error(f"Giphy API error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get trending GIFs")
+    return await _fetch_giphy(
+        "trending",
+        {
+            "api_key": GIPHY_API_KEY,
+            "limit": min(limit, 50),
+            "offset": offset,
+            "rating": "g",
+        },
+        offset,
+    )
 
 # ==================== STICKERS & GIFS ====================
 
@@ -2414,6 +2450,150 @@ async def get_active_calls(request: Request):
 
 # ==================== PUSH NOTIFICATIONS ====================
 
+def _push_preview_body(msg_data: MessageCreate) -> str:
+    """Short line for notification body."""
+    mt = (msg_data.message_type or "text").lower()
+    if mt == "text":
+        t = (msg_data.content or "").strip()
+        return (t[:120] + "…") if len(t) > 120 else (t or "New message")
+    return {
+        "image": "📷 Photo",
+        "video": "🎥 Video",
+        "audio": "🎤 Voice message",
+        "file": "📎 File",
+        "gif": "GIF",
+    }.get(mt, "New message")
+
+
+def _fcm_string_data(data: Optional[dict]) -> dict:
+    if not data:
+        return {}
+    return {str(k): str(v) for k, v in data.items()}
+
+
+async def _deliver_push_to_token(
+    token: str,
+    title: str,
+    body: str,
+    data: Optional[dict] = None,
+    android_channel_id: str = "default",
+) -> dict:
+    """Send one push via FCM (non-Expo token) or Expo Push API. Returns status dict."""
+    if not token:
+        return {"success": False, "message": "No token"}
+
+    if firebase_app and not str(token).startswith("ExponentPushToken"):
+        try:
+            fcm_message = fcm_messaging.Message(
+                notification=fcm_messaging.Notification(title=title, body=body),
+                data=_fcm_string_data(data),
+                token=token,
+                android=fcm_messaging.AndroidConfig(
+                    priority="high",
+                    notification=fcm_messaging.AndroidNotification(
+                        sound="default",
+                        channel_id=android_channel_id,
+                    ),
+                ),
+            )
+            response = fcm_messaging.send(fcm_message)
+            logger.info(f"FCM push sent: {response}")
+            return {"success": True, "message": "FCM push notification sent!", "details": {"message_id": str(response)}}
+        except Exception as e:
+            logger.error(f"FCM push error: {e}")
+            return {"success": False, "message": str(e)}
+
+    EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+    message = {
+        "to": token,
+        "title": title,
+        "body": body,
+        "sound": "default",
+        "priority": "high",
+        "channelId": android_channel_id,
+    }
+    if data:
+        message["data"] = data
+
+    logger.info(f"Sending push notification to: {token[:30]}...")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                EXPO_PUSH_URL,
+                json=message,
+                headers={
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip, deflate",
+                    "Content-Type": "application/json",
+                },
+            )
+            result = response.json()
+            logger.info(f"Expo Push API response: {result}")
+
+            if response.status_code == 200 and "data" in result:
+                ticket = result["data"]
+                if ticket.get("status") == "ok":
+                    return {
+                        "success": True,
+                        "message": "Push notification sent successfully!",
+                        "ticket_id": ticket.get("id"),
+                        "details": ticket,
+                    }
+                return {
+                    "success": False,
+                    "message": f"Push failed: {ticket.get('message', 'Unknown error')}",
+                    "details": ticket,
+                }
+            if response.status_code == 200:
+                return {"success": True, "message": "Request sent", "details": result}
+            return {"success": False, "message": f"HTTP {response.status_code}", "details": result}
+    except Exception as e:
+        logger.error(f"Push notification error: {e}")
+        return {"success": False, "message": str(e)}
+
+
+async def notify_participants_new_message_push(
+    conv: dict,
+    sender_id: str,
+    sender_name: str,
+    msg_data: MessageCreate,
+    conversation_id: str,
+    message_id: str,
+) -> None:
+    """Notify all participants except sender that a new message arrived (Expo / FCM)."""
+    participant_ids = conv.get("participant_ids") or []
+    targets = [uid for uid in participant_ids if uid != sender_id]
+    if not targets:
+        return
+
+    preview = _push_preview_body(msg_data)
+    title = sender_name or "MojiChat"
+    payload = {
+        "type": "new_message",
+        "conversation_id": conversation_id,
+        "message_id": message_id,
+    }
+
+    async def one(uid: str):
+        try:
+            sub = await db.push_subscriptions.find_one({"user_id": uid}, {"_id": 0})
+            if not sub:
+                return
+            tok = sub.get("endpoint")
+            if not tok:
+                return
+            res = await _deliver_push_to_token(
+                tok, title, preview, payload, android_channel_id="messages"
+            )
+            if not res.get("success"):
+                logger.warning(f"new_message push for user {uid}: {res.get('message')}")
+        except Exception as e:
+            logger.warning(f"new_message push error for user {uid}: {e}")
+
+    await asyncio.gather(*[one(uid) for uid in targets], return_exceptions=True)
+
+
 class PushSubscription(BaseModel):
     endpoint: str
     keys: dict
@@ -2423,13 +2603,14 @@ async def subscribe_push(subscription: PushSubscription, request: Request):
     """Subscribe to push notifications"""
     current_user = await get_current_user(request)
     
-    # Store subscription
+    # One row per user_id (unique index). Always replace token on re-login / new device.
     await db.push_subscriptions.update_one(
-        {"user_id": current_user["user_id"], "endpoint": subscription.endpoint},
+        {"user_id": current_user["user_id"]},
         {"$set": {
             "user_id": current_user["user_id"],
             "endpoint": subscription.endpoint,
             "keys": subscription.keys,
+            "token_type": "expo",
             "created_at": datetime.now(timezone.utc).isoformat()
         }},
         upsert=True
@@ -2448,7 +2629,7 @@ async def subscribe_fcm(request: Request):
         raise HTTPException(status_code=400, detail="fcm_token is required")
     
     await db.push_subscriptions.update_one(
-        {"user_id": current_user["user_id"], "endpoint": fcm_token},
+        {"user_id": current_user["user_id"]},
         {"$set": {
             "user_id": current_user["user_id"],
             "endpoint": fcm_token,
@@ -2530,103 +2711,19 @@ class SendPushRequest(BaseModel):
 @api_router.post("/notifications/send-push")
 async def send_push_notification(push_data: SendPushRequest, request: Request):
     """Send push notification via Expo Push API or FCM"""
-    current_user = await get_current_user(request)
-    
-    # Try FCM first if we have Firebase Admin SDK and it's an FCM token
-    if firebase_app and push_data.expo_token and not push_data.expo_token.startswith("ExponentPushToken"):
-        try:
-            fcm_message = fcm_messaging.Message(
-                notification=fcm_messaging.Notification(
-                    title=push_data.title,
-                    body=push_data.body,
-                ),
-                data=push_data.data if push_data.data else {},
-                token=push_data.expo_token,
-                android=fcm_messaging.AndroidConfig(
-                    priority='high',
-                    notification=fcm_messaging.AndroidNotification(
-                        sound='default',
-                        channel_id='messages',
-                    ),
-                ),
-            )
-            response = fcm_messaging.send(fcm_message)
-            logger.info(f"FCM push sent: {response}")
-            return {"success": True, "message": "FCM push notification sent!", "details": {"message_id": response}}
-        except Exception as e:
-            logger.error(f"FCM push error: {e}")
-
-    # Fallback to Expo Push API
-    EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
-    
-    message = {
-        "to": push_data.expo_token,
-        "title": push_data.title,
-        "body": push_data.body,
-        "sound": "default",
-        "priority": "high",
-        "channelId": "default",
-    }
-    
-    if push_data.data:
-        message["data"] = push_data.data
-    
-    logger.info(f"Sending push notification to: {push_data.expo_token[:30]}...")
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                EXPO_PUSH_URL,
-                json=message,
-                headers={
-                    "Accept": "application/json",
-                    "Accept-Encoding": "gzip, deflate",
-                    "Content-Type": "application/json",
-                }
-            )
-            
-            result = response.json()
-            logger.info(f"Expo Push API response: {result}")
-            
-            if response.status_code == 200:
-                if "data" in result:
-                    ticket = result["data"]
-                    if ticket.get("status") == "ok":
-                        return {
-                            "success": True,
-                            "message": "Push notification sent successfully!",
-                            "ticket_id": ticket.get("id"),
-                            "details": ticket
-                        }
-                    else:
-                        return {
-                            "success": False,
-                            "message": f"Push failed: {ticket.get('message', 'Unknown error')}",
-                            "details": ticket
-                        }
-                return {
-                    "success": True,
-                    "message": "Request sent",
-                    "details": result
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"HTTP {response.status_code}",
-                    "details": result
-                }
-                
-    except Exception as e:
-        logger.error(f"Push notification error: {e}")
-        return {
-            "success": False,
-            "message": str(e)
-        }
+    await get_current_user(request)
+    return await _deliver_push_to_token(
+        push_data.expo_token,
+        push_data.title,
+        push_data.body,
+        push_data.data,
+        android_channel_id="default",
+    )
 
 @api_router.post("/notifications/send-to-user/{user_id}")
 async def send_push_to_user(user_id: str, request: Request):
     """Send push notification to a specific user (for testing)"""
-    current_user = await get_current_user(request)
+    await get_current_user(request)
     body = await request.json()
     
     # Get user's push token
@@ -2638,13 +2735,12 @@ async def send_push_to_user(user_id: str, request: Request):
     if not subscription:
         raise HTTPException(status_code=404, detail="User has no push subscription")
     
-    expo_token = subscription.get("endpoint")
-    if not expo_token or not expo_token.startswith("ExponentPushToken"):
-        raise HTTPException(status_code=400, detail="Invalid push token")
+    token = subscription.get("endpoint")
+    if not token:
+        raise HTTPException(status_code=400, detail="No push token stored")
     
-    # Send via Expo
     push_request = SendPushRequest(
-        expo_token=expo_token,
+        expo_token=token,
         title=body.get("title", "New Message"),
         body=body.get("body", "You have a new message!"),
         data=body.get("data")

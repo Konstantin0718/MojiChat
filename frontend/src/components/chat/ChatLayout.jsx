@@ -27,6 +27,7 @@ import {
   Bell,
   Camera,
   Trash2,
+  Forward,
   Ban,
   Link,
   Check,
@@ -44,6 +45,7 @@ import { EmojiPicker } from './EmojiPicker';
 import { LanguageSelector, LANGUAGES } from './LanguageSelector';
 import { SearchDialog } from './SearchDialog';
 import { VideoCall } from './VideoCall';
+import { StoryRail } from './StoryRail';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -94,6 +96,10 @@ export const ChatLayout = () => {
   const [inviteLinkLoading, setInviteLinkLoading] = useState(false);
   // Block
   const [blockedUsers, setBlockedUsers] = useState([]);
+  const [blockedByUsers, setBlockedByUsers] = useState([]);
+  const [forwardMessage, setForwardMessage] = useState(null);
+  const [forwardIds, setForwardIds] = useState([]);
+  const [forwarding, setForwarding] = useState(false);
   // Seen receipts: map message_id -> [user_ids who read it]
   const [seenMap, setSeenMap] = useState({});
 
@@ -207,6 +213,22 @@ export const ChatLayout = () => {
         }));
       }
     },
+    onBlockUpdate: (data) => {
+      if (data.blocker_id === user?.user_id) {
+        setBlockedUsers((prev) => (
+          data.blocked
+            ? [...new Set([...prev, data.blocked_id])]
+            : prev.filter((id) => id !== data.blocked_id)
+        ));
+      }
+      if (data.blocked_id === user?.user_id) {
+        setBlockedByUsers((prev) => (
+          data.blocked
+            ? [...new Set([...prev, data.blocker_id])]
+            : prev.filter((id) => id !== data.blocker_id)
+        ));
+      }
+    },
   }), [fetchMessages, fetchConversations, user?.user_id]); // eslint-disable-line
 
   useWebSocket(user, token, wsHandlers);
@@ -315,7 +337,7 @@ export const ChatLayout = () => {
       await fetchMessages();
       inputRef.current?.focus();
     } catch (error) {
-      toast.error('Failed to send message');
+      toast.error(error?.response?.data?.detail || 'Failed to send message');
     } finally {
       setSending(false);
     }
@@ -591,6 +613,28 @@ export const ChatLayout = () => {
     }
   };
 
+  const openForward = (msg) => {
+    setForwardMessage(msg);
+    setForwardIds([]);
+  };
+
+  const submitForward = async () => {
+    if (!forwardMessage || forwardIds.length === 0) return;
+    setForwarding(true);
+    try {
+      await api.post(`/messages/${forwardMessage.message_id}/forward`, {
+        conversation_ids: forwardIds,
+      });
+      toast.success(forwardIds.length === 1 ? 'Message forwarded' : `Forwarded to ${forwardIds.length} chats`);
+      setForwardMessage(null);
+      setForwardIds([]);
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || 'Could not forward message');
+    } finally {
+      setForwarding(false);
+    }
+  };
+
   // Delete message
   const deleteMessage = async (messageId) => {
     try {
@@ -688,8 +732,16 @@ export const ChatLayout = () => {
           key={msg.message_id}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={cn("flex", isOwn ? "justify-end" : "justify-start")}
+          className={cn("group relative flex", isOwn ? "justify-end" : "justify-start")}
         >
+          <button
+            type="button"
+            onClick={() => openForward(msg)}
+            className={cn('absolute top-1 hidden group-hover:flex p-1 rounded-full bg-card border border-border', isOwn ? 'right-full mr-2' : 'left-full ml-2')}
+            title="Forward"
+          >
+            <Forward className="w-3.5 h-3.5" />
+          </button>
           <div className={cn(
             "max-w-[80%] rounded-2xl overflow-hidden",
             isOwn ? "rounded-br-sm" : "rounded-bl-sm"
@@ -717,8 +769,16 @@ export const ChatLayout = () => {
           key={msg.message_id}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={cn("flex", isOwn ? "justify-end" : "justify-start")}
+          className={cn("group relative flex", isOwn ? "justify-end" : "justify-start")}
         >
+          <button
+            type="button"
+            onClick={() => openForward(msg)}
+            className={cn('absolute top-1 hidden group-hover:flex p-1 rounded-full bg-card border border-border', isOwn ? 'right-full mr-2' : 'left-full ml-2')}
+            title="Forward"
+          >
+            <Forward className="w-3.5 h-3.5" />
+          </button>
           <div className={cn(
             "max-w-[80%] rounded-2xl overflow-hidden",
             isOwn ? "rounded-br-sm bg-primary" : "rounded-bl-sm bg-muted"
@@ -739,8 +799,16 @@ export const ChatLayout = () => {
           key={msg.message_id}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={cn("flex", isOwn ? "justify-end" : "justify-start")}
+          className={cn("group relative flex", isOwn ? "justify-end" : "justify-start")}
         >
+          <button
+            type="button"
+            onClick={() => openForward(msg)}
+            className={cn('absolute top-1 hidden group-hover:flex p-1 rounded-full bg-card border border-border', isOwn ? 'right-full mr-2' : 'left-full ml-2')}
+            title="Forward"
+          >
+            <Forward className="w-3.5 h-3.5" />
+          </button>
           <div className={cn(
             "max-w-[80%] p-3 rounded-2xl",
             isOwn ? "rounded-br-sm bg-primary text-primary-foreground" : "rounded-bl-sm bg-muted"
@@ -765,8 +833,16 @@ export const ChatLayout = () => {
           key={msg.message_id}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={cn("flex", isOwn ? "justify-end" : "justify-start")}
+          className={cn("group relative flex", isOwn ? "justify-end" : "justify-start")}
         >
+          <button
+            type="button"
+            onClick={() => openForward(msg)}
+            className={cn('absolute top-1 hidden group-hover:flex p-1 rounded-full bg-card border border-border', isOwn ? 'right-full mr-2' : 'left-full ml-2')}
+            title="Forward"
+          >
+            <Forward className="w-3.5 h-3.5" />
+          </button>
           <a
             href={`${API_URL}${msg.file_url}`}
             target="_blank"
@@ -805,6 +881,15 @@ export const ChatLayout = () => {
             'absolute top-1 hidden group-hover:flex items-center gap-1',
             isOwn ? 'right-full mr-2' : 'left-full ml-2'
           )}>
+            <button
+              type="button"
+              onClick={() => openForward(msg)}
+              className="p-1 rounded-full bg-muted hover:bg-primary/10 text-foreground"
+              title="Forward"
+              data-testid={`forward-message-${msg.message_id}`}
+            >
+              <Forward className="w-3.5 h-3.5" />
+            </button>
             {isOwn && (
               <button
                 onClick={() => deleteMessage(msg.message_id)}
@@ -1107,6 +1192,8 @@ export const ChatLayout = () => {
         </Dialog>
       </div>
 
+      <StoryRail api={api} currentUser={user} />
+
       {/* Conversations list */}
       <ScrollArea className="flex-1">
         <div className="p-2 space-y-1">
@@ -1208,15 +1295,67 @@ export const ChatLayout = () => {
       
       {/* Desktop Sidebar */}
       <div className="hidden md:block w-80 border-r border-border">
-        <SidebarContent />
+        {SidebarContent()}
       </div>
 
       {/* Mobile Sidebar */}
       <Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
         <SheetContent side="left" className="p-0 w-80">
-          <SidebarContent />
+          {SidebarContent()}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={!!forwardMessage} onOpenChange={(open) => { if (!open) setForwardMessage(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-heading">Forward message</DialogTitle>
+          </DialogHeader>
+          <ScrollArea className="h-64">
+            {conversations.filter((conv) => conv.conversation_id !== conversationId).length === 0 && (
+              <p className="text-sm text-muted-foreground py-6 text-center">No other chats to forward to</p>
+            )}
+            {conversations
+              .filter((conv) => conv.conversation_id !== conversationId)
+              .map((conv) => {
+                const selected = forwardIds.includes(conv.conversation_id);
+                return (
+                  <button
+                    key={conv.conversation_id}
+                    type="button"
+                    onClick={() => {
+                      setForwardIds((prev) => (
+                        selected
+                          ? prev.filter((id) => id !== conv.conversation_id)
+                          : [...prev, conv.conversation_id]
+                      ));
+                    }}
+                    className={cn(
+                      'w-full flex items-center gap-3 p-3 rounded-lg text-left hover:bg-muted',
+                      selected && 'bg-primary/10'
+                    )}
+                    data-testid={`forward-target-${conv.conversation_id}`}
+                  >
+                    <span className={cn(
+                      'w-4 h-4 rounded border flex items-center justify-center',
+                      selected ? 'bg-primary border-primary text-primary-foreground' : 'border-border'
+                    )}>
+                      {selected ? <Check className="w-3 h-3" /> : null}
+                    </span>
+                    <span className="truncate">{getConversationName(conv)}</span>
+                  </button>
+                );
+              })}
+          </ScrollArea>
+          <Button
+            onClick={submitForward}
+            disabled={forwarding || forwardIds.length === 0}
+            className="w-full"
+            data-testid="confirm-forward-btn"
+          >
+            {forwarding ? 'Forwarding...' : 'Forward'}
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       {/* Search Dialog */}
       <SearchDialog
@@ -1432,6 +1571,21 @@ export const ChatLayout = () => {
               )}
             </AnimatePresence>
 
+            {!currentConversation.is_group && (() => {
+              const other = getOtherParticipant(currentConversation);
+              if (!other) return null;
+              const blockedThem = blockedUsers.includes(other.user_id);
+              const blockedMe = blockedByUsers.includes(other.user_id);
+              if (!blockedThem && !blockedMe) return null;
+              return (
+                <p className="text-center text-sm text-destructive py-2" data-testid="blocked-banner">
+                  {blockedThem
+                    ? 'You blocked this user. Unblock them to send messages.'
+                    : 'You cannot send messages because this user blocked you.'}
+                </p>
+              );
+            })()}
+
             {/* Message Input */}
             <div className="p-4 border-t border-border bg-card">
               <div className="flex items-center gap-2 max-w-3xl mx-auto relative">
@@ -1477,7 +1631,7 @@ export const ChatLayout = () => {
                           setNewMessage(e.target.value);
                           handleTyping();
                         }}
-                        placeholder="Type a message... (will be translated!)"
+                        placeholder="Type a message..."
                         className="pr-10 rounded-full bg-muted border-none focus:ring-2 focus:ring-primary/50 px-6"
                         data-testid="message-input"
                       />
@@ -1552,9 +1706,7 @@ export const ChatLayout = () => {
                 Select a conversation or start a new chat
               </p>
               <p className="text-sm text-muted-foreground">
-                Your messages will be transformed into emojis 🎉
-                <br />
-                and translated automatically! 🌍
+                Your messages can be turned into emojis. Translation runs only when it is configured.
               </p>
             </div>
           </div>

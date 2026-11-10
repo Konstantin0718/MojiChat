@@ -2,15 +2,35 @@
 // Replace with your actual backend URL
 export const API_URL = 'https://mojichat.onrender.com';
 
-// WebRTC Configuration
-export const WEBRTC_CONFIG = {
-  iceServers: [
+type IceServer = { urls: string; username?: string; credential?: string };
+
+function buildIceServers(): IceServer[] {
+  const servers: IceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
-  ],
+  ];
+  // Optional TURN server. Set EXPO_PUBLIC_TURN_URL plus username and
+  // credential when the server requires them. Nothing is hardcoded.
+  const turnUrl = process.env.EXPO_PUBLIC_TURN_URL;
+  if (turnUrl) {
+    const turnServer: IceServer = { urls: turnUrl };
+    if (process.env.EXPO_PUBLIC_TURN_USERNAME) {
+      turnServer.username = process.env.EXPO_PUBLIC_TURN_USERNAME;
+    }
+    if (process.env.EXPO_PUBLIC_TURN_CREDENTIAL) {
+      turnServer.credential = process.env.EXPO_PUBLIC_TURN_CREDENTIAL;
+    }
+    servers.push(turnServer);
+  }
+  return servers;
+}
+
+// WebRTC Configuration
+export const WEBRTC_CONFIG = {
+  iceServers: buildIceServers(),
 };
 
 // App Configuration

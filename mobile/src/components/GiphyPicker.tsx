@@ -30,14 +30,16 @@ export const GiphyPicker: React.FC<Props> = ({ colors, onSelect, onClose }) => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
 
   const loadTrending = useCallback(async () => {
     setLoading(true);
     try {
       const result = await giphyService.getTrending(20, 0);
+      setUnavailable(result.available === false);
       setGifs(result.gifs);
       setOffset(20);
-      setHasMore(result.gifs.length < result.total_count);
+      setHasMore(result.available !== false && result.gifs.length < result.total_count);
     } catch (e) {
       console.error('Load trending error:', e);
     }
@@ -53,9 +55,10 @@ export const GiphyPicker: React.FC<Props> = ({ colors, onSelect, onClose }) => {
     setLoading(true);
     try {
       const result = await giphyService.search(searchQuery, 20, 0);
+      setUnavailable(result.available === false);
       setGifs(result.gifs);
       setOffset(20);
-      setHasMore(result.gifs.length < result.total_count);
+      setHasMore(result.available !== false && result.gifs.length < result.total_count);
     } catch (e) {
       console.error('Search error:', e);
     }
@@ -147,7 +150,7 @@ export const GiphyPicker: React.FC<Props> = ({ colors, onSelect, onClose }) => {
         <View style={styles.emptyContainer}>
           <Ionicons name="images-outline" size={48} color={colors.textSecondary} />
           <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-            {query ? 'No GIFs found' : 'No trending GIFs'}
+            {unavailable ? 'GIFs are not available right now' : query ? 'No GIFs found' : 'No trending GIFs'}
           </Text>
         </View>
       ) : (

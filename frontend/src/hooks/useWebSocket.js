@@ -65,6 +65,9 @@ export function useWebSocket(user, token, handlers = {}) {
           case 'message_deleted':
             h.onMessageDeleted?.(data);
             break;
+          case 'block:update':
+            h.onBlockUpdate?.(data);
+            break;
           case 'pong':
             break;
           default:

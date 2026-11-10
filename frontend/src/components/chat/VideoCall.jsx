@@ -18,11 +18,30 @@ import { Button } from '../ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { cn } from '../../lib/utils';
 
-const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-];
+function buildIceServers() {
+  const servers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+  ];
+  // TURN is optional. Set REACT_APP_TURN_URL and, when the server requires
+  // them, REACT_APP_TURN_USERNAME and REACT_APP_TURN_CREDENTIAL. No credentials
+  // are bundled here.
+  const turnUrl = process.env.REACT_APP_TURN_URL;
+  if (turnUrl) {
+    const turnServer = { urls: turnUrl };
+    if (process.env.REACT_APP_TURN_USERNAME) {
+      turnServer.username = process.env.REACT_APP_TURN_USERNAME;
+    }
+    if (process.env.REACT_APP_TURN_CREDENTIAL) {
+      turnServer.credential = process.env.REACT_APP_TURN_CREDENTIAL;
+    }
+    servers.push(turnServer);
+  }
+  return servers;
+}
+
+const ICE_SERVERS = buildIceServers();
 
 export const VideoCall = ({ 
   callId, 

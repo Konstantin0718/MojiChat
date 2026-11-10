@@ -16,14 +16,19 @@ import { api } from '../services/api';
 
 interface Props {
   navigation: any;
+  route?: { params?: { token?: string } };
 }
 
-export const ForgotPasswordScreen: React.FC<Props> = ({ navigation }) => {
+// Email-link flow. The forgot-password response must not include the token,
+// and this screen never reads reset_token. A new password is collected only
+// when a reset link opens the screen with a token route param. The server
+// does not send that email yet.
+export const ForgotPasswordScreen: React.FC<Props> = ({ navigation, route }) => {
   const { colors } = useTheme();
+  const linkToken = typeof route?.params?.token === 'string' ? route.params.token : '';
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
-  const [codeSent, setCodeSent] = useState(false);
-  const [resetToken, setResetToken] = useState('');
+  const [emailSent, setEmailSent] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
@@ -35,29 +40,19 @@ export const ForgotPasswordScreen: React.FC<Props> = ({ navigation }) => {
 
     setLoading(true);
     try {
-      const result = await api.forgotPassword(email.trim());
-      setCodeSent(true);
-      // Token is returned for testing - auto-fill it
-      if (result.reset_token) {
-        setResetToken(result.reset_token);
-        Alert.alert(
-          'Reset Token Generated', 
-          'A reset token has been generated. You can now enter your new password.',
-          [{ text: 'OK' }]
-        );
-      } else {
-        Alert.alert('Success', 'If this email exists, a reset link has been sent');
-      }
+      await api.forgotPassword(email.trim());
+      setEmailSent(true);
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to send reset email');
+      const detail = error?.response?.data?.detail;
+      Alert.alert('Error', typeof detail === 'string' ? detail : (error.message || 'Failed to send reset email'));
     } finally {
       setLoading(false);
     }
   };
 
   const handleResetPassword = async () => {
-    if (!resetToken.trim()) {
-      Alert.alert('Error', 'Please enter the reset token from your email');
+    if (!linkToken.trim()) {
+      Alert.alert('Error', 'Open the reset link from your email to choose a new password');
       return;
     }
     if (!newPassword || newPassword.length < 6) {
@@ -71,7 +66,7 @@ export const ForgotPasswordScreen: React.FC<Props> = ({ navigation }) => {
 
     setLoading(true);
     try {
-      await api.resetPassword(resetToken.trim(), newPassword);
+      await api.resetPassword(linkToken.trim(), newPassword);
       Alert.alert('Success', 'Password has been reset successfully', [
         { text: 'OK', onPress: () => navigation.navigate('Login') }
       ]);
@@ -103,57 +98,12 @@ export const ForgotPasswordScreen: React.FC<Props> = ({ navigation }) => {
           <Ionicons name="key-outline" size={64} color={colors.primary} />
         </View>
 
-        {!codeSent ? (
+        {linkToken ? (
           <>
-            <Text style={styles.title}>Forgot Password?</Text>
+            <Text style={styles.title}>Choose a new password</Text>
             <Text style={styles.subtitle}>
-              Enter your email address and we'll send you a reset link
+              Choose a new password for your account.
             </Text>
-
-            <View style={styles.inputContainer}>
-              <Ionicons name="mail-outline" size={22} color={colors.textSecondary} />
-              <TextInput
-                style={styles.input}
-                placeholder="Email address"
-                placeholderTextColor={colors.textSecondary}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleSendResetEmail}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Send Reset Link</Text>
-              )}
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <Text style={styles.title}>Enter New Password</Text>
-            <Text style={styles.subtitle}>
-              Enter the reset token from your email and your new password
-            </Text>
-
-            <View style={styles.inputContainer}>
-              <Ionicons name="key-outline" size={22} color={colors.textSecondary} />
-              <TextInput
-                style={styles.input}
-                placeholder="Reset token"
-                placeholderTextColor={colors.textSecondary}
-                value={resetToken}
-                onChangeText={setResetToken}
-                autoCapitalize="none"
-              />
-            </View>
 
             <View style={styles.inputContainer}>
               <Ionicons name="lock-closed-outline" size={22} color={colors.textSecondary} />
@@ -190,6 +140,46 @@ export const ForgotPasswordScreen: React.FC<Props> = ({ navigation }) => {
                 <Text style={styles.buttonText}>Reset Password</Text>
               )}
             </TouchableOpacity>
+          </>
+        ) : !emailSent ? (
+          <>
+            <Text style={styles.title}>Forgot Password?</Text>
+            <Text style={styles.subtitle}>
+              Enter your email address and we'll send you a reset link
+            </Text>
+
+            <View style={styles.inputContainer}>
+              <Ionicons name="mail-outline" size={22} color={colors.textSecondary} />
+              <TextInput
+                style={styles.input}
+                placeholder="Email address"
+                placeholderTextColor={colors.textSecondary}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            <TouchableOpacity
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleSendResetEmail}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Send Reset Link</Text>
+              )}
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Text style={styles.title}>Check your email</Text>
+            <Text style={styles.subtitle}>
+              If an account exists for {email.trim()}, you will receive a reset link. Open that link to choose a new password.
+            </Text>
           </>
         )}
 

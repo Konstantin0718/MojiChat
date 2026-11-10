@@ -14,14 +14,31 @@ export interface GiphyGif {
 
 export interface GiphySearchResult {
   gifs: GiphyGif[];
+  results: GiphyGif[];
   total_count: number;
   offset: number;
+  available: boolean;
 }
 
 class GiphyService {
   private async getAuthHeader(): Promise<{ Authorization: string } | {}> {
     const token = await AsyncStorage.getItem('auth_token');
     return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  private normalize(data: any, offset: number): GiphySearchResult {
+    const gifs: GiphyGif[] = data?.gifs || data?.results || [];
+    return {
+      gifs,
+      results: data?.results || gifs,
+      total_count: data?.total_count || 0,
+      offset: data?.offset ?? offset,
+      available: data?.available !== false,
+    };
+  }
+
+  private unavailable(offset: number): GiphySearchResult {
+    return { gifs: [], results: [], total_count: 0, offset, available: false };
   }
 
   async search(query: string, limit: number = 20, offset: number = 0): Promise<GiphySearchResult> {
@@ -31,10 +48,10 @@ class GiphyService {
         params: { q: query, limit, offset },
         headers,
       });
-      return response.data;
+      return this.normalize(response.data, offset);
     } catch (error) {
       console.error('Giphy search error:', error);
-      return { gifs: [], total_count: 0, offset: 0 };
+      return this.unavailable(offset);
     }
   }
 
@@ -45,10 +62,10 @@ class GiphyService {
         params: { limit, offset },
         headers,
       });
-      return response.data;
+      return this.normalize(response.data, offset);
     } catch (error) {
       console.error('Giphy trending error:', error);
-      return { gifs: [], total_count: 0, offset: 0 };
+      return this.unavailable(offset);
     }
   }
 }
