@@ -2125,8 +2125,10 @@ async def _fetch_giphy(path: str, params: dict, offset: int) -> dict:
 
 
 @api_router.get("/giphy/search")
-async def search_giphy(q: str, limit: int = 20, offset: int = 0, request: Request = None):
-    """Search for GIFs using Giphy API"""
+async def search_giphy(q: str, request: Request, limit: int = 20, offset: int = 0):
+    """Search for GIFs using Giphy API. Auth is required before a key is configured."""
+    await get_current_user(request)
+    await enforce_rate_limit(request, bucket="giphy", limit=30, window_seconds=60)
     return await _fetch_giphy(
         "search",
         {
@@ -2141,8 +2143,10 @@ async def search_giphy(q: str, limit: int = 20, offset: int = 0, request: Reques
     )
 
 @api_router.get("/giphy/trending")
-async def trending_giphy(limit: int = 20, offset: int = 0, request: Request = None):
-    """Get trending GIFs from Giphy"""
+async def trending_giphy(request: Request, limit: int = 20, offset: int = 0):
+    """Get trending GIFs from Giphy. Auth is required before a key is configured."""
+    await get_current_user(request)
+    await enforce_rate_limit(request, bucket="giphy", limit=30, window_seconds=60)
     return await _fetch_giphy(
         "trending",
         {
