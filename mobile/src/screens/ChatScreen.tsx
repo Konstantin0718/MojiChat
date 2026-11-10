@@ -171,7 +171,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       await loadMessages();
     } catch (e: any) {
       setInputText(text);
-      Alert.alert('Error', e?.message || 'Failed to send');
+      const detail = e?.response?.data?.detail;
+      Alert.alert('Error', typeof detail === 'string' ? detail : (e?.message || 'Failed to send'));
     } finally { setSending(false); }
   };
 

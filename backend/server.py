@@ -762,12 +762,11 @@ async def forgot_password(request: Request, data: PasswordResetRequest):
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     
-    # In production, send the reset link via email here. The token is logged
-    # server-side for development/testing but MUST NOT be returned in the
-    # response body by default, otherwise anyone could reset any account's
-    # password. For local development the token can be surfaced explicitly by
-    # setting EXPOSE_RESET_TOKEN=true (never enable this in production).
-    logger.info(f"Password reset token for {data.email}: {reset_token}")
+    # In production, send the reset link via email here. The token is never
+    # logged or returned, otherwise anyone with log access could reset an
+    # account. Local development can opt in with EXPOSE_RESET_TOKEN=true
+    # (never enable this in production). Email delivery is not wired up yet.
+    logger.info("Password reset requested for %s", data.email)
 
     response_body = {"message": "If this email exists, a reset link has been sent"}
     if os.environ.get("EXPOSE_RESET_TOKEN", "").lower() in ("1", "true", "yes"):
@@ -1375,6 +1374,26 @@ async def add_member(conversation_id: str, request: Request):
     
     return {"message": "Member added"}
 
+async def messaging_block_detail(sender_id: str, participant_ids: List[str]) -> Optional[str]:
+    """Return an explicit error if a block exists between the sender and anyone else."""
+    others = [pid for pid in participant_ids if pid and pid != sender_id]
+    if not others:
+        return None
+    blocked_sender = await db.blocked_users.find_one(
+        {"blocker_id": {"$in": others}, "blocked_id": sender_id},
+        {"_id": 1},
+    )
+    if blocked_sender:
+        return "You cannot send messages because you are blocked in this conversation"
+    sender_blocked = await db.blocked_users.find_one(
+        {"blocker_id": sender_id, "blocked_id": {"$in": others}},
+        {"_id": 1},
+    )
+    if sender_blocked:
+        return "You cannot send messages because you blocked a participant in this conversation"
+    return None
+
+
 # ==================== MESSAGE ENDPOINTS ====================
 
 @api_router.post("/conversations/{conversation_id}/messages")
@@ -1388,6 +1407,12 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    block_detail = await messaging_block_detail(
+        current_user["user_id"], conv.get("participant_ids") or []
+    )
+    if block_detail:
+        raise HTTPException(status_code=403, detail=block_detail)
     
     # Convert text to emoji (only for text messages)
     emoji_content = ""

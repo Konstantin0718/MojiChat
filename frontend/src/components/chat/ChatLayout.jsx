@@ -315,7 +315,7 @@ export const ChatLayout = () => {
       await fetchMessages();
       inputRef.current?.focus();
     } catch (error) {
-      toast.error('Failed to send message');
+      toast.error(error?.response?.data?.detail || 'Failed to send message');
     } finally {
       setSending(false);
     }
