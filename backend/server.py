@@ -764,8 +764,10 @@ def _reset_email_configured() -> bool:
 
 def _send_reset_email(to_email: str, reset_token: str) -> None:
     """Send the reset link. Never log the token or the link."""
+    # uvicorn configures logging before this module's basicConfig runs.
+    log = logging.getLogger("uvicorn.error")
     if not _reset_email_configured():
-        logger.info("Password reset email is not configured")
+        log.info("Password reset email is not configured")
         return
 
     frontend = os.environ["FRONTEND_URL"].rstrip("/")
@@ -798,9 +800,9 @@ def _send_reset_email(to_email: str, reset_token: str) -> None:
                 if username:
                     smtp.login(username, password)
                 smtp.send_message(message)
-        logger.info("Password reset email sent to %s", to_email)
+        log.info("Password reset email sent to %s", to_email)
     except Exception as exc:
-        logger.error("Password reset email failed for %s: %s", to_email, exc)
+        log.error("Password reset email failed for %s: %s", to_email, exc)
 
 
 @api_router.post("/auth/forgot-password")
