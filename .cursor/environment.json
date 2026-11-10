@@ -1,0 +1,25 @@
+{
+  "name": "MojiChat",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "mongodb",
+      "command": "mongod --dbpath /data/db --bind_ip 127.0.0.1 --port 27017",
+      "description": "MongoDB database server (port 27017)."
+    },
+    {
+      "name": "backend",
+      "command": "cd backend && until bash -c ': >/dev/tcp/127.0.0.1/27017' 2>/dev/null; do echo 'waiting for mongodb...'; sleep 1; done && exec ./venv/bin/uvicorn server:app --host 0.0.0.0 --port 8000 --reload",
+      "description": "FastAPI backend API (port 8000). Waits for MongoDB, then serves with autoreload."
+    },
+    {
+      "name": "frontend",
+      "command": "cd frontend && BROWSER=none yarn start",
+      "description": "React web frontend dev server (port 3000)."
+    }
+  ],
+  "ports": [
+    { "name": "frontend", "port": 3000 },
+    { "name": "backend", "port": 8000 }
+  ]
+}

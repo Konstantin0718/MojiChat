@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Check, CheckCheck, Globe, Loader2, Languages } from 'lucide-react';
+import { Check, CheckCheck, Globe, Loader2, Languages, SmilePlus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import axios from 'axios';
 
@@ -29,6 +29,8 @@ const LANG_FLAGS = {
   pt: '🇵🇹', nl: '🇳🇱', pl: '🇵🇱', uk: '🇺🇦',
 };
 
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
 export const EmojiRevealCard = ({ 
   message, 
   isOwn = false, 
@@ -41,6 +43,7 @@ export const EmojiRevealCard = ({
   const [translatedText, setTranslatedText] = useState(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [lastTranslatedLang, setLastTranslatedLang] = useState(null);
+  const [showReactions, setShowReactions] = useState(false);
 
   const hasEmoji = !!message.emoji_content;
   const hasTranslation = !!translatedText && translatedText !== message.content;
@@ -204,6 +207,47 @@ export const EmojiRevealCard = ({
                 {emoji}<span className="text-xs">{users.length}</span>
               </span>
             ))}
+          </div>
+        )}
+
+        {/* Reaction picker */}
+        {onReaction && (
+          <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+            {showReactions ? (
+              <div className="flex gap-1 flex-wrap">
+                {QUICK_REACTIONS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    data-testid={`react-${emoji}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReaction(emoji);
+                      setShowReactions(false);
+                    }}
+                    className="text-base leading-none hover:scale-125 transition-transform"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <button
+                type="button"
+                data-testid={`react-toggle-${message.message_id}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowReactions(true);
+                }}
+                className={cn(
+                  "flex items-center gap-1 text-[11px] opacity-40 hover:opacity-90 transition-opacity",
+                  isOwn ? "ml-auto" : ""
+                )}
+              >
+                <SmilePlus className="w-3.5 h-3.5" />
+                React
+              </button>
+            )}
           </div>
         )}
 
