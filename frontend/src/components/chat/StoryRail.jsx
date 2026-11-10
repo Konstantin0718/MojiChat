@@ -280,7 +280,7 @@ export const StoryRail = ({ api, currentUser }) => {
             {currentStatus.content_type === 'image' && currentStatus.content_url ? (
               <img
                 src={currentStatus.content_url.startsWith('http') ? currentStatus.content_url : `${API_URL}${currentStatus.content_url}`}
-                alt=""
+                alt="Story"
                 className="max-h-[80vh] max-w-full object-contain"
               />
             ) : (
