@@ -174,6 +174,10 @@ class TestGiphy:
         data = response.json()
         assert "gifs" in data, "gifs not in response"
         assert isinstance(data["gifs"], list), "gifs should be a list"
+        if data.get("available") is False:
+            assert data["gifs"] == []
+            print("✓ Giphy trending is unavailable without an API key")
+            return
         assert len(data["gifs"]) > 0, "gifs list should not be empty"
         
         # Verify GIF structure
@@ -190,6 +194,10 @@ class TestGiphy:
         data = response.json()
         assert "gifs" in data, "gifs not in response"
         assert isinstance(data["gifs"], list), "gifs should be a list"
+        if data.get("available") is False:
+            assert data["gifs"] == []
+            print("✓ Giphy search is unavailable without an API key")
+            return
         assert len(data["gifs"]) > 0, "gifs list should not be empty for 'cat' search"
         
         # Verify GIF structure
