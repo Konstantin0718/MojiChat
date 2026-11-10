@@ -42,6 +42,8 @@ interface Props {
   colors: any;
   translationLanguage?: string;
   onDelete?: (messageId: string) => void;
+  onReact?: (messageId: string, emoji: string) => void;
+  onForward?: (message: Message) => void;
 }
 
 export const MessageBubble: React.FC<Props> = ({
@@ -51,6 +53,8 @@ export const MessageBubble: React.FC<Props> = ({
   colors,
   translationLanguage = 'bg',
   onDelete,
+  onReact,
+  onForward,
 }) => {
   const isOwn = message.sender_id === currentUser?.user_id;
   const [isRevealed, setIsRevealed] = useState(false);
@@ -58,13 +62,11 @@ export const MessageBubble: React.FC<Props> = ({
   const [isTranslating, setIsTranslating] = useState(false);
   const [lastTranslatedLang, setLastTranslatedLang] = useState<string | null>(null);
   const [translationNote, setTranslationNote] = useState<string | null>(null);
+  const [showActions, setShowActions] = useState(false);
+  const quickReactions = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
 
   const handleLongPress = () => {
-    if (!isOwn || !onDelete) return;
-    Alert.alert('Delete Message', 'Are you sure you want to delete this message?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => onDelete(message.message_id) },
-    ]);
+    setShowActions((open) => !open);
   };
 
   const doTranslate = useCallback(async () => {
@@ -99,6 +101,54 @@ export const MessageBubble: React.FC<Props> = ({
     );
   }
 
+  const actionBar = showActions ? (
+    <View style={[styles.actions, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={styles.reactRow}>
+        {quickReactions.map((emoji) => (
+          <TouchableOpacity
+            key={emoji}
+            onPress={() => {
+              setShowActions(false);
+              onReact?.(message.message_id, emoji);
+            }}
+          >
+            <Text style={styles.reactEmoji}>{emoji}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <View style={styles.actionLinks}>
+        <TouchableOpacity onPress={() => { setShowActions(false); onForward?.(message); }}>
+          <Text style={{ color: colors.primary, fontWeight: '600' }}>Forward</Text>
+        </TouchableOpacity>
+        {isOwn && onDelete ? (
+          <TouchableOpacity onPress={() => {
+            setShowActions(false);
+            Alert.alert(
+              'Delete message',
+              'This permanently deletes the message. There is no undo.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete', style: 'destructive', onPress: () => onDelete(message.message_id) },
+              ],
+            );
+          }}>
+            <Text style={{ color: '#EF4444', fontWeight: '600' }}>Delete</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  ) : null;
+
+  const reactionChips = message.reactions && Object.keys(message.reactions).length > 0 ? (
+    <View style={styles.reactionChips}>
+      {Object.entries(message.reactions).map(([emoji, users]) => (
+        <Text key={emoji} style={[styles.chip, { color: colors.text, backgroundColor: colors.background }]}>
+          {emoji} {users.length}
+        </Text>
+      ))}
+    </View>
+  ) : null;
+
   const hasEmoji = !!message.emoji_content;
   const detectedLang = detectLanguage(message.content);
   const langFlag = LANG_FLAGS[detectedLang] || '🌐';
@@ -119,16 +169,22 @@ export const MessageBubble: React.FC<Props> = ({
   // Image
   if (message.message_type === 'image' && message.file_url) {
     return (
-      <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onLongPress={handleLongPress}
+        style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}
+      >
+        {actionBar}
         <Image
-          source={{ uri: `${API_URL}${message.file_url}` }}
+          source={{ uri: message.file_url.startsWith('http') ? message.file_url : `${API_URL}${message.file_url}` }}
           style={styles.image}
           resizeMode="cover"
         />
+        {reactionChips}
         <Text style={[styles.time, { color: colors.textSecondary }]}>
           {formatTime(message.created_at)}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   }
 
@@ -138,17 +194,25 @@ export const MessageBubble: React.FC<Props> = ({
       ? message.file_url
       : `${API_URL}${message.file_url}`;
     return (
-      <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onLongPress={handleLongPress}
+        style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}
+      >
+        {actionBar}
         <Image source={{ uri: url }} style={styles.gif} resizeMode="contain" />
+        {reactionChips}
         <Text style={[styles.time, { color: colors.textSecondary }]}>
           {formatTime(message.created_at)}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   }
 
   // Text/Emoji message
   return (
+    <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+    {actionBar}
     <TouchableOpacity
       activeOpacity={0.7}
       onPress={handleTap}
@@ -242,7 +306,9 @@ export const MessageBubble: React.FC<Props> = ({
           />
         )}
       </View>
+      {reactionChips}
     </TouchableOpacity>
+    </View>
   );
 };
 
@@ -280,6 +346,17 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   time: { fontSize: 11 },
+  actions: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 8,
+    marginBottom: 4,
+  },
+  reactRow: { flexDirection: 'row', gap: 8 },
+  reactEmoji: { fontSize: 22 },
+  actionLinks: { flexDirection: 'row', gap: 16, marginTop: 8 },
+  reactionChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
+  chip: { fontSize: 12, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10, overflow: 'hidden' },
   image: { width: 200, height: 200, borderRadius: 12 },
   gif: { width: 200, height: 150, borderRadius: 12 },
 });

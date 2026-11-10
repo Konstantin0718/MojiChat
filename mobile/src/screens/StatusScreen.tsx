@@ -18,6 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { api } from '../services/api';
+import { API_URL } from '../config';
 
 interface Props {
   navigation: any;
@@ -77,18 +78,33 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
     }
   }, [viewingStatus]);
 
+  const mediaUrl = (url?: string) => {
+    if (!url) return undefined;
+    return url.startsWith('http') ? url : `${API_URL}${url}`;
+  };
+
   const loadStatuses = async () => {
     setLoading(true);
     try {
-      // In production, would fetch from API
-      // For now, using mock data
-      setMyStatuses([]);
-      setRecentStatuses([]);
-      setViewedStatuses([]);
+      const data = await api.getStatuses();
+      setMyStatuses(data.my_statuses || []);
+      setRecentStatuses(data.recent || []);
+      setViewedStatuses(data.viewed || []);
     } catch (error) {
       console.error('Error loading statuses:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openStatus = async (status: Status) => {
+    setViewingStatus(status);
+    if (status.user_id === user?.user_id) return;
+    if ((status.viewed_by || []).includes(user?.user_id || '')) return;
+    try {
+      await api.viewStatus(status.status_id);
+    } catch (error) {
+      console.error('Could not record status view', error);
     }
   };
 
@@ -99,10 +115,15 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
     }
 
     try {
-      // Would call API to create status
+      await api.createStatus({
+        content_type: 'text',
+        text_content: textContent.trim(),
+        background_color: selectedBgColor,
+      });
       Alert.alert(t('success'), 'Status posted!');
       setShowAddModal(false);
       setTextContent('');
+      loadStatuses();
     } catch (error) {
       Alert.alert(t('error'), 'Failed to post status');
     }
@@ -201,11 +222,11 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
   const renderStatusItem = ({ item }: { item: Status }) => (
     <TouchableOpacity
       style={styles.statusItem}
-      onPress={() => setViewingStatus(item)}
+      onPress={() => openStatus(item)}
     >
       <View style={styles.statusRing}>
         {item.user_picture ? (
-          <Image source={{ uri: item.user_picture }} style={styles.statusAvatar} />
+          <Image source={{ uri: mediaUrl(item.user_picture) }} style={styles.statusAvatar} />
         ) : (
           <View style={[styles.statusAvatar, { backgroundColor: colors.primary }]}>
             <Text style={styles.avatarText}>{item.user_name?.[0]?.toUpperCase()}</Text>
@@ -237,7 +258,10 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.myStatusSection}>
               <TouchableOpacity
                 style={styles.myStatusItem}
-                onPress={() => setShowAddModal(true)}
+                onPress={() => {
+                  if (myStatuses.length > 0) openStatus(myStatuses[0]);
+                  else setShowAddModal(true);
+                }}
               >
                 <View style={styles.addStatusButton}>
                   {user?.picture ? (
@@ -411,7 +435,7 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.statusHeader}>
               <View style={styles.statusUserInfo}>
                 {viewingStatus.user_picture ? (
-                  <Image source={{ uri: viewingStatus.user_picture }} style={styles.statusUserAvatar} />
+                  <Image source={{ uri: mediaUrl(viewingStatus.user_picture) }} style={styles.statusUserAvatar} />
                 ) : (
                   <View style={[styles.statusUserAvatar, { backgroundColor: colors.primary }]}>
                     <Text style={styles.avatarTextSmall}>{viewingStatus.user_name?.[0]}</Text>
@@ -427,7 +451,7 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
             {/* Content */}
             <View style={[styles.statusContent, { backgroundColor: viewingStatus.background_color || colors.primary }]}>
               {viewingStatus.content_type === 'image' && viewingStatus.content_url ? (
-                <Image source={{ uri: viewingStatus.content_url }} style={styles.statusImage} />
+                <Image source={{ uri: mediaUrl(viewingStatus.content_url) }} style={styles.statusImage} />
               ) : (
                 <Text style={styles.statusText}>{viewingStatus.text_content}</Text>
               )}
