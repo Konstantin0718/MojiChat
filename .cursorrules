@@ -1,0 +1,72 @@
+# MojiChat — контекст за AI (нов чат)
+
+## Проект — стек и деплой
+
+- **Backend:** FastAPI + MongoDB → Render (`https://mojichat.onrender.com`)
+- **Web:** React (Create React App) → Vercel (`https://moji-chat-gamma.vercel.app`)
+- **Mobile:** React Native + Expo → OTA с `eas update --channel production` (без `eas build` при изчерпан лимит)
+- **GitHub:** `https://github.com/Konstantin0718/MojiChat` — Render и Vercel се деплойват при merge в `main`
+- **Мобилен код (каноничен път):** `mobile/` в този репо
+
+---
+
+## Завършени етапи (merge в main)
+
+### Stage 1 — Сигурност
+- CORS, security headers, JWT предупреждения
+- Rate limiting на login / forgot-password
+- MIME whitelist за upload, лимит за voice (~20MB)
+
+### Stage 2 — Real-time (Web)
+- `useWebSocket.js`, интеграция в `ChatLayout.jsx` — polling заменен с WebSocket push
+
+### Stage 3 — MongoDB
+- `@app.on_event("startup")` — автоматични индекси за колекции
+
+### Stage 4 — Нови функции (branch `stage4-new-features`, merge в main)
+**Backend (`server.py`):**
+- `PUT /users/profile` — профилна снимка (multipart)
+- `GET /users/invite-link`, `POST /users/join/{code}` — покани
+- `DELETE /messages/{id}` — soft delete + WebSocket broadcast
+
+**Web:** профилна снимка и invite в Settings, `/join/:inviteCode`, блокиране в header, изтриване на съобщение, seen receipts, изтрити съобщения
+
+**Mobile (код наличен):** Settings (аватар, invite), long-press delete, типове/API за delete/profile/invite, SafeAreaProvider в root, частични layout промени за чата
+
+---
+
+## Активни / нерешени проблеми (НЕ третирай като готови)
+
+Следното на **мобилното приложение** все още не е стабилно потвърдено от потребителя; при нов чат приемай го като отворена работа:
+
+1. **Поле за писане** — позиция спрямо долната навигация на телефона и/или клавиатурата при първо отваряне на чат
+2. **Качване на профилна снимка** от мобилното приложение
+3. **Изпращане на снимки/файлове** от мобилното приложение
+
+При промени в тези области: тествай на реално устройство и потвърди преди да се маркира като „готово“.
+
+---
+
+## Следващи стъпки (предложение)
+
+1. **Mobile:** да се стабилизират горните три точки (safe area + keyboard + upload/profile flows) и да се потвърди с OTA на `production`
+2. **Mobile:** по желание — интеграция на WebSocket в `ChatScreen` вместо/допълнение към polling
+3. **Синхрон на версии:** подравняване на `app.json` версия с `APP_CONFIG.version` в `mobile/src/config` при нужда
+4. **Git:** commit + push на мобилни промени след потвърждение; backend/web вече са на `main` с auto-deploy
+
+---
+
+## Поддръжка на контекста
+
+- При **по-голяма промяна** или **решен проблем**: актуализирай **`/.cursorrules`** в корена на репото (тази папка на проекта).
+- Премествай решените неща от „нерешени“ към „завършени“ / отделен раздел „Скоро оправено“, и коригирай „следващи стъпки“.
+- Цел: всеки нов чат да чете актуално състояние без да разчита само на историята на разговора.
+
+---
+
+## Насоки за AI в този репо
+
+- Основен мобилен проект: `mobile/`
+- API base в мобилното приложение: `mobile/src/config` → `API_URL` (production Render)
+- Не твърди, че мобилните UI/upload проблеми са решени, докато потребителят не потвърди
+- При OTA: `eas update --channel production` (runtime според `app.json` / `runtimeVersion`)
