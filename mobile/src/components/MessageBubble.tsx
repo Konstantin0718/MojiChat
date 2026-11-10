@@ -67,22 +67,6 @@ export const MessageBubble: React.FC<Props> = ({
     ]);
   };
 
-  // Deleted message
-  if (message.deleted) {
-    return (
-      <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
-        <Text style={[styles.deletedText, { color: colors.textSecondary }]}>
-          🗑 Message deleted
-        </Text>
-      </View>
-    );
-  }
-
-  const hasEmoji = !!message.emoji_content;
-  const detectedLang = detectLanguage(message.content);
-  const langFlag = LANG_FLAGS[detectedLang] || '🌐';
-  const hasTranslation = !!translatedText && translatedText !== message.content;
-
   const doTranslate = useCallback(async () => {
     // Skip if already translated with same language
     if (translatedText && lastTranslatedLang === translationLanguage) return;
@@ -103,6 +87,22 @@ export const MessageBubble: React.FC<Props> = ({
     }
     setIsTranslating(false);
   }, [translatedText, lastTranslatedLang, translationLanguage, message.content]);
+
+  // Deleted message — kept below every hook so hook order stays stable.
+  if (message.deleted) {
+    return (
+      <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+        <Text style={[styles.deletedText, { color: colors.textSecondary }]}>
+          🗑 Message deleted
+        </Text>
+      </View>
+    );
+  }
+
+  const hasEmoji = !!message.emoji_content;
+  const detectedLang = detectLanguage(message.content);
+  const langFlag = LANG_FLAGS[detectedLang] || '🌐';
+  const hasTranslation = !!translatedText && translatedText !== message.content;
 
   const handleTap = async () => {
     if (!isRevealed) {

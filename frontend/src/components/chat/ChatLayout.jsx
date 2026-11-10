@@ -1631,7 +1631,7 @@ export const ChatLayout = () => {
                           setNewMessage(e.target.value);
                           handleTyping();
                         }}
-                        placeholder="Type a message... (will be translated!)"
+                        placeholder="Type a message..."
                         className="pr-10 rounded-full bg-muted border-none focus:ring-2 focus:ring-primary/50 px-6"
                         data-testid="message-input"
                       />
@@ -1706,9 +1706,7 @@ export const ChatLayout = () => {
                 Select a conversation or start a new chat
               </p>
               <p className="text-sm text-muted-foreground">
-                Your messages will be transformed into emojis 🎉
-                <br />
-                and translated automatically! 🌍
+                Your messages can be turned into emojis. Translation runs only when it is configured.
               </p>
             </div>
           </div>
