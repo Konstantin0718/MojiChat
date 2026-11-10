@@ -93,7 +93,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     }
   };
 
-  const stopRecording = async () => {
+const stopRecording = async () => {
     if (!recording) return;
 
     try {
@@ -101,24 +101,25 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
       await recording.stopAndUnloadAsync();
       
       const uri = recording.getURI();
-      if (uri) {
-        // Read file as base64
-        const base64 = await FileSystem.readAsStringAsync(uri, {
-          encoding: 'base64',
-        });
-        
-        // Send the audio data
-        onSend(`data:audio/m4a;base64,${base64}`, duration);
+      if (!uri) {
+        Alert.alert('Error', 'No recording found');
+        setRecording(null);
+        setDuration(0);
+        return;
       }
 
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: 'base64',
+      });
+      
+      onSend(`data:audio/m4a;base64,${base64}`, duration);
       setRecording(null);
       setDuration(0);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to stop recording:', error);
-      Alert.alert('Error', 'Failed to save recording');
+      Alert.alert('Error', error?.message || 'Failed to save recording');
     }
   };
-
   const cancelRecording = async () => {
     if (recording) {
       try {
