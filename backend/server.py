@@ -1452,7 +1452,9 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     # Broadcast new message via WebSocket
     await ws_manager.send_new_message(conversation_id, response_data, current_user["user_id"])
 
-    # Push notifications to other participants (was missing — clients only got WS in foreground)
+    # One push path. Origin c389de4 sent via db.fcm_tokens, but nothing writes that
+    # collection: clients store Expo/FCM tokens in push_subscriptions. Delivery still
+    # uses the existing FCM Admin SDK or Expo Push API inside _deliver_push_to_token.
     await notify_participants_new_message_push(
         conv,
         current_user["user_id"],
