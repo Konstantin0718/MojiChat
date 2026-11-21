@@ -246,10 +246,12 @@ _rate_state: Dict[str, List[float]] = {}
 
 
 def _get_client_ip(request: Request) -> str:
-    # Prefer X-Forwarded-For when behind a proxy (Render).
+    # Render appends the real client address as the last X-Forwarded-For entry.
     xff = request.headers.get("x-forwarded-for")
     if xff:
-        return xff.split(",")[0].strip()
+        parts = [part.strip() for part in xff.split(",") if part.strip()]
+        if parts:
+            return parts[-1]
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
@@ -808,13 +810,29 @@ def _record_forgot_attempt(key: str, limit: int, now: float) -> bool:
     over = len(stamps) >= limit
     if not over:
         stamps.append(now)
-    _forgot_hits[key] = stamps
+    if stamps:
+        _forgot_hits[key] = stamps
+    else:
+        _forgot_hits.pop(key, None)
     return over
+
+
+def _purge_forgot_hits(now: float) -> None:
+    if len(_forgot_hits) <= 10000:
+        return
+    cutoff = now - _FORGOT_WINDOW_SECONDS
+    stale = [
+        key for key, stamps in _forgot_hits.items()
+        if not stamps or stamps[-1] < cutoff
+    ]
+    for key in stale:
+        _forgot_hits.pop(key, None)
 
 
 async def forgot_password_limited(email: str, ip: str) -> bool:
     now = time.time()
     async with _rate_lock:
+        _purge_forgot_hits(now)
         email_over = _record_forgot_attempt(f"forgot-email:{email.lower()}", _FORGOT_EMAIL_LIMIT, now)
         ip_over = _record_forgot_attempt(f"forgot-ip:{ip}", _FORGOT_IP_LIMIT, now)
     return email_over or ip_over
@@ -867,8 +885,8 @@ async def _send_via_brevo(to_email: str, reset_token: str) -> None:
                 },
                 json=payload,
             )
-    except Exception:
-        log.error("brevo status=error")
+    except Exception as exc:
+        log.error("brevo status=error %s", type(exc).__name__)
         return
     if 200 <= response.status_code < 300:
         log.info("Password reset email sent")
@@ -934,7 +952,6 @@ async def forgot_password(request: Request, data: PasswordResetRequest, backgrou
     token_hash = hash_reset_token(reset_token)
     await db.password_resets.delete_many({"user_id": user["user_id"]})
     await db.password_resets.delete_many({"email": data.email})
-    await db.password_resets.delete_many({"token": token_hash})
     await db.password_resets.insert_one({
         "email": data.email,
         "user_id": user["user_id"],
@@ -952,23 +969,22 @@ async def forgot_password(request: Request, data: PasswordResetRequest, backgrou
 async def reset_password(data: PasswordResetConfirm):
     """Reset password using a single-use token."""
     token_hash = hash_reset_token(data.token)
-    reset_request = await db.password_resets.find_one({"token": token_hash}, {"_id": 0})
-
+    reset_request = await db.password_resets.find_one_and_delete(
+        {"token": token_hash},
+        projection={"_id": 0},
+    )
     if not reset_request:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
 
-    expires_at = datetime.fromisoformat(reset_request["expires_at"].replace('Z', '+00:00'))
+    expires_at = datetime.fromisoformat(reset_request["expires_at"].replace("Z", "+00:00"))
     if datetime.now(timezone.utc) > expires_at:
-        await db.password_resets.delete_one({"token": token_hash})
-        raise HTTPException(status_code=400, detail="Reset token has expired")
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
 
     hashed_pwd = hash_password(data.new_password)
     await db.users.update_one(
         {"email": reset_request["email"]},
         {"$set": {"password": hashed_pwd}}
     )
-    await db.password_resets.delete_one({"token": token_hash})
-
     return {"message": "Password has been reset successfully"}
 
 # ==================== EMAIL VERIFICATION ====================

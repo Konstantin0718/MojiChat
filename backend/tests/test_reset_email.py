@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import time
 import uuid
 
 os.environ.setdefault("MONGO_URL", "mongodb://127.0.0.1:27017")
@@ -41,6 +42,13 @@ def _resets():
 
 def _clear_limits():
     _forgot_hits.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_forgot_limits():
+    _clear_limits()
+    yield
+    _clear_limits()
 
 
 @pytest.fixture(scope="module")
@@ -208,6 +216,7 @@ def test_responses_match_for_known_unknown_and_failed_send(client, monkeypatch, 
     monkeypatch.setenv("EXPOSE_RESET_TOKEN", "")
     known = _register(client, "Known")
     _pin_token(monkeypatch, raw)
+    _resets().delete_many({"token": hash_reset_token(raw)})
     caplog.set_level(logging.DEBUG, logger="uvicorn.error")
     with respx.mock:
         respx.post(BREVO_EMAIL_URL).mock(return_value=httpx.Response(201, json={"messageId": "ok"}))
@@ -241,6 +250,7 @@ def test_stored_token_is_only_the_hash_and_single_use(client, monkeypatch):
     monkeypatch.setenv("EXPOSE_RESET_TOKEN", "")
     email = _register(client, "Hash")
     _pin_token(monkeypatch, raw)
+    _resets().delete_many({"token": hash_reset_token(raw)})
     response = client.post("/api/auth/forgot-password", json={"email": email})
     assert response.json() == {"message": RESET_EMAIL_MESSAGE}
     stored = _resets().find_one({"email": email})
@@ -249,6 +259,7 @@ def test_stored_token_is_only_the_hash_and_single_use(client, monkeypatch):
 
     newer = "77" * 16
     _pin_token(monkeypatch, newer)
+    _resets().delete_many({"token": hash_reset_token(newer)})
     again = client.post("/api/auth/forgot-password", json={"email": email})
     assert again.content == response.content
     assert _resets().count_documents({"email": email}) == 1
@@ -265,6 +276,12 @@ def test_stored_token_is_only_the_hash_and_single_use(client, monkeypatch):
 def test_rate_limit_returns_the_generic_body(client, monkeypatch):
     monkeypatch.delenv("BREVO_API_KEY", raising=False)
     monkeypatch.delenv("SMTP_HOST", raising=False)
+    sent = {"count": 0}
+
+    async def _count_delivery(*_args, **_kwargs):
+        sent["count"] += 1
+
+    monkeypatch.setattr(server, "deliver_reset_email", _count_delivery)
     email = _register(client, "Limit")
     _clear_limits()
     bodies = []
@@ -274,6 +291,7 @@ def test_rate_limit_returns_the_generic_body(client, monkeypatch):
         bodies.append(response.content)
     assert len(set(bodies)) == 1
     assert b"429" not in bodies[-1]
+    assert sent["count"] == 3
 
     _clear_limits()
     ip_bodies = []
@@ -285,3 +303,22 @@ def test_rate_limit_returns_the_generic_body(client, monkeypatch):
         assert response.status_code == 200
         ip_bodies.append(response.content)
     assert len(set(ip_bodies)) == 1
+
+
+def test_client_ip_is_the_last_forwarded_for_entry():
+    request = server.Request({
+        "type": "http",
+        "headers": [(b"x-forwarded-for", b"203.0.113.9, 10.0.0.4")],
+        "client": ("127.0.0.1", 1234),
+    })
+    assert server._get_client_ip(request) == "10.0.0.4"
+
+
+def test_forgot_hits_drop_stale_keys_past_the_cap():
+    _clear_limits()
+    old = time.time() - server._FORGOT_WINDOW_SECONDS - 5
+    for index in range(10001):
+        server._forgot_hits[f"stale-{index}"] = [old]
+    _run(server.forgot_password_limited("fresh@example.com", "203.0.113.8"))
+    assert len(server._forgot_hits) < 100
+    assert any(key.startswith("forgot-") for key in server._forgot_hits)
