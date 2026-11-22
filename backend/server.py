@@ -883,24 +883,32 @@ async def _send_via_brevo(to_email: str, reset_token: str) -> None:
         "htmlContent": html,
         "textContent": text,
     }
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                BREVO_EMAIL_URL,
-                headers={
-                    "api-key": _brevo_api_key(),
-                    "accept": "application/json",
-                    "content-type": "application/json",
-                },
-                json=payload,
-            )
-    except Exception as exc:
-        log.error("brevo status=error %s", type(exc).__name__)
+    for attempt in (1, 2):
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.post(
+                    BREVO_EMAIL_URL,
+                    headers={
+                        "api-key": _brevo_api_key(),
+                        "accept": "application/json",
+                        "content-type": "application/json",
+                    },
+                    json=payload,
+                )
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            log.error("brevo status=error %s", type(exc).__name__)
+            if attempt == 1:
+                await asyncio.sleep(1.5)
+                continue
+            return
+        except Exception as exc:
+            log.error("brevo status=error %s", type(exc).__name__)
+            return
+        if 200 <= response.status_code < 300:
+            log.info("Password reset email sent")
+            return
+        log.error("brevo status=%s", response.status_code)
         return
-    if 200 <= response.status_code < 300:
-        log.info("Password reset email sent")
-        return
-    log.error("brevo status=%s", response.status_code)
 
 
 def _send_via_smtp(to_email: str, reset_token: str) -> None:
@@ -949,11 +957,6 @@ async def deliver_reset_email(to_email: str, reset_token: str) -> None:
 async def forgot_password(request: Request, data: PasswordResetRequest, background_tasks: BackgroundTasks):
     """Send password reset email. The response does not reveal whether the account exists."""
     generic = {"message": RESET_EMAIL_MESSAGE}
-    # TODO: remove after verifying the header on Render.
-    _reset_log().info(
-        "cf ip header present=%s",
-        bool(request.headers.get("true-client-ip")),
-    )
     if await forgot_password_limited(data.email, _get_client_ip(request)):
         return generic
 

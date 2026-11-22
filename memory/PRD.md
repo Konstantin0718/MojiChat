@@ -54,4 +54,4 @@ Chat application "MojiChat" - WhatsApp-like with AI emoji conversion, real-time 
 - User: konstantin_sabev@abv.bg / Banane.com
 - Render: https://mojichat.onrender.com
 - Firebase project: mijichat-7d13c
-- Giphy API Key: wvmYJRpySN3wAkqi4Basf5boEMSlZPtc
+- Giphy API Key: `<your-giphy-api-key>`
