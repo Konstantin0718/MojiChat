@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, APIRouter, BackgroundTasks, HTTPException, Depends, Request, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -14,6 +14,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict
 import uuid
+import hashlib
 from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt
@@ -244,18 +245,29 @@ _rate_lock = asyncio.Lock()
 _rate_state: Dict[str, List[float]] = {}
 
 
-def _get_client_ip(request: Request) -> str:
-    # Prefer X-Forwarded-For when behind a proxy (Render).
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
+def _get_client_ip(request: Request) -> Optional[str]:
+    # Behind Cloudflare the last X-Forwarded-For hop is a Cloudflare edge address
+    # and the first hop can be spoofed by the client. Only Cloudflare's own
+    # headers are trusted. X-Forwarded-For is ignored.
+    for header in ("true-client-ip", "cf-connecting-ip"):
+        value = (request.headers.get(header) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _rate_limit_ip(request: Request) -> str:
+    """IP for limits that must always have a key. Falls back when Cloudflare is absent."""
+    trusted = _get_client_ip(request)
+    if trusted:
+        return trusted
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
 
 
 async def enforce_rate_limit(request: Request, bucket: str, limit: int, window_seconds: int):
-    ip = _get_client_ip(request)
+    ip = _rate_limit_ip(request)
     now = time.time()
     key = f"{bucket}:{ip}"
 
@@ -754,34 +766,151 @@ async def logout(request: Request, response: Response):
 
 # ==================== PASSWORD RESET ====================
 
-def _reset_email_configured() -> bool:
+RESET_EMAIL_MESSAGE = "If this email exists, a reset link has been sent"
+RESET_TOKEN_MINUTES = 60
+_FORGOT_WINDOW_SECONDS = 3600
+_FORGOT_EMAIL_LIMIT = 3
+_FORGOT_IP_LIMIT = 10
+_forgot_hits: Dict[str, List[float]] = {}
+BREVO_EMAIL_URL = "https://api.brevo.com/v3/smtp/email"
+
+
+def _reset_log():
+    # uvicorn configures logging before this module's basicConfig runs.
+    return logging.getLogger("uvicorn.error")
+
+
+def _resolved_email_from() -> str:
+    return (os.environ.get("EMAIL_FROM") or os.environ.get("SMTP_FROM") or "").strip()
+
+
+def _resolved_email_from_name() -> str:
+    return (os.environ.get("EMAIL_FROM_NAME") or "MojiChat").strip() or "MojiChat"
+
+
+def _brevo_api_key() -> str:
+    return (os.environ.get("BREVO_API_KEY") or "").strip()
+
+
+def _warn_email_from_missing() -> None:
+    if _brevo_api_key() and not _resolved_email_from():
+        _reset_log().warning("BREVO_API_KEY is set but EMAIL_FROM is empty")
+
+
+def hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _new_reset_token() -> str:
+    return uuid.uuid4().hex
+
+
+def _smtp_configured() -> bool:
     return bool(
         os.environ.get("SMTP_HOST")
-        and os.environ.get("SMTP_FROM")
+        and _resolved_email_from()
         and os.environ.get("FRONTEND_URL")
     )
 
 
-def _send_reset_email(to_email: str, reset_token: str) -> None:
-    """Send the reset link. Never log the token or the link."""
-    # uvicorn configures logging before this module's basicConfig runs.
-    log = logging.getLogger("uvicorn.error")
-    if not _reset_email_configured():
-        log.info("Password reset email is not configured")
-        return
+def _record_forgot_attempt(key: str, limit: int, now: float) -> bool:
+    """Return True when this attempt is over the limit. The attempt is counted."""
+    stamps = [t for t in _forgot_hits.get(key, []) if now - t < _FORGOT_WINDOW_SECONDS]
+    over = len(stamps) >= limit
+    if not over:
+        stamps.append(now)
+    if stamps:
+        _forgot_hits[key] = stamps
+    else:
+        _forgot_hits.pop(key, None)
+    return over
 
-    frontend = os.environ["FRONTEND_URL"].rstrip("/")
-    link = f"{frontend}/forgot-password?token={reset_token}"
-    message = EmailMessage()
-    message["Subject"] = "Reset your MojiChat password"
-    message["From"] = os.environ["SMTP_FROM"]
-    message["To"] = to_email
-    message.set_content(
+
+def _purge_forgot_hits(now: float) -> None:
+    if len(_forgot_hits) <= 10000:
+        return
+    cutoff = now - _FORGOT_WINDOW_SECONDS
+    stale = [
+        key for key, stamps in _forgot_hits.items()
+        if not stamps or stamps[-1] < cutoff
+    ]
+    for key in stale:
+        _forgot_hits.pop(key, None)
+
+
+async def forgot_password_limited(email: str, ip: Optional[str]) -> bool:
+    now = time.time()
+    async with _rate_lock:
+        _purge_forgot_hits(now)
+        email_over = _record_forgot_attempt(f"forgot-email:{email.lower()}", _FORGOT_EMAIL_LIMIT, now)
+        ip_over = bool(ip) and _record_forgot_attempt(f"forgot-ip:{ip}", _FORGOT_IP_LIMIT, now)
+    return email_over or ip_over
+
+
+def _reset_link(reset_token: str) -> str:
+    frontend = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    return f"{frontend}/forgot-password?token={reset_token}"
+
+
+def _reset_bodies(reset_token: str) -> tuple:
+    link = _reset_link(reset_token)
+    text = (
         "Choose a new MojiChat password with this link. It expires in one hour.\n\n"
         f"{link}\n\n"
         "If you did not ask for this, you can ignore the email.\n"
     )
+    html = (
+        "<p>Choose a new MojiChat password with this link. It expires in one hour.</p>"
+        f'<p><a href="{link}">Reset password</a></p>'
+        "<p>If you did not ask for this, you can ignore the email.</p>"
+    )
+    return text, html
 
+
+async def _send_via_brevo(to_email: str, reset_token: str) -> None:
+    """Brevo only. A failed call does not fall back to SMTP. Never log the body or key."""
+    log = _reset_log()
+    sender = _resolved_email_from()
+    frontend = (os.environ.get("FRONTEND_URL") or "").strip()
+    if not sender or not frontend:
+        log.info("Password reset email is not configured")
+        return
+    text, html = _reset_bodies(reset_token)
+    payload = {
+        "sender": {"email": sender, "name": _resolved_email_from_name()},
+        "to": [{"email": to_email}],
+        "subject": "Reset your MojiChat password",
+        "htmlContent": html,
+        "textContent": text,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                BREVO_EMAIL_URL,
+                headers={
+                    "api-key": _brevo_api_key(),
+                    "accept": "application/json",
+                    "content-type": "application/json",
+                },
+                json=payload,
+            )
+    except Exception as exc:
+        log.error("brevo status=error %s", type(exc).__name__)
+        return
+    if 200 <= response.status_code < 300:
+        log.info("Password reset email sent")
+        return
+    log.error("brevo status=%s", response.status_code)
+
+
+def _send_via_smtp(to_email: str, reset_token: str) -> None:
+    log = _reset_log()
+    text, _html = _reset_bodies(reset_token)
+    message = EmailMessage()
+    message["Subject"] = "Reset your MojiChat password"
+    message["From"] = _resolved_email_from()
+    message["To"] = to_email
+    message.set_content(text)
     host = os.environ["SMTP_HOST"]
     port = int(os.environ.get("SMTP_PORT", "587"))
     username = os.environ.get("SMTP_USERNAME") or ""
@@ -789,79 +918,87 @@ def _send_reset_email(to_email: str, reset_token: str) -> None:
     use_tls = os.environ.get("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
     try:
         if port == 465:
-            with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
+            with smtplib.SMTP_SSL(host, port, timeout=10) as smtp:
                 if username:
                     smtp.login(username, password)
                 smtp.send_message(message)
         else:
-            with smtplib.SMTP(host, port, timeout=20) as smtp:
+            with smtplib.SMTP(host, port, timeout=10) as smtp:
                 if use_tls:
                     smtp.starttls()
                 if username:
                     smtp.login(username, password)
                 smtp.send_message(message)
-        log.info("Password reset email sent to %s", to_email)
-    except Exception as exc:
-        log.error("Password reset email failed for %s: %s", to_email, exc)
+        log.info("Password reset email sent")
+    except Exception:
+        log.error("Password reset email failed")
+
+
+async def deliver_reset_email(to_email: str, reset_token: str) -> None:
+    """Pick Brevo or SMTP from config. Never switch provider after an error."""
+    if _brevo_api_key():
+        await _send_via_brevo(to_email, reset_token)
+        return
+    if _smtp_configured():
+        await asyncio.to_thread(_send_via_smtp, to_email, reset_token)
+        return
+    _reset_log().info("Password reset email is not configured")
 
 
 @api_router.post("/auth/forgot-password")
-async def forgot_password(request: Request, data: PasswordResetRequest):
-    """Send password reset email"""
-    # Rate limit to reduce abuse of reset flow.
-    await enforce_rate_limit(request, bucket="auth_forgot_password", limit=5, window_seconds=1800)
+async def forgot_password(request: Request, data: PasswordResetRequest, background_tasks: BackgroundTasks):
+    """Send password reset email. The response does not reveal whether the account exists."""
+    generic = {"message": RESET_EMAIL_MESSAGE}
+    # TODO: remove after verifying the header on Render.
+    _reset_log().info(
+        "cf ip header present=%s",
+        bool(request.headers.get("true-client-ip")),
+    )
+    if await forgot_password_limited(data.email, _get_client_ip(request)):
+        return generic
+
     user = await db.users.find_one({"email": data.email}, {"_id": 0})
-    
-    # Always return success to prevent email enumeration
     if not user:
-        return {"message": "If this email exists, a reset link has been sent"}
-    
-    # Generate reset token
-    reset_token = uuid.uuid4().hex
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-    
-    # Store reset token
+        return generic
+
+    reset_token = _new_reset_token()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_MINUTES)
+    token_hash = hash_reset_token(reset_token)
+    await db.password_resets.delete_many({"user_id": user["user_id"]})
     await db.password_resets.delete_many({"email": data.email})
     await db.password_resets.insert_one({
         "email": data.email,
-        "token": reset_token,
+        "user_id": user["user_id"],
+        "token": token_hash,
         "expires_at": expires_at.isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    
-    # The token is never logged. Local development can opt in with
-    # EXPOSE_RESET_TOKEN=true (never enable this in production).
-    logger.info("Password reset requested for %s", data.email)
-    await asyncio.to_thread(_send_reset_email, data.email, reset_token)
+    background_tasks.add_task(deliver_reset_email, data.email, reset_token)
 
-    response_body = {"message": "If this email exists, a reset link has been sent"}
     if os.environ.get("EXPOSE_RESET_TOKEN", "").lower() in ("1", "true", "yes"):
-        response_body["reset_token"] = reset_token
-    return response_body
+        return {"message": RESET_EMAIL_MESSAGE, "reset_token": reset_token}
+    return generic
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: PasswordResetConfirm):
-    """Reset password using token"""
-    reset_request = await db.password_resets.find_one({"token": data.token}, {"_id": 0})
-    
+    """Reset password using a single-use token."""
+    token_hash = hash_reset_token(data.token)
+    reset_request = await db.password_resets.find_one_and_delete(
+        {"token": token_hash},
+        projection={"_id": 0},
+    )
     if not reset_request:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
-    
-    expires_at = datetime.fromisoformat(reset_request["expires_at"].replace('Z', '+00:00'))
+
+    expires_at = datetime.fromisoformat(reset_request["expires_at"].replace("Z", "+00:00"))
     if datetime.now(timezone.utc) > expires_at:
-        await db.password_resets.delete_one({"token": data.token})
-        raise HTTPException(status_code=400, detail="Reset token has expired")
-    
-    # Update password
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
     hashed_pwd = hash_password(data.new_password)
     await db.users.update_one(
         {"email": reset_request["email"]},
         {"$set": {"password": hashed_pwd}}
     )
-    
-    # Delete used token
-    await db.password_resets.delete_one({"token": data.token})
-    
     return {"message": "Password has been reset successfully"}
 
 # ==================== EMAIL VERIFICATION ====================
@@ -2905,6 +3042,7 @@ async def create_db_indexes():
     Create MongoDB indexes on startup.
     MongoDB is idempotent for index creation — safe to run on every restart.
     """
+    _warn_email_from_missing()
     try:
         # ── users ──────────────────────────────────────────────────────────
         await db.users.create_index("user_id", unique=True, background=True)
