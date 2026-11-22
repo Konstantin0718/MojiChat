@@ -15,8 +15,8 @@ import os
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://mojichat.onrender.com').rstrip('/')
 
 # Test credentials
-TEST_EMAIL = "konstantin_sabev@abv.bg"
-TEST_PASSWORD = "Banane.com"
+TEST_EMAIL = "<test-user-email>"
+TEST_PASSWORD = "<password>"
 CONVERSATION_ID = "conv_1fdb73670c42"
 
 
@@ -24,7 +24,7 @@ class TestAuthentication:
     """Authentication tests with provided credentials"""
     
     def test_login_success(self):
-        """Test login with konstantin_sabev@abv.bg works"""
+        """Test login with <test-user-email> works"""
         response = requests.post(
             f"{BASE_URL}/api/auth/login",
             json={"email": TEST_EMAIL, "password": TEST_PASSWORD}

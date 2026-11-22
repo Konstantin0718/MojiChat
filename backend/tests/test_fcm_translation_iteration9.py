@@ -1,7 +1,7 @@
 """
 Backend tests for Iteration 9 - FCM and Translation features
 Tests:
-1. Login works with email konstantin_sabev@abv.bg and password Banane.com
+1. Login works with email <test-user-email> and password <password>
 2. POST /api/translate translates text correctly (e.g., 'Good morning' to bg should return Bulgarian text)
 3. POST /api/notifications/subscribe-fcm endpoint works and accepts fcm_token
 4. POST /api/notifications/subscribe returns firebase_enabled: true
@@ -22,15 +22,15 @@ class TestLoginAndAuth:
     def test_login_with_credentials(self):
         """Test login with provided credentials"""
         response = requests.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "konstantin_sabev@abv.bg",
-            "password": "Banane.com"
+            "email": "<test-user-email>",
+            "password": "<password>"
         })
         assert response.status_code == 200, f"Login failed: {response.text}"
         
         data = response.json()
         assert "token" in data, "Response should contain token"
         assert "user_id" in data, "Response should contain user_id"
-        assert data["email"] == "konstantin_sabev@abv.bg", "Email should match"
+        assert data["email"] == "<test-user-email>", "Email should match"
         print(f"✓ Login successful, user_id: {data['user_id']}")
         return data
 
@@ -42,8 +42,8 @@ class TestTranslationAPI:
     def auth_token(self):
         """Get auth token"""
         response = requests.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "konstantin_sabev@abv.bg",
-            "password": "Banane.com"
+            "email": "<test-user-email>",
+            "password": "<password>"
         })
         if response.status_code == 200:
             return response.json().get("token")
@@ -100,8 +100,8 @@ class TestFCMEndpoints:
     def auth_token(self):
         """Get auth token"""
         response = requests.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "konstantin_sabev@abv.bg",
-            "password": "Banane.com"
+            "email": "<test-user-email>",
+            "password": "<password>"
         })
         if response.status_code == 200:
             return response.json().get("token")
@@ -173,8 +173,8 @@ class TestLanguageEndpoints:
     def auth_token(self):
         """Get auth token"""
         response = requests.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "konstantin_sabev@abv.bg",
-            "password": "Banane.com"
+            "email": "<test-user-email>",
+            "password": "<password>"
         })
         if response.status_code == 200:
             return response.json().get("token")
@@ -235,8 +235,8 @@ class TestConversationEndpoints:
     def auth_token(self):
         """Get auth token"""
         response = requests.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "konstantin_sabev@abv.bg",
-            "password": "Banane.com"
+            "email": "<test-user-email>",
+            "password": "<password>"
         })
         if response.status_code == 200:
             return response.json().get("token")

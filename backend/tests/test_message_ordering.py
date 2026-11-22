@@ -14,10 +14,10 @@ from datetime import datetime
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 
 # Test credentials (existing users with conversation)
-TEST_USER_1_EMAIL = "test1@mojichat.com"
-TEST_USER_1_PASSWORD = "Test1234!"
-TEST_USER_2_EMAIL = "test2@mojichat.com"  
-TEST_USER_2_PASSWORD = "Test1234!"
+TEST_USER_1_EMAIL = "<test-user-email>"
+TEST_USER_1_PASSWORD = "<password>"
+TEST_USER_2_EMAIL = "<test-user-2-email>"  
+TEST_USER_2_PASSWORD = "<password>"
 
 class TestMessageOrdering:
     """Tests for message ordering bug fix - messages should be oldest-first (chronological)"""

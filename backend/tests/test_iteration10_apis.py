@@ -1,7 +1,7 @@
 """
 Iteration 10 API Tests for MojiChat
 Tests:
-- Login with konstantin_sabev@abv.bg / Banane.com
+- Login with <test-user-email> / <password>
 - Firebase from env var (firebase_enabled: true)
 - Voice upload endpoint
 - File upload endpoint  
@@ -15,8 +15,8 @@ import os
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 
 # Test credentials
-TEST_EMAIL = "konstantin_sabev@abv.bg"
-TEST_PASSWORD = "Banane.com"
+TEST_EMAIL = "<test-user-email>"
+TEST_PASSWORD = "<password>"
 
 
 class TestAuth:

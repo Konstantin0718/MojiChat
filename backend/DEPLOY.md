@@ -34,9 +34,9 @@
    |-----|-------|
    | `MONGO_URL` | `mongodb+srv://mojichat:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority` |
    | `DB_NAME` | `mojichat_db` |
-   | `JWT_SECRET` | `mojichat_super_secret_key_2024_secure` |
-   | `GIPHY_API_KEY` | `wvmYJRpySN3wAkqi4Basf5boEMSlZPtc` |
-   | `EMERGENT_LLM_KEY` | `sk-emergent-9A03b2e391fC3C06a1` |
+   | `JWT_SECRET` | `<your-jwt-secret>` |
+   | `GIPHY_API_KEY` | `<your-giphy-api-key>` |
+   | `EMERGENT_LLM_KEY` | `<your-emergent-llm-key>` |
    | `CORS_ORIGINS` | `*` |
    | `FRONTEND_URL` | публичният адрес на уеба, без `/api` |
    | `BREVO_API_KEY` | ключ от Brevo (HTTPS). На безплатния Render SMTP портовете са блокирани |
@@ -75,7 +75,7 @@ eas update --channel preview --message "Switch to permanent Render backend"
 
 1. Отворете приложението на телефона
 2. Затворете го и отворете пак (за да зареди OTA update)
-3. Опитайте да влезете с `konstantin_sabev@abv.bg`
+3. Опитайте да влезете с `<test-user-email>`
 
 ---
 

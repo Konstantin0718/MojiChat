@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDLnh5OqCxjoyObWNMOaRxgCTZkp8UM7Cs"
+          "current_key": "<your-firebase-api-key>"
         }
       ],
       "services": {

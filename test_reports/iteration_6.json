@@ -32,7 +32,7 @@
     },
     "web_login_flow": {
       "status": "WORKING",
-      "details": "Login with konstantin_sabev@abv.bg works, redirects to /chat"
+      "details": "Login with <test-user-email> works, redirects to /chat"
     },
     "web_emoji_display": {
       "status": "WORKING",
@@ -75,8 +75,8 @@
     "frontend": "100% (8/8 features)"
   },
   "test_credentials": {
-    "email": "konstantin_sabev@abv.bg",
-    "password": "Banane.com"
+    "email": "<test-user-email>",
+    "password": "<password>"
   },
   "seed_data_creation": "Used existing conversation conv_1fdb73670c42 with Yordan containing emoji messages",
   "retest_needed": false,
@@ -87,7 +87,7 @@
     "Backend: POST /api/translate English to Bulgarian (target_language='bg')",
     "Backend: POST /api/translate with target_language='auto' uses user's preferred language",
     "Backend: Translation requires auth (401 without token)",
-    "Backend: Login with konstantin_sabev@abv.bg successful",
+    "Backend: Login with <test-user-email> successful",
     "Backend: Invalid credentials rejected (401)",
     "Backend: Messages have emoji_content field",
     "Backend: No diamond placeholders in emoji content",

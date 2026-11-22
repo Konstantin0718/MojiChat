@@ -161,6 +161,54 @@ def test_brevo_http_error_logs_status_only(monkeypatch, caplog):
     assert "LEAKBODY" not in text
 
 
+def test_brevo_retries_once_after_read_timeout(monkeypatch, caplog):
+    secret = "brevo-key-retry-hidden"
+    raw = "88" * 16
+    monkeypatch.setenv("BREVO_API_KEY", secret)
+    monkeypatch.setenv("EMAIL_FROM", "from@example.com")
+    monkeypatch.setenv("FRONTEND_URL", "http://localhost:3000")
+    sleeps = []
+
+    async def fast_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(server.asyncio, "sleep", fast_sleep)
+    caplog.set_level(logging.DEBUG, logger="uvicorn.error")
+    with respx.mock:
+        route = respx.post(BREVO_EMAIL_URL).mock(side_effect=[
+            httpx.ReadTimeout("slow"),
+            httpx.Response(201, json={"messageId": "ok"}),
+        ])
+        _run(deliver_reset_email("person@example.com", raw))
+    assert route.call_count == 2
+    assert sleeps == [1.5]
+    text = _log_text(caplog)
+    assert "Password reset email sent" in text
+    assert "ReadTimeout" in text
+    assert raw not in text
+    assert secret not in text
+
+
+def test_brevo_does_not_retry_http_400(monkeypatch, caplog):
+    secret = "brevo-key-400-hidden"
+    raw = "99" * 16
+    monkeypatch.setenv("BREVO_API_KEY", secret)
+    monkeypatch.setenv("EMAIL_FROM", "from@example.com")
+    monkeypatch.setenv("FRONTEND_URL", "http://localhost:3000")
+    caplog.set_level(logging.DEBUG, logger="uvicorn.error")
+    with respx.mock:
+        route = respx.post(BREVO_EMAIL_URL).mock(
+            return_value=httpx.Response(400, text=raw + secret + "LEAKBODY")
+        )
+        _run(deliver_reset_email("person@example.com", raw))
+    assert route.call_count == 1
+    text = _log_text(caplog)
+    assert "brevo status=400" in text
+    assert raw not in text
+    assert secret not in text
+    assert "LEAKBODY" not in text
+
+
 def test_not_configured_log_hides_token(monkeypatch, caplog):
     raw = "33" * 16
     monkeypatch.delenv("BREVO_API_KEY", raising=False)
