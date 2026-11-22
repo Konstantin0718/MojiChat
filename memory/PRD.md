@@ -51,7 +51,7 @@ Chat application "MojiChat" - WhatsApp-like with AI emoji conversion, real-time 
 5. **P3**: Full i18n, Stories, Blocking, Stickers, Custom Sounds
 
 ## Credentials
-- User: konstantin_sabev@abv.bg / Banane.com
+- User: <test-user-email> / <password>
 - Render: https://mojichat.onrender.com
 - Firebase project: mijichat-7d13c
 - Giphy API Key: `<your-giphy-api-key>`

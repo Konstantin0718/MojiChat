@@ -75,7 +75,7 @@ eas update --channel preview --message "Switch to permanent Render backend"
 
 1. Отворете приложението на телефона
 2. Затворете го и отворете пак (за да зареди OTA update)
-3. Опитайте да влезете с `konstantin_sabev@abv.bg`
+3. Опитайте да влезете с `<test-user-email>`
 
 ---
 

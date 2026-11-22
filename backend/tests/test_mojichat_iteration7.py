@@ -24,8 +24,8 @@ class TestMojiChatIteration7:
         response = requests.post(
             f"{BASE_URL}/api/auth/login",
             json={
-                "email": "konstantin_sabev@abv.bg",
-                "password": "Banane.com"
+                "email": "<test-user-email>",
+                "password": "<password>"
             }
         )
         assert response.status_code == 200, f"Login failed: {response.text}"
@@ -36,15 +36,15 @@ class TestMojiChatIteration7:
         response = requests.post(
             f"{BASE_URL}/api/auth/login",
             json={
-                "email": "konstantin_sabev@abv.bg",
-                "password": "Banane.com"
+                "email": "<test-user-email>",
+                "password": "<password>"
             }
         )
         assert response.status_code == 200
         data = response.json()
         assert "token" in data
         assert "user_id" in data
-        assert data["email"] == "konstantin_sabev@abv.bg"
+        assert data["email"] == "<test-user-email>"
         print(f"✓ Login successful for {data['email']}")
     
     def test_user_preferred_language_is_bulgarian(self, auth_token):

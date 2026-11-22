@@ -27,7 +27,7 @@
     "backend_login": {
       "status": "WORKING",
       "tests": [
-        "POST /api/auth/login with konstantin_sabev@abv.bg / Banane.com ✓",
+        "POST /api/auth/login with <test-user-email> / <password> ✓",
         "Invalid credentials return 401 ✓"
       ]
     },
@@ -83,8 +83,8 @@
     "frontend": "100% (6/6 features)"
   },
   "test_credentials": {
-    "email": "konstantin_sabev@abv.bg",
-    "password": "Banane.com"
+    "email": "<test-user-email>",
+    "password": "<password>"
   },
   "seed_data_creation": "Used existing conversation conv_1fdb73670c42 with emoji messages",
   "retest_needed": false,
@@ -94,7 +94,7 @@
     "Backend: POST /api/translate Bulgarian to English",
     "Backend: POST /api/translate English to Bulgarian",
     "Backend: Translation requires auth (401)",
-    "Backend: Login with konstantin_sabev@abv.bg",
+    "Backend: Login with <test-user-email>",
     "Backend: Invalid credentials rejected",
     "Backend: Messages have emoji_content field",
     "Backend: No diamond placeholders in emoji content",

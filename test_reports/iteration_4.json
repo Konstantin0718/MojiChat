@@ -46,15 +46,15 @@
     "frontend": "100%"
   },
   "test_credentials": {
-    "user1": {"email": "test1@mojichat.com", "password": "Test1234!"},
-    "user2": {"email": "test2@mojichat.com", "password": "Test1234!"}
+    "user1": {"email": "<test-user-email>", "password": "<password>"},
+    "user2": {"email": "<test-user-2-email>", "password": "<password>"}
   },
   "seed_data_creation": "Used existing test users and conversation between test1 and test2",
   "retest_needed": false,
   "should_main_agent_self_test": false,
   "context_for_next_testing_agent": "Two bugs were verified as fixed: 1) Message ordering - messages now display oldest-first (chronologically). 2) Theme toggle - no more flickering after useMemo/useCallback fixes. All core features working. Minor React warning in LoginPage about setState during render is unrelated to the bug fixes.",
   "tests_passed": [
-    "Backend: Login with test1@mojichat.com",
+    "Backend: Login with <test-user-email>",
     "Backend: Get conversations list",
     "Backend: Messages in chronological order verification",
     "Backend: Send message and verify appears at end",

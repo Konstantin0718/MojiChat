@@ -39,7 +39,7 @@
     },
     "frontend_login_flow": {
       "status": "WORKING",
-      "details": "Login with konstantin_sabev@abv.bg works, redirects to /chat"
+      "details": "Login with <test-user-email> works, redirects to /chat"
     },
     "frontend_language_badges_on_messages": {
       "status": "WORKING",
@@ -87,8 +87,8 @@
     "frontend": "100% (10/10 features)"
   },
   "test_credentials": {
-    "email": "konstantin_sabev@abv.bg",
-    "password": "Banane.com"
+    "email": "<test-user-email>",
+    "password": "<password>"
   },
   "seed_data_creation": "Used existing conversation conv_1fdb73670c42 with Yordan containing emoji messages",
   "retest_needed": false,
