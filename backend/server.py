@@ -245,20 +245,29 @@ _rate_lock = asyncio.Lock()
 _rate_state: Dict[str, List[float]] = {}
 
 
-def _get_client_ip(request: Request) -> str:
-    # Render appends the real client address as the last X-Forwarded-For entry.
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        parts = [part.strip() for part in xff.split(",") if part.strip()]
-        if parts:
-            return parts[-1]
+def _get_client_ip(request: Request) -> Optional[str]:
+    # Behind Cloudflare the last X-Forwarded-For hop is a Cloudflare edge address
+    # and the first hop can be spoofed by the client. Only Cloudflare's own
+    # headers are trusted. X-Forwarded-For is ignored.
+    for header in ("true-client-ip", "cf-connecting-ip"):
+        value = (request.headers.get(header) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _rate_limit_ip(request: Request) -> str:
+    """IP for limits that must always have a key. Falls back when Cloudflare is absent."""
+    trusted = _get_client_ip(request)
+    if trusted:
+        return trusted
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
 
 
 async def enforce_rate_limit(request: Request, bucket: str, limit: int, window_seconds: int):
-    ip = _get_client_ip(request)
+    ip = _rate_limit_ip(request)
     now = time.time()
     key = f"{bucket}:{ip}"
 
@@ -829,12 +838,12 @@ def _purge_forgot_hits(now: float) -> None:
         _forgot_hits.pop(key, None)
 
 
-async def forgot_password_limited(email: str, ip: str) -> bool:
+async def forgot_password_limited(email: str, ip: Optional[str]) -> bool:
     now = time.time()
     async with _rate_lock:
         _purge_forgot_hits(now)
         email_over = _record_forgot_attempt(f"forgot-email:{email.lower()}", _FORGOT_EMAIL_LIMIT, now)
-        ip_over = _record_forgot_attempt(f"forgot-ip:{ip}", _FORGOT_IP_LIMIT, now)
+        ip_over = bool(ip) and _record_forgot_attempt(f"forgot-ip:{ip}", _FORGOT_IP_LIMIT, now)
     return email_over or ip_over
 
 
@@ -940,6 +949,11 @@ async def deliver_reset_email(to_email: str, reset_token: str) -> None:
 async def forgot_password(request: Request, data: PasswordResetRequest, background_tasks: BackgroundTasks):
     """Send password reset email. The response does not reveal whether the account exists."""
     generic = {"message": RESET_EMAIL_MESSAGE}
+    # TODO: remove after verifying the header on Render.
+    _reset_log().info(
+        "cf ip header present=%s",
+        bool(request.headers.get("true-client-ip")),
+    )
     if await forgot_password_limited(data.email, _get_client_ip(request)):
         return generic
 

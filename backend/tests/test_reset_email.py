@@ -295,23 +295,41 @@ def test_rate_limit_returns_the_generic_body(client, monkeypatch):
 
     _clear_limits()
     ip_bodies = []
+    ip_headers = {"True-Client-IP": "203.0.113.50"}
     for index in range(11):
         response = client.post(
             "/api/auth/forgot-password",
             json={"email": f"ip-{index}-{uuid.uuid4().hex[:6]}@example.com"},
+            headers=ip_headers,
         )
         assert response.status_code == 200
         ip_bodies.append(response.content)
     assert len(set(ip_bodies)) == 1
+    assert len(server._forgot_hits.get("forgot-ip:203.0.113.50", [])) == 10
 
 
-def test_client_ip_is_the_last_forwarded_for_entry():
-    request = server.Request({
-        "type": "http",
-        "headers": [(b"x-forwarded-for", b"203.0.113.9, 10.0.0.4")],
-        "client": ("127.0.0.1", 1234),
+def _ip_request(headers):
+    encoded = [(name.lower().encode(), value.encode()) for name, value in headers.items()]
+    return server.Request({"type": "http", "headers": encoded, "client": ("127.0.0.1", 1234)})
+
+
+def test_true_client_ip_wins_over_cloudflare_connecting_ip():
+    request = _ip_request({
+        "True-Client-IP": "203.0.113.10",
+        "CF-Connecting-IP": "203.0.113.20",
+        "X-Forwarded-For": "1.1.1.1",
     })
-    assert server._get_client_ip(request) == "10.0.0.4"
+    assert server._get_client_ip(request) == "203.0.113.10"
+
+
+def test_cf_connecting_ip_used_when_it_is_the_only_header():
+    request = _ip_request({"CF-Connecting-IP": " 203.0.113.20 "})
+    assert server._get_client_ip(request) == "203.0.113.20"
+
+
+def test_x_forwarded_for_alone_is_ignored():
+    request = _ip_request({"X-Forwarded-For": "203.0.113.9, 10.0.0.4"})
+    assert server._get_client_ip(request) is None
 
 
 def test_forgot_hits_drop_stale_keys_past_the_cap():
