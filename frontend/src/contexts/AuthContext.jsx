@@ -25,13 +25,6 @@ export const AuthProvider = ({ children }) => {
   }, [token]);
 
   const checkAuth = useCallback(async () => {
-    // CRITICAL: If returning from OAuth callback, skip the /me check.
-    // AuthCallback will exchange the session_id and establish the session first.
-    if (window.location.hash?.includes('session_id=')) {
-      setLoading(false);
-      return;
-    }
-
     try {
       const response = await api.get('/auth/me');
       setUser(response.data);
@@ -81,8 +74,8 @@ export const AuthProvider = ({ children }) => {
     return userData;
   };
 
-  const processGoogleAuth = async (sessionId) => {
-    const response = await api.post('/auth/session', { session_id: sessionId });
+  const loginWithGoogleCredential = async (credential) => {
+    const response = await api.post('/auth/google', { credential });
     const { token: newToken, ...userData } = response.data;
     setToken(newToken);
     localStorage.setItem('mojichat_token', newToken);
@@ -101,12 +94,6 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('mojichat_token');
   };
 
-  const loginWithGoogle = () => {
-    // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-    const redirectUrl = window.location.origin + '/chat';
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
-  };
-
   return (
     <AuthContext.Provider
       value={{
@@ -116,8 +103,7 @@ export const AuthProvider = ({ children }) => {
         login,
         register,
         logout,
-        loginWithGoogle,
-        processGoogleAuth,
+        loginWithGoogleCredential,
         api,
         isAuthenticated: !!user,
       }}

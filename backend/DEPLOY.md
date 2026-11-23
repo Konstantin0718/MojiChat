@@ -42,6 +42,7 @@
    | `BREVO_API_KEY` | ключ от Brevo (HTTPS). На безплатния Render SMTP портовете са блокирани |
    | `EMAIL_FROM` | адрес на подателя. Ако липсва, ползва се `SMTP_FROM` |
    | `EMAIL_FROM_NAME` | име на подателя, по подразбиране `MojiChat` |
+   | `GOOGLE_CLIENT_ID` | Web client ID за Google вход. Ако липсва, `/api/auth/google` връща 503 |
 
    `EXPOSE_RESET_TOKEN` не се задава. `SMTP_HOST` е само за локална машина, не за Render free.
 

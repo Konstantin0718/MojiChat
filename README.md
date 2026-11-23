@@ -27,6 +27,7 @@ Set these on the service that needs them. Do not commit secret values.
 | `GIPHY_API_KEY` | no | GIF search. Routes still require a logged-in user |
 | `EMERGENT_LLM_KEY` | no | Real translation. Without it, translation reports unavailable |
 | `EXPOSE_RESET_TOKEN` | no | Leave unset. Dev-only token echo |
+| `GOOGLE_CLIENT_ID` | for Google sign-in | Web OAuth client ID. Verifies the Google ID token audience |
 
 Render free web services block outbound SMTP. Use `BREVO_API_KEY` there.
 
@@ -35,6 +36,7 @@ Render free web services block outbound SMTP. Use `BREVO_API_KEY` there.
 | Variable | Purpose |
 |---|---|
 | `REACT_APP_BACKEND_URL` | Backend origin, without `/api` |
+| `REACT_APP_GOOGLE_CLIENT_ID` | Same Web client ID as `GOOGLE_CLIENT_ID`. Hides the Google button when unset. Create React App reads it at build time |
 | `REACT_APP_TURN_URL` | Optional TURN server |
 | `REACT_APP_TURN_USERNAME` | TURN username |
 | `REACT_APP_TURN_CREDENTIAL` | TURN credential |
