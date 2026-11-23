@@ -354,6 +354,9 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class GoogleCredential(BaseModel):
+    credential: str
+
 class UserResponse(BaseModel):
     user_id: str
     email: str
@@ -487,7 +490,7 @@ async def get_current_user(request: Request) -> dict:
     except jwt.InvalidTokenError:
         pass
     
-    # Try session token (Google OAuth)
+    # Opaque session rows from older Google logins. New logins issue a JWT.
     session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
     if session:
         expires_at = session.get("expires_at")
@@ -648,91 +651,133 @@ async def login(request: Request, user_data: UserLogin, response: Response):
         "token": token
     }
 
-@api_router.post("/auth/session")
-async def process_google_session(request: Request, response: Response):
-    """Process Google OAuth session_id from Emergent Auth"""
-    body = await request.json()
-    session_id = body.get("session_id")
-    
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id required")
-    
-    # Call Emergent Auth to get user data
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-                headers={"X-Session-ID": session_id}
-            )
-            if resp.status_code != 200:
-                raise HTTPException(status_code=401, detail="Invalid session")
-            
-            data = resp.json()
-        except Exception as e:
-            logger.error(f"Error calling Emergent Auth: {e}")
-            raise HTTPException(status_code=500, detail="Auth service error")
-    
-    email = data.get("email")
-    name = data.get("name")
-    picture = data.get("picture")
-    emergent_session_token = data.get("session_token")
-    
-    # Check if user exists
-    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
-    
-    if existing_user:
-        user_id = existing_user["user_id"]
-        # Update user info
-        await db.users.update_one(
-            {"user_id": user_id},
-            {"$set": {
-                "name": name,
-                "picture": picture,
-                "is_online": True,
-                "last_seen": datetime.now(timezone.utc).isoformat()
-            }}
-        )
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        user_doc = {
-            "user_id": user_id,
-            "email": email,
-            "name": name,
-            "picture": picture,
-            "password": None,
-            "is_online": True,
-            "last_seen": datetime.now(timezone.utc).isoformat(),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "preferred_language": "en",
-            "country_code": None
-        }
-        await db.users.insert_one(user_doc)
-    
-    # Store session
-    await db.user_sessions.delete_many({"user_id": user_id})
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": emergent_session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
+def _google_client_id() -> str:
+    return (os.environ.get("GOOGLE_CLIENT_ID") or "").strip()
+
+
+def verify_google_id_token(credential: str, client_id: str) -> dict:
+    """Verify a Google Identity Services ID token. Audience must be our web client."""
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token
+
+    return id_token.verify_oauth2_token(
+        credential,
+        google_requests.Request(),
+        audience=client_id,
+        clock_skew_in_seconds=10,
+    )
+
+
+def _google_email_verified(claims: dict) -> bool:
+    verified = claims.get("email_verified")
+    return verified is True or str(verified).lower() == "true"
+
+
+def _google_picture(claims: dict) -> Optional[str]:
+    picture = claims.get("picture")
+    if isinstance(picture, str) and picture.startswith(("https://", "http://")):
+        return picture[:500]
+    return None
+
+
+async def _find_user_by_email(email: str):
+    pattern = "^" + re.escape(email.strip()) + "$"
+    return await db.users.find_one(
+        {"email": {"$regex": pattern, "$options": "i"}},
+        {"_id": 0},
+    )
+
+
+def _set_login_cookie(response: Response, token: str):
     response.set_cookie(
         key="session_token",
-        value=emergent_session_token,
+        value=token,
         httponly=True,
         secure=True,
         samesite="none",
         path="/",
-        max_age=7 * 24 * 60 * 60
+        max_age=JWT_EXPIRATION_DAYS * 24 * 60 * 60
     )
-    
+
+
+@api_router.post("/auth/google")
+async def google_login(request: Request, body: GoogleCredential, response: Response):
+    """Sign in with a Google ID token and issue the same JWT as email login."""
+    await enforce_rate_limit(request, bucket="auth_google", limit=10, window_seconds=600)
+    client_id = _google_client_id()
+    if not client_id:
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured")
+
+    credential = (body.credential or "").strip()
+    if not credential:
+        raise HTTPException(status_code=400, detail="credential required")
+
+    try:
+        claims = verify_google_id_token(credential, client_id)
+    except Exception as exc:
+        logger.info("google token rejected: %s", type(exc).__name__)
+        raise HTTPException(status_code=401, detail="Invalid Google credential")
+
+    email = str(claims.get("email") or "").strip()
+    if not email or "@" not in email or len(email) > 320 or not _google_email_verified(claims):
+        raise HTTPException(status_code=401, detail="Google account email is not verified")
+
+    sub = str(claims.get("sub") or "").strip()
+    if not sub or len(sub) > 255:
+        raise HTTPException(status_code=401, detail="Invalid Google credential")
+
+    name = str(claims.get("name") or "").strip()[:80]
+    picture = _google_picture(claims)
+    now = datetime.now(timezone.utc).isoformat()
+    existing_user = await _find_user_by_email(email)
+
+    if existing_user:
+        user_id = existing_user["user_id"]
+        updates = {
+            "is_online": True,
+            "last_seen": now,
+            "email_verified": True,
+            "google_sub": sub,
+        }
+        if picture:
+            updates["picture"] = picture
+        # Keep a password account's chosen name. Google-only accounts follow the token.
+        if name and (not existing_user.get("password") or not existing_user.get("name")):
+            updates["name"] = name
+        await db.users.update_one({"user_id": user_id}, {"$set": updates})
+        stored_email = existing_user.get("email") or email
+        stored_name = updates.get("name") or existing_user.get("name") or name or email.split("@")[0]
+        stored_picture = updates.get("picture") or existing_user.get("picture")
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        stored_email = email.lower()
+        stored_name = name or stored_email.split("@")[0]
+        stored_picture = picture
+        await db.users.insert_one({
+            "user_id": user_id,
+            "email": stored_email,
+            "name": stored_name,
+            "picture": stored_picture,
+            "password": None,
+            "is_online": True,
+            "last_seen": now,
+            "created_at": now,
+            "preferred_language": "en",
+            "country_code": None,
+            "email_verified": True,
+            "phone_number": None,
+            "phone_verified": False,
+            "google_sub": sub,
+        })
+
+    token = create_token(user_id)
+    _set_login_cookie(response, token)
     return {
         "user_id": user_id,
-        "email": email,
-        "name": name,
-        "picture": picture,
-        "token": emergent_session_token
+        "email": stored_email,
+        "name": stored_name,
+        "picture": stored_picture,
+        "token": token,
     }
 
 @api_router.get("/auth/me")
