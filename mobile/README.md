@@ -96,10 +96,14 @@ Edit `app.json`:
 
 ### 2. Firebase Setup (for Push Notifications)
 
+`google-services.json` is committed with `current_key` set to `FIREBASE_ANDROID_API_KEY_PLACEHOLDER`. Do not commit a real key.
+
+EAS Build runs `eas-build-pre-install` before `expo prebuild`. That script writes `FIREBASE_ANDROID_API_KEY` into `google-services.json` on the builder. Create that variable in EAS as **sensitive** for the **preview** and **production** environments. An EAS build exits if the variable is missing. Local `expo start` only prints a warning.
+
 1. Create Firebase project at https://console.firebase.google.com
-2. Add Android app with package name: `com.chatapp.mobile`
-3. Download `google-services.json` → place in `/mobile/`
-4. Add iOS app with bundle ID: `com.chatapp.mobile`
+2. Add Android app with package name: `com.mojichat.app`
+3. Put the Android API key in the EAS env var above, not in git
+4. Add iOS app with bundle ID: `com.mojichat.app`
 5. Download `GoogleService-Info.plist` → place in `/mobile/`
 
 ### 3. Update API URL
