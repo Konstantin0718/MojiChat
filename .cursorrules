@@ -86,3 +86,5 @@ Stage 2 (клон `fix/stage2-crashes`) покрива клиентски кра
 Stage 3 PR 1 (push): абонаментът е по endpoint/устройство, logout маха само токените на това устройство, logout-all маха всички. Мобилната регистрация е веднъж след вход плюс listener при смяна на токена. Не е потвърдено на телефон и няма нов APK.
 
 Stage 3 PR 2 (web chat): съобщенията се опресняват при реакция, изтриване и read_by; GIF, реакции и изтриване важат и за медия; Safari записва audio/mp4; file URL се проверява преди отваряне. Push към web endpoint не се праща, а мъртъв Expo/FCM токен се трие. Няма нов APK.
+
+Stage 3 PR 3 (links): `/join/:code` се пази през login и register и се връща само към същия сайт. Android App Link за Vercel е с autoVerify. Reset линкът отваря ForgotPassword и когато потребителят е влязъл. Няма нов APK.

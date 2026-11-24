@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { consumeRedirect } from '../lib/safeRedirect.mjs';
 
 export default function AuthCallback() {
   const navigate = useNavigate();
@@ -31,7 +32,7 @@ export default function AuthCallback() {
         await processGoogleAuth(sessionId);
         
         // Navigate to chat (remove the hash from URL)
-        navigate('/chat', { replace: true });
+        navigate(consumeRedirect('/chat'), { replace: true });
       } catch (error) {
         console.error('Auth callback error:', error);
         navigate('/login');

@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, DarkTheme, getStateFromPath } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -28,17 +28,22 @@ import { StatusScreen } from './src/screens/StatusScreen';
 
 const Stack = createNativeStackNavigator();
 
-// https://<FRONTEND_URL>/forgot-password?token=... and mojichat://forgot-password?token=...
+// https://moji-chat-gamma.vercel.app/forgot-password?token=... and mojichat://forgot-password?token=...
+const releasePrefixes = [
+  'mojichat://',
+  'https://moji-chat-gamma.vercel.app',
+];
+
 const linking = {
-  prefixes: [
-    'mojichat://',
-    'https://moji-chat-gamma.vercel.app',
-    'http://localhost:3000',
-  ],
+  prefixes: __DEV__ ? [...releasePrefixes, 'http://localhost:3000'] : releasePrefixes,
   config: {
     screens: {
       ForgotPassword: 'forgot-password',
     },
+  },
+  getStateFromPath(path: string, options: Parameters<typeof getStateFromPath>[1]) {
+    const normalized = path.replace(/^\/?reset-password(?=\?|$)/, 'forgot-password');
+    return getStateFromPath(normalized, options);
   },
 };
 
@@ -129,16 +134,15 @@ const RootNavigator = () => {
             <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
             <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
             <Stack.Screen name="Status" component={StatusScreen} />
-            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
           </>
         ) : (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
-            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
             <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} />
           </>
         )}
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
