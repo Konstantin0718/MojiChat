@@ -92,14 +92,6 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
-  const handleShowTokens = () => {
-    notificationService.showTokensAlert();
-  };
-
-  const handleTestNotification = async () => {
-    await notificationService.sendTestNotification();
-  };
-
   const handleLanguageChange = async (langCode: string) => {
     await setAppLanguage(langCode);
     setShowLanguageModal(false);
@@ -293,27 +285,6 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
                 <Ionicons name="refresh" size={22} color={colors.primary} />
               )}
             </TouchableOpacity>
-            
-            <View style={styles.divider} />
-            
-            <TouchableOpacity style={styles.settingItem} onPress={handleShowTokens}>
-              <View style={styles.settingIcon}>
-                <Ionicons name="key" size={22} color={colors.warning} />
-              </View>
-              <Text style={styles.settingText}>Show Tokens</Text>
-              <Ionicons name="eye" size={22} color={colors.textSecondary} />
-            </TouchableOpacity>
-            
-            <View style={styles.divider} />
-            
-            <TouchableOpacity style={styles.settingItem} onPress={handleTestNotification}>
-              <View style={styles.settingIcon}>
-                <Ionicons name="paper-plane" size={22} color={colors.success} />
-              </View>
-              <Text style={styles.settingText}>Local Test</Text>
-              <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
-            </TouchableOpacity>
-            
           </View>
         </View>
 
