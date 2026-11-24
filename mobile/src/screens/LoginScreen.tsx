@@ -14,6 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 
+const PHONE_AUTH_ENABLED = process.env.EXPO_PUBLIC_PHONE_AUTH_ENABLED === 'true';
+
 interface Props {
   navigation: any;
 }
@@ -114,21 +116,23 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.forgotText}>Forgot Password?</Text>
           </TouchableOpacity>
 
-          {/* Divider */}
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or</Text>
-            <View style={styles.dividerLine} />
-          </View>
+          {PHONE_AUTH_ENABLED && (
+            <>
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
 
-          {/* Phone Login */}
-          <TouchableOpacity
-            style={styles.phoneButton}
-            onPress={() => navigation.navigate('PhoneAuth')}
-          >
-            <Ionicons name="phone-portrait-outline" size={22} color={colors.primary} />
-            <Text style={styles.phoneButtonText}>Continue with Phone</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.phoneButton}
+                onPress={() => navigation.navigate('PhoneAuth')}
+              >
+                <Ionicons name="phone-portrait-outline" size={22} color={colors.primary} />
+                <Text style={styles.phoneButtonText}>Continue with Phone</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
         {/* Register link */}

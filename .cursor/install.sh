@@ -33,10 +33,13 @@ cd "$REPO_ROOT/backend"
 
 if [ ! -f .env ]; then
   echo "==> Creating backend/.env (defaults)"
-  cat > .env <<'EOF'
+  if [ -z "${JWT_SECRET:-}" ]; then
+    JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+  fi
+  cat > .env <<EOF
 MONGO_URL=mongodb://127.0.0.1:27017
 DB_NAME=mojichat_db
-JWT_SECRET=dev_local_secret_change_me
+JWT_SECRET=${JWT_SECRET}
 CORS_ORIGINS=*
 GIPHY_API_KEY=
 EMERGENT_LLM_KEY=

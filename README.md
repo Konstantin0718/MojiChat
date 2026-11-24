@@ -36,6 +36,7 @@ Render free web services block outbound SMTP. Use `BREVO_API_KEY` there.
 | Variable | Purpose |
 |---|---|
 | `REACT_APP_BACKEND_URL` | Backend origin, without `/api` |
+| `REACT_APP_PHONE_AUTH_ENABLED` | Show a phone-login button when `true`. Default off. The web app has no phone button today |
 | `REACT_APP_TURN_URL` | Optional TURN server |
 | `REACT_APP_TURN_USERNAME` | TURN username |
 | `REACT_APP_TURN_CREDENTIAL` | TURN credential |
@@ -45,5 +46,6 @@ Render free web services block outbound SMTP. Use `BREVO_API_KEY` there.
 | Variable | Purpose |
 |---|---|
 | `EXPO_PUBLIC_TURN_URL` | Optional TURN server |
+| `EXPO_PUBLIC_PHONE_AUTH_ENABLED` | Show "Continue with Phone" on the login screen when `true`. Default off |
 | `EXPO_PUBLIC_TURN_USERNAME` | TURN username |
 | `EXPO_PUBLIC_TURN_CREDENTIAL` | TURN credential |

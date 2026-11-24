@@ -34,7 +34,7 @@
    |-----|-------|
    | `MONGO_URL` | `mongodb+srv://mojichat:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority` |
    | `DB_NAME` | `mojichat_db` |
-   | `JWT_SECRET` | `<your-jwt-secret>` |
+   | `JWT_SECRET` | at least 32 characters. The API will not start with a shorter value |
    | `GIPHY_API_KEY` | `<your-giphy-api-key>` |
    | `EMERGENT_LLM_KEY` | `<your-emergent-llm-key>` |
    | `CORS_ORIGINS` | `*` |
