@@ -1455,22 +1455,61 @@ def decode_cursor(cursor: str):
     return created_at, oid
 
 
-def older_than_cursor(created_at: str, oid) -> dict:
+def older_than_field(field: str, stamp: str, oid) -> dict:
     return {"$or": [
-        {"created_at": {"$lt": created_at}},
-        {"created_at": created_at, "_id": {"$lt": oid}},
+        {field: {"$lt": stamp}},
+        {field: stamp, "_id": {"$lt": oid}},
     ]}
 
 
-async def last_messages_for(conversation_ids: List[str]) -> dict:
-    if not conversation_ids:
-        return {}
-    rows = await db.messages.aggregate([
-        {"$match": {"conversation_id": {"$in": conversation_ids}}},
-        {"$sort": {"created_at": -1, "_id": -1}},
-        {"$group": {"_id": "$conversation_id", "doc": {"$first": "$$ROOT"}}},
-    ]).to_list(len(conversation_ids))
-    return {row["_id"]: row["doc"] for row in rows}
+def message_snapshot(msg: dict) -> dict:
+    content = msg.get("content") if isinstance(msg.get("content"), str) else ""
+    emoji = msg.get("emoji_content") if isinstance(msg.get("emoji_content"), str) else ""
+    return {
+        "message_id": msg.get("message_id"),
+        "sender_id": msg.get("sender_id"),
+        "sender_name": msg.get("sender_name"),
+        "content": content[:140],
+        "emoji_content": emoji[:140],
+        "message_type": msg.get("message_type") or "text",
+        "created_at": msg.get("created_at"),
+        "file_url": msg.get("file_url"),
+    }
+
+
+async def record_last_message(conversation_id: str, msg: dict) -> None:
+    stamp = msg.get("created_at") or datetime.now(timezone.utc).isoformat()
+    await db.conversations.update_one(
+        {"conversation_id": conversation_id},
+        {"$set": {"last_message_at": stamp, "last_message": message_snapshot(msg)}},
+    )
+
+
+def backfill_last_message_activity() -> int:
+    """Set last_message_at once on conversations that do not have it yet."""
+    updated = 0
+    from pymongo import MongoClient
+    with MongoClient(mongo_url) as client:
+        sync = client[db.name]
+        missing = sync.conversations.find(
+            {"$or": [{"last_message_at": {"$exists": False}}, {"last_message_at": None}]},
+            {"conversation_id": 1, "created_at": 1},
+        )
+        for conv in missing:
+            latest = sync.messages.find_one(
+                {"conversation_id": conv.get("conversation_id")},
+                sort=[("conversation_id", 1), ("created_at", -1), ("_id", -1)],
+            )
+            if latest:
+                fields = {
+                    "last_message_at": latest.get("created_at") or conv.get("created_at") or "",
+                    "last_message": message_snapshot(latest),
+                }
+            else:
+                fields = {"last_message_at": conv.get("created_at") or ""}
+            sync.conversations.update_one({"_id": conv["_id"]}, {"$set": fields})
+            updated += 1
+    return updated
 
 
 async def unread_counts_for(conversation_ids: List[str], user_id: str) -> dict:
@@ -1764,6 +1803,7 @@ async def forward_message(message_id: str, body: ForwardMessageBody, request: Re
         }
         
         await db.messages.insert_one(new_msg)
+        await record_last_message(conv_id, new_msg)
         forwarded_messages.append(new_msg_id)
     
     return {
@@ -1799,6 +1839,7 @@ async def create_conversation(conv_data: ConversationCreate, request: Request):
         "name": conv_data.name if conv_data.is_group else None,
         "is_group": conv_data.is_group,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "last_message_at": datetime.now(timezone.utc).isoformat(),
         "created_by": current_user["user_id"]
     }
     
@@ -1809,7 +1850,8 @@ async def create_conversation(conv_data: ConversationCreate, request: Request):
         "participant_ids": all_participants,
         "name": conv_doc["name"],
         "is_group": conv_data.is_group,
-        "created_at": conv_doc["created_at"]
+        "created_at": conv_doc["created_at"],
+        "last_message_at": conv_doc["last_message_at"],
     }
 
 @api_router.get("/conversations")
@@ -1823,17 +1865,17 @@ async def get_conversations(
     page_size = bounded_limit(limit, CONVERSATION_PAGE_DEFAULT)
     query = {"participant_ids": current_user["user_id"]}
     if cursor:
-        created_at, oid = decode_cursor(cursor)
-        query = {"$and": [query, older_than_cursor(created_at, oid)]}
+        stamp, oid = decode_cursor(cursor)
+        query = {"$and": [query, older_than_field("last_message_at", stamp, oid)]}
 
     conversations = await db.conversations.find(query).sort(
-        [("created_at", -1), ("_id", -1)]
+        [("last_message_at", -1), ("_id", -1)]
     ).limit(page_size + 1).to_list(page_size + 1)
     has_more = len(conversations) > page_size
     conversations = conversations[:page_size]
     if has_more and conversations:
         last = conversations[-1]
-        response.headers["X-Next-Cursor"] = encode_cursor(last.get("created_at") or "", last["_id"])
+        response.headers["X-Next-Cursor"] = encode_cursor(last.get("last_message_at") or "", last["_id"])
 
     conv_ids = [conv["conversation_id"] for conv in conversations if conv.get("conversation_id")]
     participant_ids = []
@@ -1843,7 +1885,6 @@ async def get_conversations(
         profile["user_id"]: profile
         for profile in await public_profiles(participant_ids, current_user["user_id"])
     }
-    latest = await last_messages_for(conv_ids)
     unread = await unread_counts_for(conv_ids, current_user["user_id"])
 
     result = []
@@ -1853,7 +1894,7 @@ async def get_conversations(
             for user_id in (conv.get("participant_ids") or [])
             if user_id in profiles
         ]
-        last_msg = latest.get(conv["conversation_id"])
+        last_msg = conv.get("last_message") if isinstance(conv.get("last_message"), dict) else None
         result.append({
             "conversation_id": conv["conversation_id"],
             "participants": participants,
@@ -1972,6 +2013,7 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     }
     
     await db.messages.insert_one(msg_doc)
+    await record_last_message(conversation_id, msg_doc)
     
     # Clear typing status
     await db.typing_status.delete_one({
@@ -2030,7 +2072,7 @@ async def get_messages(
     query = {"conversation_id": conversation_id}
     if cursor:
         created_at, oid = decode_cursor(cursor)
-        query = {"$and": [query, older_than_cursor(created_at, oid)]}
+        query = {"$and": [query, older_than_field("created_at", created_at, oid)]}
     elif before:
         query["created_at"] = {"$lt": before}
 
@@ -3664,6 +3706,12 @@ async def create_db_indexes():
     except Exception as exc:
         logger.warning("push subscription dedupe skipped: %s", type(exc).__name__)
     try:
+        activity = await asyncio.to_thread(backfill_last_message_activity)
+        if activity:
+            logger.info("conversation activity backfill updated=%s", activity)
+    except Exception as exc:
+        logger.warning("conversation activity backfill skipped: %s", type(exc).__name__)
+    try:
         email_result = await asyncio.to_thread(normalize_stored_emails)
         if email_result["collisions"] or email_result["updated"]:
             logger.info(
@@ -3710,9 +3758,9 @@ async def create_db_indexes():
         db.messages.create_index([("conversation_id", 1), ("sender_id", 1)], background=True),
     )
     await _safe_index(
-        "conversations.participant_created",
+        "conversations.participant_activity",
         db.conversations.create_index(
-            [("participant_ids", 1), ("created_at", -1), ("_id", -1)],
+            [("participant_ids", 1), ("last_message_at", -1), ("_id", -1)],
             background=True,
         ),
     )

@@ -167,6 +167,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build backend image
         run: docker build -t mojichat-backend:ci backend
+      - name: Image can import the API
+        run: docker run --rm -e MONGO_URL=mongodb://127.0.0.1:27017 -e JWT_SECRET=ci_test_secret_long_enough_value mojichat-backend:ci python -c 'import server'
 
   mobile:
     runs-on: ubuntu-latest

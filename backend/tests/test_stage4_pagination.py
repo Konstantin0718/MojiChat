@@ -54,9 +54,10 @@ def test_message_pages_stay_a_list_and_follow_the_cursor(client):
     )
     assert created.status_code == 200, created.text
     conversation_id = created.json()["conversation_id"]
+    suffix = uuid.uuid4().hex[:8]
     _db().messages.insert_many([
         {
-            "message_id": f"m-{stamp}",
+            "message_id": f"m-{suffix}-{stamp}",
             "conversation_id": conversation_id,
             "sender_id": friend["user_id"],
             "sender_name": "Friend",
@@ -127,15 +128,15 @@ def test_conversation_list_batches_last_message_and_pages(client):
     newer_id = second.json()["conversation_id"]
     _db().conversations.update_one(
         {"conversation_id": older_id},
-        {"$set": {"created_at": "2024-01-01T00:00:00+00:00"}},
+        {"$set": {"created_at": "2024-01-01T00:00:00+00:00"}, "$unset": {"last_message_at": "", "last_message": ""}},
     )
     _db().conversations.update_one(
         {"conversation_id": newer_id},
-        {"$set": {"created_at": "2024-06-01T00:00:00+00:00"}},
+        {"$set": {"created_at": "2024-06-01T00:00:00+00:00"}, "$unset": {"last_message_at": "", "last_message": ""}},
     )
     _db().messages.insert_many([
         {
-            "message_id": "old-a",
+            "message_id": f"old-a-{uuid.uuid4().hex[:8]}",
             "conversation_id": older_id,
             "sender_id": friend["user_id"],
             "content": "stale",
@@ -144,7 +145,7 @@ def test_conversation_list_batches_last_message_and_pages(client):
             "read_by": [],
         },
         {
-            "message_id": "old-b",
+            "message_id": f"old-b-{uuid.uuid4().hex[:8]}",
             "conversation_id": older_id,
             "sender_id": friend["user_id"],
             "content": "fresh",
@@ -153,7 +154,7 @@ def test_conversation_list_batches_last_message_and_pages(client):
             "read_by": [],
         },
         {
-            "message_id": "new-a",
+            "message_id": f"new-a-{uuid.uuid4().hex[:8]}",
             "conversation_id": newer_id,
             "sender_id": owner["user_id"],
             "content": "mine",
@@ -163,6 +164,7 @@ def test_conversation_list_batches_last_message_and_pages(client):
         },
     ])
 
+    server.backfill_last_message_activity()
     page = client.get("/api/conversations", headers=headers, params={"limit": 1})
     assert page.status_code == 200, page.text
     body = page.json()
@@ -181,6 +183,35 @@ def test_conversation_list_batches_last_message_and_pages(client):
     assert rest.json()[0]["unread_count"] == 2
 
 
+def test_a_new_message_brings_the_older_chat_to_the_top(client):
+    owner = _register(client, "Active")
+    friend = _register(client, "Quiet")
+    headers = _auth(owner)
+    older = client.post(
+        "/api/conversations",
+        headers=headers,
+        json={"participant_ids": [friend["user_id"]], "name": "A"},
+    )
+    newer = client.post(
+        "/api/conversations",
+        headers=headers,
+        json={"participant_ids": [friend["user_id"]], "name": "B", "is_group": True},
+    )
+    assert older.status_code == 200 and newer.status_code == 200, (older.text, newer.text)
+    older_id = older.json()["conversation_id"]
+    sent = client.post(
+        f"/api/conversations/{older_id}/messages",
+        headers=headers,
+        json={"content": "still here", "message_type": "text"},
+    )
+    assert sent.status_code == 200, sent.text
+    listed = client.get("/api/conversations", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()[0]["conversation_id"] == older_id
+    assert listed.json()[0]["last_message"]["content"] == "still here"
+    assert listed.json()[1]["conversation_id"] == newer.json()["conversation_id"]
+
+
 def test_page_size_is_capped():
     assert server.bounded_limit(1000, 50) == 100
     assert server.bounded_limit(0, 50) == 1
@@ -192,4 +223,4 @@ def test_pagination_indexes_are_created(client):
     conversation_keys = [list(spec["key"]) for spec in _db().conversations.index_information().values()]
     assert [("conversation_id", 1), ("created_at", -1), ("_id", -1)] in message_keys
     assert [("conversation_id", 1), ("sender_id", 1)] in message_keys
-    assert [("participant_ids", 1), ("created_at", -1), ("_id", -1)] in conversation_keys
+    assert [("participant_ids", 1), ("last_message_at", -1), ("_id", -1)] in conversation_keys
