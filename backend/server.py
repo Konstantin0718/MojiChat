@@ -2510,6 +2510,10 @@ async def remove_reaction(message_id: str, emoji: str, request: Request):
         {"message_id": message_id},
         {"$pull": {f"reactions.{emoji}": current_user["user_id"]}},
     )
+    await db.messages.update_one(
+        {"message_id": message_id, f"reactions.{emoji}": {"$size": 0}},
+        {"$unset": {f"reactions.{emoji}": ""}},
+    )
     updated = await db.messages.find_one({"message_id": message_id}, {"_id": 0, "reactions": 1})
     return {"message": "Reaction removed", "reactions": (updated or {}).get("reactions") or {}}
 

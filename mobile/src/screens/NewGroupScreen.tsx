@@ -41,7 +41,8 @@ export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
     setLoading(true);
     try {
       const results = await api.searchUsers(query);
-      setSearchResults(results.filter(
+      const list = Array.isArray(results) ? results : [];
+      setSearchResults(list.filter(
         (u: User) => !selectedUsers.find(s => s.user_id === u.user_id)
       ));
     } catch (error) {

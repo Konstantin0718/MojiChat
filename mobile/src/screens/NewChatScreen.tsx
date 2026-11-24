@@ -37,7 +37,7 @@ export const NewChatScreen: React.FC<Props> = ({ navigation }) => {
     setLoading(true);
     try {
       const results = await api.searchUsers(query);
-      setSearchResults(results);
+      setSearchResults(Array.isArray(results) ? results : []);
     } catch (error) {
       console.error('Search error:', error);
     } finally {

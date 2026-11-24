@@ -114,7 +114,7 @@ export const ChatLayout = () => {
   const fetchConversations = useCallback(async () => {
     try {
       const response = await api.get('/conversations');
-      setConversations(response.data);
+      setConversations(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error('Error fetching conversations:', error);
     }
@@ -125,7 +125,7 @@ export const ChatLayout = () => {
     if (!conversationId) return;
     try {
       const response = await api.get(`/conversations/${conversationId}/messages`);
-      const newMsgs = response.data;
+      const newMsgs = Array.isArray(response.data) ? response.data : [];
       setMessages(prev => {
         if (prev.length !== newMsgs.length) return newMsgs;
         const changed = prev.some((msg, index) => {
@@ -302,7 +302,7 @@ export const ChatLayout = () => {
     }
     try {
       const response = await api.get(`/users/search?q=${encodeURIComponent(query)}`);
-      setSearchResults(response.data);
+      setSearchResults(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error('Error searching users:', error);
     }
@@ -661,7 +661,8 @@ export const ChatLayout = () => {
   const loadBlockedUsers = useCallback(async () => {
     try {
       const res = await api.get('/users/blocked');
-      setBlockedUsers(res.data.map((u) => u.user_id));
+      const rows = Array.isArray(res.data) ? res.data : [];
+      setBlockedUsers(rows.map((u) => u.user_id));
     } catch (e) {}
   }, [api]);
 

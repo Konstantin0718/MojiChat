@@ -41,7 +41,7 @@ export const BlockedUsersScreen: React.FC<Props> = ({ navigation }) => {
     setLoading(true);
     try {
       const data = await api.getBlockedUsers();
-      setBlockedUsers(data || []);
+      setBlockedUsers(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error loading blocked users:', error);
     } finally {

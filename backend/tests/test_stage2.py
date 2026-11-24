@@ -91,7 +91,7 @@ def test_reactions_are_atomic_and_reject_bad_keys(client):
         headers=headers,
     )
     assert removed.status_code == 200, removed.text
-    assert friend["user_id"] not in (removed.json()["reactions"].get("👍") or [])
+    assert "👍" not in removed.json()["reactions"]
 
 
 class _StreamRequest:

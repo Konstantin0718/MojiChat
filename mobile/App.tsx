@@ -4,7 +4,7 @@ import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, Text, TouchableOpacity } from 'react-native';
 
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
@@ -88,7 +88,7 @@ const AppStack = () => {
 
 // Root Navigator
 const RootNavigator = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, offline, retryAuth } = useAuth();
   const { colors, isDark } = useTheme();
 
   // Register for push notifications when authenticated
@@ -126,6 +126,19 @@ const RootNavigator = () => {
     );
   }
 
+  if (offline && !isAuthenticated) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, padding: 24 }}>
+        <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center', marginBottom: 16 }}>
+          Can't reach MojiChat. You are still signed in.
+        </Text>
+        <TouchableOpacity onPress={retryAuth}>
+          <Text style={{ color: colors.primary, fontSize: 16 }}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   const navTheme = isDark ? {
     ...DarkTheme,
     colors: {
@@ -156,9 +169,32 @@ const RootNavigator = () => {
 };
 
 // Main App Component
+class ErrorBoundary extends React.Component {
+  state = { error: null };
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <Text style={{ fontSize: 16, marginBottom: 16, textAlign: 'center' }}>Something went wrong.</Text>
+          <TouchableOpacity onPress={() => this.setState({ error: null })}>
+            <Text style={{ color: '#8B5CF6', fontSize: 16 }}>Try again</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      <ErrorBoundary>
       <SafeAreaProvider>
         <ThemeProvider>
           <LanguageProvider>
@@ -169,6 +205,7 @@ export default function App() {
           </LanguageProvider>
         </ThemeProvider>
       </SafeAreaProvider>
+      </ErrorBoundary>
     </GestureHandlerRootView>
   );
 }

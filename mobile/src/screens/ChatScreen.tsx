@@ -96,6 +96,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const flatListRef = useRef<FlatList>(null);
+  const failedMediaRef = useRef(new Set<string>());
   const [conversationData, setConversationData] = useState<any>(null);
 
   useEffect(() => {
@@ -292,7 +293,11 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         colors={colors}
         translationLanguage={translationLang}
         onDelete={handleDeleteMessage}
-        onMediaError={loadMessages}
+        onMediaError={(url) => {
+          if (!url || failedMediaRef.current.has(url)) return;
+          failedMediaRef.current.add(url);
+          loadMessages();
+        }}
       />
     ),
     [user, conversationData, colors, translationLang, handleDeleteMessage, loadMessages]

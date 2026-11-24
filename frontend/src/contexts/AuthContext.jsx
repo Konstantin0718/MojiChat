@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -8,12 +8,32 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [offline, setOffline] = useState(false);
   const [token, setToken] = useState(() => localStorage.getItem('mojichat_token'));
-
-  const api = axios.create({
-    baseURL: `${API_URL}/api`,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const apiRef = useRef(null);
+  if (!apiRef.current) {
+    const instance = axios.create({
+      baseURL: `${API_URL}/api`,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    instance.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        const status = error?.response?.status;
+        const url = String(error?.config?.url || '');
+        if (status === 401 && !url.includes('/auth/login')) {
+          setUser(null);
+          setToken(null);
+          setOffline(false);
+          localStorage.removeItem('mojichat_token');
+          delete instance.defaults.headers.Authorization;
+        }
+        return Promise.reject(error);
+      }
+    );
+    apiRef.current = instance;
+  }
+  const api = apiRef.current;
 
   // Update axios headers when token changes
   useEffect(() => {
@@ -35,10 +55,16 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await api.get('/auth/me');
       setUser(response.data);
+      setOffline(false);
     } catch (error) {
-      setUser(null);
-      setToken(null);
-      localStorage.removeItem('mojichat_token');
+      if (error?.response?.status === 401) {
+        setUser(null);
+        setToken(null);
+        setOffline(false);
+        localStorage.removeItem('mojichat_token');
+      } else if (localStorage.getItem('mojichat_token')) {
+        setOffline(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -112,6 +138,8 @@ export const AuthProvider = ({ children }) => {
       value={{
         user,
         loading,
+        offline,
+        retryAuth: checkAuth,
         token,
         login,
         register,

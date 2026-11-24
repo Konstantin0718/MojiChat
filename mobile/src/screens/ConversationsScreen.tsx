@@ -30,7 +30,7 @@ export const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
   const fetchConversations = useCallback(async () => {
     try {
       const data = await api.getConversations();
-      setConversations(data);
+      setConversations(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching conversations:', error);
     }

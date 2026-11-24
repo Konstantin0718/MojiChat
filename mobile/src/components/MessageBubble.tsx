@@ -44,7 +44,7 @@ interface Props {
   colors: any;
   translationLanguage?: string;
   onDelete?: (messageId: string) => void;
-  onMediaError?: () => void;
+  onMediaError?: (url?: string) => void;
 }
 
 export const MessageBubble: React.FC<Props> = ({
@@ -130,7 +130,7 @@ export const MessageBubble: React.FC<Props> = ({
             source={{ uri: imageUri }}
             style={styles.image}
             resizeMode="cover"
-            onError={() => onMediaError?.()}
+            onError={() => onMediaError?.(message.file_url)}
           />
         ) : (
           <Text style={[styles.time, { color: colors.textSecondary }]}>File unavailable</Text>
@@ -154,7 +154,7 @@ export const MessageBubble: React.FC<Props> = ({
     }
     return (
       <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
-        <Image source={{ uri: url }} style={styles.gif} resizeMode="contain" onError={() => onMediaError?.()} />
+        <Image source={{ uri: url }} style={styles.gif} resizeMode="contain" onError={() => onMediaError?.(message.file_url)} />
         <Text style={[styles.time, { color: colors.textSecondary }]}>
           {formatTime(message.created_at)}
         </Text>
@@ -179,7 +179,7 @@ export const MessageBubble: React.FC<Props> = ({
             style={styles.video}
             useNativeControls
             resizeMode={ResizeMode.CONTAIN}
-            onError={() => onMediaError?.()}
+            onError={() => onMediaError?.(message.file_url)}
           />
         ) : null}
         {message.message_type === 'audio' ? <VoiceNote uri={uri} /> : null}
