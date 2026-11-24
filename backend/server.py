@@ -10,7 +10,7 @@ import json
 import asyncio
 import time
 from pathlib import Path
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import List, Optional, Dict
 import uuid
 import hashlib
@@ -418,6 +418,38 @@ class UserLanguageUpdate(BaseModel):
 class TypingStatus(BaseModel):
     is_typing: bool
 
+class ForwardMessageBody(BaseModel):
+    conversation_ids: List[str] = Field(min_length=1, max_length=20)
+
+    @field_validator("conversation_ids")
+    @classmethod
+    def plain_ids(cls, values: List[str]) -> List[str]:
+        for item in values:
+            if not item.strip() or len(item) > 80 or item.startswith("$") or "." in item:
+                raise ValueError("invalid conversation id")
+        return values
+
+class AddMemberBody(BaseModel):
+    user_id: str = Field(min_length=1, max_length=80)
+
+    @field_validator("user_id")
+    @classmethod
+    def plain_user_id(cls, value: str) -> str:
+        if value.startswith("$") or "." in value:
+            raise ValueError("invalid user id")
+        return value
+
+class CallInitiateBody(BaseModel):
+    conversation_id: str = Field(min_length=1, max_length=80)
+    is_video: bool = True
+
+    @field_validator("conversation_id")
+    @classmethod
+    def plain_conversation_id(cls, value: str) -> str:
+        if value.startswith("$") or "." in value:
+            raise ValueError("invalid conversation id")
+        return value
+
 class EmojiConvertRequest(BaseModel):
     text: str
 
@@ -513,6 +545,42 @@ async def get_current_user(request: Request) -> dict:
             return user
     
     raise HTTPException(status_code=401, detail="Invalid token")
+
+
+async def get_conversation_for_user(conversation_id: str, user: dict) -> dict:
+    """Return the conversation when user is a participant. Otherwise 404, never 403."""
+    if not isinstance(conversation_id, str) or not conversation_id.strip():
+        raise HTTPException(status_code=404, detail="Not found")
+    conversation = await db.conversations.find_one(
+        {
+            "conversation_id": conversation_id,
+            "participant_ids": user["user_id"],
+        },
+        {"_id": 0},
+    )
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Not found")
+    return conversation
+
+
+async def get_message_for_user(message_id: str, user: dict) -> dict:
+    if not isinstance(message_id, str) or not message_id.strip():
+        raise HTTPException(status_code=404, detail="Not found")
+    message = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
+    if not message:
+        raise HTTPException(status_code=404, detail="Not found")
+    await get_conversation_for_user(message.get("conversation_id") or "", user)
+    return message
+
+
+async def get_call_for_user(call_id: str, user: dict) -> dict:
+    if not isinstance(call_id, str) or not call_id.strip():
+        raise HTTPException(status_code=404, detail="Not found")
+    call = await db.calls.find_one({"call_id": call_id}, {"_id": 0})
+    if not call:
+        raise HTTPException(status_code=404, detail="Not found")
+    await get_conversation_for_user(call.get("conversation_id") or "", user)
+    return call
 
 # ==================== EMOJI CONVERSION ====================
 
@@ -1413,30 +1481,15 @@ async def delete_status(status_id: str, request: Request):
 # ==================== MESSAGE FORWARDING ====================
 
 @api_router.post("/messages/{message_id}/forward")
-async def forward_message(message_id: str, request: Request):
-    """Forward a message to other conversations"""
+async def forward_message(message_id: str, body: ForwardMessageBody, request: Request):
+    """Forward a message to other conversations the caller belongs to."""
     current_user = await get_current_user(request)
-    body = await request.json()
-    conversation_ids = body.get("conversation_ids", [])
-    
-    if not conversation_ids:
-        raise HTTPException(status_code=400, detail="No conversations specified")
-    
-    # Get original message
-    original = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
-    if not original:
-        raise HTTPException(status_code=404, detail="Message not found")
-    
+    original = await get_message_for_user(message_id, current_user)
+    for conv_id in body.conversation_ids:
+        await get_conversation_for_user(conv_id, current_user)
+
     forwarded_messages = []
-    for conv_id in conversation_ids:
-        # Check user is participant
-        conv = await db.conversations.find_one({
-            "conversation_id": conv_id,
-            "participant_ids": current_user["user_id"]
-        })
-        if not conv:
-            continue
-        
+    for conv_id in body.conversation_ids:
         # Create forwarded message
         new_msg_id = f"msg_{uuid.uuid4().hex[:12]}"
         new_msg = {
@@ -1552,14 +1605,7 @@ async def get_conversations(request: Request):
 @api_router.get("/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str, request: Request):
     current_user = await get_current_user(request)
-    
-    conv = await db.conversations.find_one(
-        {"conversation_id": conversation_id, "participant_ids": current_user["user_id"]},
-        {"_id": 0}
-    )
-    
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    conv = await get_conversation_for_user(conversation_id, current_user)
     
     participants = await db.users.find(
         {"user_id": {"$in": conv["participant_ids"]}},
@@ -1575,22 +1621,15 @@ async def get_conversation(conversation_id: str, request: Request):
     }
 
 @api_router.post("/conversations/{conversation_id}/members")
-async def add_member(conversation_id: str, request: Request):
+async def add_member(conversation_id: str, body: AddMemberBody, request: Request):
     current_user = await get_current_user(request)
-    body = await request.json()
-    user_id = body.get("user_id")
-    
-    conv = await db.conversations.find_one(
-        {"conversation_id": conversation_id, "participant_ids": current_user["user_id"], "is_group": True},
-        {"_id": 0}
-    )
-    
-    if not conv:
-        raise HTTPException(status_code=404, detail="Group not found")
+    conv = await get_conversation_for_user(conversation_id, current_user)
+    if not conv.get("is_group"):
+        raise HTTPException(status_code=404, detail="Not found")
     
     await db.conversations.update_one(
         {"conversation_id": conversation_id},
-        {"$addToSet": {"participant_ids": user_id}}
+        {"$addToSet": {"participant_ids": body.user_id}}
     )
     
     return {"message": "Member added"}
@@ -1620,14 +1659,7 @@ async def messaging_block_detail(sender_id: str, participant_ids: List[str]) -> 
 @api_router.post("/conversations/{conversation_id}/messages")
 async def send_message(conversation_id: str, msg_data: MessageCreate, request: Request):
     current_user = await get_current_user(request)
-    
-    conv = await db.conversations.find_one(
-        {"conversation_id": conversation_id, "participant_ids": current_user["user_id"]},
-        {"_id": 0}
-    )
-    
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    conv = await get_conversation_for_user(conversation_id, current_user)
 
     block_detail = await messaging_block_detail(
         current_user["user_id"], conv.get("participant_ids") or []
@@ -1709,14 +1741,7 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
 @api_router.get("/conversations/{conversation_id}/messages")
 async def get_messages(conversation_id: str, request: Request, limit: int = 50, before: Optional[str] = None):
     current_user = await get_current_user(request)
-    
-    conv = await db.conversations.find_one(
-        {"conversation_id": conversation_id, "participant_ids": current_user["user_id"]},
-        {"_id": 0}
-    )
-    
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    await get_conversation_for_user(conversation_id, current_user)
     
     query = {"conversation_id": conversation_id}
     if before:
@@ -1744,6 +1769,7 @@ async def get_messages(conversation_id: str, request: Request, limit: int = 50, 
 @api_router.post("/conversations/{conversation_id}/typing")
 async def set_typing(conversation_id: str, status: TypingStatus, request: Request):
     current_user = await get_current_user(request)
+    await get_conversation_for_user(conversation_id, current_user)
     
     if status.is_typing:
         await db.typing_status.update_one(
@@ -1767,6 +1793,7 @@ async def set_typing(conversation_id: str, status: TypingStatus, request: Reques
 @api_router.get("/conversations/{conversation_id}/typing")
 async def get_typing(conversation_id: str, request: Request):
     current_user = await get_current_user(request)
+    await get_conversation_for_user(conversation_id, current_user)
     
     # Get typing users from last 5 seconds
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
@@ -2125,10 +2152,7 @@ async def upload_voice(request: Request):
 async def delete_message(message_id: str, request: Request):
     """Delete a message. Only the sender can delete their own message."""
     current_user = await get_current_user(request)
-
-    message = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
-    if not message:
-        raise HTTPException(status_code=404, detail="Message not found")
+    message = await get_message_for_user(message_id, current_user)
 
     if message["sender_id"] != current_user["user_id"]:
         raise HTTPException(status_code=403, detail="You can only delete your own messages")
@@ -2163,10 +2187,7 @@ async def delete_message(message_id: str, request: Request):
 async def add_reaction(message_id: str, reaction: ReactionCreate, request: Request):
     """Add emoji reaction to a message"""
     current_user = await get_current_user(request)
-    
-    message = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
-    if not message:
-        raise HTTPException(status_code=404, detail="Message not found")
+    message = await get_message_for_user(message_id, current_user)
     
     # Get current reactions
     reactions = message.get("reactions", {})
@@ -2190,10 +2211,7 @@ async def add_reaction(message_id: str, reaction: ReactionCreate, request: Reque
 async def remove_reaction(message_id: str, emoji: str, request: Request):
     """Remove emoji reaction from a message"""
     current_user = await get_current_user(request)
-    
-    message = await db.messages.find_one({"message_id": message_id}, {"_id": 0})
-    if not message:
-        raise HTTPException(status_code=404, detail="Message not found")
+    message = await get_message_for_user(message_id, current_user)
     
     reactions = message.get("reactions", {})
     
@@ -2372,32 +2390,34 @@ async def health():
 
 # ==================== MESSAGE SEARCH ====================
 
+SEARCH_QUERY_MAX = 100
+
 @api_router.get("/search/messages")
 async def search_messages(q: str, request: Request, conversation_id: Optional[str] = None):
-    """Search messages by content"""
+    """Search messages by content inside conversations the caller belongs to."""
     current_user = await get_current_user(request)
-    
-    if not q.strip():
+    if conversation_id is not None:
+        await get_conversation_for_user(conversation_id, current_user)
+        conv_ids = [conversation_id]
+    else:
+        user_convs = await db.conversations.find(
+            {"participant_ids": current_user["user_id"]},
+            {"conversation_id": 1, "_id": 0}
+        ).to_list(100)
+        conv_ids = [c["conversation_id"] for c in user_convs]
+
+    text = (q or "").strip()[:SEARCH_QUERY_MAX]
+    if not text or not conv_ids:
         return []
-    
-    # Get user's conversations
-    user_convs = await db.conversations.find(
-        {"participant_ids": current_user["user_id"]},
-        {"conversation_id": 1, "_id": 0}
-    ).to_list(100)
-    conv_ids = [c["conversation_id"] for c in user_convs]
-    
-    # Build query
+
+    safe_q = re.escape(text)
     query = {
         "conversation_id": {"$in": conv_ids},
         "$or": [
-            {"content": {"$regex": q, "$options": "i"}},
-            {"emoji_content": {"$regex": q, "$options": "i"}}
+            {"content": {"$regex": safe_q, "$options": "i"}},
+            {"emoji_content": {"$regex": safe_q, "$options": "i"}}
         ]
     }
-    
-    if conversation_id:
-        query["conversation_id"] = conversation_id
     
     messages = await db.messages.find(
         query,
@@ -2444,30 +2464,61 @@ async def search_conversations(q: str, request: Request):
 
 # ==================== VIDEO CALLS (WebRTC Signaling) ====================
 
+def _plain_json(value, depth: int = 0):
+    """Reject Mongo operators inside stored signal payloads."""
+    if depth > 6:
+        raise ValueError("signal data is too deep")
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or key.startswith("$") or "." in key:
+                raise ValueError("signal data has an invalid key")
+            cleaned[key] = _plain_json(item, depth + 1)
+        return cleaned
+    if isinstance(value, list):
+        if len(value) > 50:
+            raise ValueError("signal data is too long")
+        return [_plain_json(item, depth + 1) for item in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        if isinstance(value, str) and len(value) > 20000:
+            raise ValueError("signal data is too long")
+        return value
+    raise ValueError("signal data has an invalid value")
+
+
 class CallSignal(BaseModel):
     type: str  # offer, answer, ice-candidate
     data: dict
     target_user_id: Optional[str] = None
 
+    @field_validator("type")
+    @classmethod
+    def plain_type(cls, value: str) -> str:
+        if not value.strip() or len(value) > 40 or value.startswith("$"):
+            raise ValueError("invalid signal type")
+        return value
+
+    @field_validator("data")
+    @classmethod
+    def plain_data(cls, value: dict) -> dict:
+        return _plain_json(value)
+
+    @field_validator("target_user_id")
+    @classmethod
+    def plain_target(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        if not value.strip() or len(value) > 80 or value.startswith("$") or "." in value:
+            raise ValueError("invalid target")
+        return value
+
 @api_router.post("/calls/initiate")
-async def initiate_call(request: Request):
+async def initiate_call(body: CallInitiateBody, request: Request):
     """Initiate a video call"""
     current_user = await get_current_user(request)
-    body = await request.json()
-    
-    conversation_id = body.get("conversation_id")
-    is_video = body.get("is_video", True)
-    
-    if not conversation_id:
-        raise HTTPException(status_code=400, detail="conversation_id required")
-    
-    # Verify user is in conversation
-    conv = await db.conversations.find_one(
-        {"conversation_id": conversation_id, "participant_ids": current_user["user_id"]},
-        {"_id": 0}
-    )
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    conv = await get_conversation_for_user(body.conversation_id, current_user)
+    conversation_id = body.conversation_id
+    is_video = body.is_video
     
     call_id = f"call_{uuid.uuid4().hex[:12]}"
     call_doc = {
@@ -2513,10 +2564,7 @@ async def initiate_call(request: Request):
 async def join_call(call_id: str, request: Request):
     """Join an existing call"""
     current_user = await get_current_user(request)
-    
-    call = await db.calls.find_one({"call_id": call_id}, {"_id": 0})
-    if not call:
-        raise HTTPException(status_code=404, detail="Call not found")
+    call = await get_call_for_user(call_id, current_user)
     
     if call["status"] == "ended":
         raise HTTPException(status_code=400, detail="Call has ended")
@@ -2536,10 +2584,7 @@ async def join_call(call_id: str, request: Request):
 async def send_signal(call_id: str, signal: CallSignal, request: Request):
     """Send WebRTC signaling data"""
     current_user = await get_current_user(request)
-    
-    call = await db.calls.find_one({"call_id": call_id}, {"_id": 0})
-    if not call:
-        raise HTTPException(status_code=404, detail="Call not found")
+    await get_call_for_user(call_id, current_user)
     
     # Store signal for target user(s)
     signal_doc = {
@@ -2561,6 +2606,7 @@ async def send_signal(call_id: str, signal: CallSignal, request: Request):
 async def get_signals(call_id: str, request: Request):
     """Get pending WebRTC signals for current user"""
     current_user = await get_current_user(request)
+    await get_call_for_user(call_id, current_user)
     
     # Get unprocessed signals for this user
     signals = await db.call_signals.find(
@@ -2589,6 +2635,7 @@ async def get_signals(call_id: str, request: Request):
 async def end_call(call_id: str, request: Request):
     """End a call"""
     current_user = await get_current_user(request)
+    await get_call_for_user(call_id, current_user)
     
     await db.calls.update_one(
         {"call_id": call_id},
@@ -2915,28 +2962,43 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
             message_type = data.get("type")
             
             if message_type == "typing":
-                # Handle typing indicator
                 conversation_id = data.get("conversation_id")
                 is_typing = data.get("is_typing", False)
+                caller = {"user_id": user_id}
+                try:
+                    await get_conversation_for_user(conversation_id, caller)
+                except HTTPException:
+                    await websocket.send_json({"type": "error", "status": 404, "detail": "Not found"})
+                    continue
                 user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "name": 1})
                 user_name = user.get("name", "User") if user else "User"
-                
                 await ws_manager.send_typing_indicator(
-                    conversation_id, user_id, user_name, is_typing
+                    conversation_id, user_id, user_name, bool(is_typing)
                 )
                 
             elif message_type == "message_read":
-                # Handle read receipt
                 conversation_id = data.get("conversation_id")
                 message_id = data.get("message_id")
-                
-                # Update message in DB
+                caller = {"user_id": user_id}
+                try:
+                    await get_conversation_for_user(conversation_id, caller)
+                except HTTPException:
+                    await websocket.send_json({"type": "error", "status": 404, "detail": "Not found"})
+                    continue
+                if not isinstance(message_id, str) or not message_id:
+                    await websocket.send_json({"type": "error", "status": 404, "detail": "Not found"})
+                    continue
+                message = await db.messages.find_one(
+                    {"message_id": message_id, "conversation_id": conversation_id},
+                    {"_id": 0, "message_id": 1},
+                )
+                if not message:
+                    await websocket.send_json({"type": "error", "status": 404, "detail": "Not found"})
+                    continue
                 await db.messages.update_one(
-                    {"message_id": message_id},
+                    {"message_id": message_id, "conversation_id": conversation_id},
                     {"$addToSet": {"read_by": user_id}}
                 )
-                
-                # Broadcast read receipt
                 await ws_manager.send_message_read(conversation_id, message_id, user_id)
                 
             elif message_type == "ping":
@@ -2950,8 +3012,12 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                 )
                 
             elif message_type == "subscribe_conversation":
-                # Subscribe to a conversation's updates
                 conversation_id = data.get("conversation_id")
+                try:
+                    await get_conversation_for_user(conversation_id, {"user_id": user_id})
+                except HTTPException:
+                    await websocket.send_json({"type": "error", "status": 404, "detail": "Not found"})
+                    continue
                 if conversation_id not in ws_manager.conversation_subscribers:
                     ws_manager.conversation_subscribers[conversation_id] = set()
                 ws_manager.conversation_subscribers[conversation_id].add(user_id)
