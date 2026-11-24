@@ -72,8 +72,17 @@ def max_bytes_for(media_class: str) -> int:
     return _positive_int_env("UPLOAD_MAX_FILE_BYTES", 15 * 1024 * 1024)
 
 
-def file_url_ttl() -> int:
-    return _positive_int_env("FILE_URL_TTL_SECONDS", 600)
+def upload_byte_ceiling() -> int:
+    return max(max_bytes_for("image"), max_bytes_for("audio"), max_bytes_for("file"))
+
+
+def upload_daily_bytes() -> int:
+    return _positive_int_env("UPLOAD_DAILY_BYTES", 100 * 1024 * 1024)
+
+
+def file_url_window() -> int:
+    """URLs stay the same inside one window and remain valid for one to two windows."""
+    return _positive_int_env("FILE_URL_WINDOW_SECONDS", 3600)
 
 
 def sanitize_filename(name: Optional[str]) -> str:
@@ -156,12 +165,41 @@ def _signature(file_id: str, user_id: str, exp: int) -> str:
     return hmac.new(_signing_key(), message, hashlib.sha256).hexdigest()
 
 
-def sign_file_url(file_id: str, user_id: str, ttl_seconds: Optional[int] = None) -> str:
-    ttl = file_url_ttl() if ttl_seconds is None else int(ttl_seconds)
-    exp = int(time.time()) + ttl
+def sign_file_url(file_id: str, user_id: str, now: Optional[float] = None) -> str:
+    window = file_url_window()
+    current = int(time.time() if now is None else now)
+    exp = (current // window + 2) * window
     sig = _signature(file_id, user_id, exp)
     uid = quote(str(user_id), safe="")
     return f"/api/files/{file_id}?uid={uid}&exp={exp}&sig={sig}"
+
+
+def parse_byte_range(header: Optional[str], size: int):
+    """Return (start, end) inclusive, None when there is no header, or 'invalid'."""
+    if not header:
+        return None
+    value = header.strip()
+    if not value.lower().startswith("bytes="):
+        return "invalid"
+    spec = value[6:].split(",", 1)[0].strip()
+    if "-" not in spec or size <= 0:
+        return "invalid"
+    start_s, end_s = spec.split("-", 1)
+    try:
+        if start_s == "":
+            count = int(end_s)
+            if count <= 0:
+                return "invalid"
+            start = max(size - count, 0)
+            end = size - 1
+        else:
+            start = int(start_s)
+            end = int(end_s) if end_s else size - 1
+    except ValueError:
+        return "invalid"
+    if start < 0 or start >= size or end < start:
+        return "invalid"
+    return start, min(end, size - 1)
 
 
 def verify_file_signature(file_id: str, user_id: str, exp, sig: str) -> bool:
@@ -200,10 +238,16 @@ class FileStore:
     async def get_meta(self, file_id: str):
         raise NotImplementedError
 
-    async def read(self, meta: dict) -> bytes:
+    async def read(self, meta: dict, start: int = 0, end: Optional[int] = None) -> bytes:
         raise NotImplementedError
 
     async def link(self, file_id: str, *, conversation_id: Optional[str] = None, kind: Optional[str] = None):
+        raise NotImplementedError
+
+    async def pull_conversation(self, file_id: str, conversation_id: str):
+        raise NotImplementedError
+
+    async def delete(self, file_id: str):
         raise NotImplementedError
 
 
@@ -249,9 +293,13 @@ class GridFSFileStore(FileStore):
             return None
         return await self.db.stored_files.find_one({"file_id": file_id}, {"_id": 0})
 
-    async def read(self, meta: dict) -> bytes:
+    async def read(self, meta: dict, start: int = 0, end: Optional[int] = None) -> bytes:
         stream = await self.bucket.open_download_stream(meta["gridfs_id"])
-        return await stream.read()
+        if start:
+            stream.seek(start)
+        if end is None:
+            return await stream.read()
+        return await stream.read(end - start + 1)
 
     async def link(self, file_id: str, *, conversation_id: Optional[str] = None, kind: Optional[str] = None):
         update = {}
@@ -261,6 +309,19 @@ class GridFSFileStore(FileStore):
             update["$set"] = {"kind": kind}
         if update:
             await self.db.stored_files.update_one({"file_id": file_id}, update)
+
+    async def pull_conversation(self, file_id: str, conversation_id: str):
+        await self.db.stored_files.update_one(
+            {"file_id": file_id},
+            {"$pull": {"conversation_ids": conversation_id}},
+        )
+
+    async def delete(self, file_id: str):
+        meta = await self.get_meta(file_id)
+        if not meta:
+            return
+        await self.bucket.delete(meta["gridfs_id"])
+        await self.db.stored_files.delete_one({"file_id": file_id})
 
 
 class ObjectFileStore(FileStore):
@@ -279,10 +340,16 @@ class ObjectFileStore(FileStore):
     async def get_meta(self, file_id: str):
         self._refuse()
 
-    async def read(self, meta: dict) -> bytes:
+    async def read(self, meta: dict, start: int = 0, end: Optional[int] = None) -> bytes:
         self._refuse()
 
     async def link(self, file_id: str, *, conversation_id: Optional[str] = None, kind: Optional[str] = None):
+        self._refuse()
+
+    async def pull_conversation(self, file_id: str, conversation_id: str):
+        self._refuse()
+
+    async def delete(self, file_id: str):
         self._refuse()
 
 

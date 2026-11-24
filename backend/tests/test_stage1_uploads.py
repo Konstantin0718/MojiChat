@@ -145,14 +145,24 @@ def test_participant_signed_url_and_disposition(client):
     assert fetched.headers["content-type"].startswith("image/png")
     assert fetched.headers["x-content-type-options"] == "nosniff"
     assert fetched.headers["content-disposition"].startswith("inline;")
+    assert fetched.headers["cache-control"] == "private, max-age=3600"
+    assert fetched.headers["accept-ranges"] == "bytes"
 
     hidden = client.get(f"/api/files/{file_id}", headers=_auth(stranger))
     assert hidden.status_code == 404
     stranger_url = file_storage.sign_file_url(file_id, stranger["user_id"])
     assert client.get(stranger_url).status_code == 404
 
-    expired = file_storage.sign_file_url(file_id, friend["user_id"], ttl_seconds=-30)
+    expired = file_storage.sign_file_url(file_id, friend["user_id"], now=0)
     assert client.get(expired).status_code == 401
+
+    partial = client.get(friend_url, headers={"Range": "bytes=0-3"})
+    assert partial.status_code == 206
+    assert partial.content == PNG[:4]
+    assert partial.headers["content-range"] == f"bytes 0-3/{len(PNG)}"
+    assert partial.headers["accept-ranges"] == "bytes"
+    missing_range = client.get(friend_url, headers={"Range": "bytes=1000-1001"})
+    assert missing_range.status_code == 416
 
     missing = client.get("/api/files/voice_deadbeef.webm", headers=_auth(owner))
     assert missing.status_code == 404
@@ -204,6 +214,142 @@ def test_voice_upload_uses_detected_audio(client):
     assert fetched.status_code == 200
     assert fetched.headers["content-type"].startswith("audio/wav")
     assert fetched.headers["content-disposition"].startswith("inline;")
+
+
+def test_signed_url_is_stable_within_the_window(monkeypatch):
+    monkeypatch.setenv("FILE_URL_WINDOW_SECONDS", "3600")
+    base = 1_700_000_100
+    file_id = "ab" * 16
+    first = file_storage.sign_file_url(file_id, "user_a", now=base)
+    second = file_storage.sign_file_url(file_id, "user_a", now=base + 10)
+    assert first == second
+    assert "exp=" in first
+    later = file_storage.sign_file_url(file_id, "user_a", now=base + 3600)
+    assert later != first
+
+
+def test_status_cannot_widen_access(client):
+    owner = _register(client, "Owner")
+    friend = _register(client, "Friend")
+    contact = _register(client, "Contact")
+    owner_friend = _conversation(client, owner, friend)
+    _conversation(client, owner, contact)
+    uploaded = client.post(
+        "/api/upload",
+        headers=_auth(owner),
+        files={"file": ("a.png", PNG, "image/png")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    file_id = uploaded.json()["file_id"]
+    sent = client.post(
+        f"/api/conversations/{owner_friend}/messages",
+        headers=_auth(owner),
+        json={"content": "", "message_type": "image", "file_url": uploaded.json()["file_url"]},
+    )
+    assert sent.status_code == 200, sent.text
+    assert client.get(f"/api/files/{file_id}", headers=_auth(contact)).status_code == 404
+    stolen = client.post(
+        "/api/statuses",
+        headers=_auth(friend),
+        json={"content_type": "image", "file_url": uploaded.json()["file_url"]},
+    )
+    assert stolen.status_code == 404
+    assert client.get(f"/api/files/{file_id}", headers=_auth(contact)).status_code == 404
+
+    avatar = client.put(
+        "/api/users/profile",
+        headers=_auth(owner),
+        files={"file": ("me.png", PNG, "image/png")},
+    )
+    assert avatar.status_code == 200, avatar.text
+    avatar_id = avatar.json()["picture"].split("?", 1)[0].rsplit("/", 1)[-1]
+    outsider = _register(client, "Outsider")
+    assert client.get(f"/api/files/{avatar_id}", headers=_auth(outsider)).status_code == 200
+    rejected = client.post(
+        "/api/statuses",
+        headers=_auth(owner),
+        json={"content_type": "image", "file_url": f"/api/files/{avatar_id}"},
+    )
+    assert rejected.status_code == 404
+    assert client.get(f"/api/files/{avatar_id}", headers=_auth(outsider)).status_code == 200
+
+    published = client.post(
+        "/api/statuses",
+        headers=_auth(owner),
+        json={"content_type": "image", "file_url": f"/api/files/{file_id}"},
+    )
+    assert published.status_code == 200, published.text
+    assert client.get(f"/api/files/{file_id}", headers=_auth(contact)).status_code == 200
+
+
+def test_upload_read_stops_at_the_ceiling(monkeypatch):
+    monkeypatch.setenv("UPLOAD_MAX_IMAGE_BYTES", "8")
+    monkeypatch.setenv("UPLOAD_MAX_MEDIA_BYTES", "8")
+    monkeypatch.setenv("UPLOAD_MAX_FILE_BYTES", "8")
+
+    class FakeUpload:
+        def __init__(self):
+            self.seen = None
+
+        async def read(self, n=-1):
+            self.seen = n
+            return b"x" * n
+
+    fake = FakeUpload()
+    with pytest.raises(server.HTTPException) as raised:
+        _LOOP.run_until_complete(server._read_limited_upload(fake))
+    assert raised.value.status_code == 413
+    assert fake.seen == 9
+
+
+def test_voice_base64_is_capped_before_decode(client, monkeypatch):
+    monkeypatch.setenv("UPLOAD_MAX_MEDIA_BYTES", "8")
+    user = _register(client)
+    response = client.post(
+        "/api/voice/upload",
+        headers=_auth(user),
+        json={"audio_data": "A" * 80, "duration": 1},
+    )
+    assert response.status_code == 413
+
+
+def test_daily_upload_quota_returns_429(client, monkeypatch):
+    monkeypatch.setenv("UPLOAD_DAILY_BYTES", "10")
+    user = _register(client)
+    response = client.post(
+        "/api/upload",
+        headers=_auth(user),
+        files={"file": ("a.png", PNG, "image/png")},
+    )
+    assert response.status_code == 429
+    assert int(response.headers["Retry-After"]) >= 1
+
+
+def test_deleting_a_message_removes_the_file_when_nothing_else_uses_it(client):
+    owner = _register(client)
+    friend = _register(client)
+    conversation_id = _conversation(client, owner, friend)
+    uploaded = client.post(
+        "/api/upload",
+        headers=_auth(owner),
+        files={"file": ("a.png", PNG, "image/png")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    file_id = uploaded.json()["file_id"]
+    sent = client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=_auth(owner),
+        json={"content": "", "message_type": "image", "file_url": uploaded.json()["file_url"]},
+    )
+    assert sent.status_code == 200, sent.text
+    assert client.get(f"/api/files/{file_id}", headers=_auth(friend)).status_code == 200
+    deleted = client.delete(
+        f"/api/messages/{sent.json()['message_id']}",
+        headers=_auth(owner),
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert client.get(f"/api/files/{file_id}", headers=_auth(friend)).status_code == 404
+    assert client.get(f"/api/files/{file_id}", headers=_auth(owner)).status_code == 404
 
 
 def test_empty_text_message_is_rejected(client):

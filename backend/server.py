@@ -36,10 +36,14 @@ from file_storage import (  # noqa: E402
     build_file_store,
     content_disposition,
     detect_upload,
+    file_url_window,
     max_bytes_for,
+    parse_byte_range,
     parse_file_id,
     present_file_url,
     sanitize_filename,
+    upload_byte_ceiling,
+    upload_daily_bytes,
     verify_file_signature,
 )
 file_store = build_file_store(db)
@@ -2077,8 +2081,9 @@ async def update_profile(request: Request, file: UploadFile = File(None), name: 
         update_data["name"] = name.strip()
 
     if file:
-        content = await file.read()
+        content = await _read_limited_upload(file)
         content_type, media_class = _checked_upload(content, images_only=True)
+        await _enforce_upload_quota(current_user["user_id"], len(content))
         stored = await file_store.save(
             data=content,
             content_type=content_type,
@@ -2181,9 +2186,37 @@ async def get_user(user_id: str, request: Request):
 
 # ==================== FILE UPLOAD ====================
 
+async def _read_limited_upload(file: UploadFile) -> bytes:
+    ceiling = upload_byte_ceiling()
+    content = await file.read(ceiling + 1)
+    if len(content) > ceiling:
+        raise HTTPException(status_code=413, detail="File is too large")
+    return content
+
+
+def _voice_body_limit() -> int:
+    decoded = max_bytes_for("audio")
+    encoded = 4 * ((decoded + 2) // 3)
+    return encoded + 2048
+
+
+async def _enforce_upload_quota(user_id: str, extra_bytes: int):
+    since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    rows = await db.stored_files.aggregate([
+        {"$match": {"uploader_id": user_id, "created_at": {"$gte": since}}},
+        {"$group": {"_id": None, "total": {"$sum": "$size"}}},
+    ]).to_list(1)
+    used = int(rows[0]["total"]) if rows else 0
+    if used + extra_bytes > upload_daily_bytes():
+        raise HTTPException(
+            status_code=429,
+            detail="Upload quota exceeded",
+            headers={"Retry-After": "86400"},
+        )
+
+
 def _checked_upload(content: bytes, *, images_only: bool = False, voice: bool = False):
-    ceiling = max(max_bytes_for("image"), max_bytes_for("audio"), max_bytes_for("file"))
-    if content and len(content) > ceiling:
+    if content and len(content) > upload_byte_ceiling():
         raise HTTPException(status_code=413, detail="File is too large")
     detected = detect_upload(content)
     if not detected:
@@ -2225,7 +2258,36 @@ async def attach_owned_file(file_id: str, user: dict, *, conversation_id: str = 
     meta = await file_store.get_meta(file_id)
     if not meta or not await user_can_read_file(user, meta):
         raise HTTPException(status_code=404, detail="File not found")
+    if kind is not None:
+        if meta.get("kind") == "avatar" or meta.get("uploader_id") != user.get("user_id"):
+            raise HTTPException(status_code=404, detail="File not found")
     await file_store.link(file_id, conversation_id=conversation_id, kind=kind)
+
+
+async def release_message_file(message: dict):
+    """Drop this conversation's claim. Delete the bytes when nothing else uses the file."""
+    file_id = parse_file_id(message.get("file_url"))
+    conversation_id = message.get("conversation_id")
+    if not file_id or not conversation_id:
+        return
+    canonical = f"/api/files/{file_id}"
+    others = await db.messages.count_documents({
+        "file_url": canonical,
+        "conversation_id": conversation_id,
+        "message_id": {"$ne": message.get("message_id")},
+        "deleted": {"$ne": True},
+    })
+    if others:
+        return
+    await file_store.pull_conversation(file_id, conversation_id)
+    meta = await file_store.get_meta(file_id)
+    if not meta or meta.get("conversation_ids") or meta.get("kind") in ("avatar", "status"):
+        return
+    if await db.users.find_one({"picture": canonical}, {"_id": 1}):
+        return
+    if await db.statuses.find_one({"content_url": canonical}, {"_id": 1}):
+        return
+    await file_store.delete(file_id)
 
 
 def _canonical_file_url(url: Optional[str]) -> Optional[str]:
@@ -2239,8 +2301,9 @@ def _canonical_file_url(url: Optional[str]) -> Optional[str]:
 async def upload_file(request: Request, file: UploadFile = File(...)):
     """Upload a file (image, video, audio, document)"""
     current_user = await get_current_user(request)
-    content = await file.read()
+    content = await _read_limited_upload(file)
     content_type, media_class = _checked_upload(content)
+    await _enforce_upload_quota(current_user["user_id"], len(content))
     stored = await file_store.save(
         data=content,
         content_type=content_type,
@@ -2281,16 +2344,24 @@ async def get_file(
     meta = await file_store.get_meta(file_id)
     if not meta or not await user_can_read_file(current_user, meta):
         raise HTTPException(status_code=404, detail="File not found")
-    data = await file_store.read(meta)
-    return Response(
-        content=data,
-        media_type=meta["content_type"],
-        headers={
-            "X-Content-Type-Options": "nosniff",
-            "Content-Disposition": content_disposition(meta["media_class"], meta.get("original_name")),
-            "Cache-Control": "private, max-age=60",
-        },
-    )
+    size = int(meta.get("size") or 0)
+    headers = {
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": content_disposition(meta["media_class"], meta.get("original_name")),
+        "Cache-Control": f"private, max-age={file_url_window()}",
+        "Accept-Ranges": "bytes",
+    }
+    byte_range = parse_byte_range(request.headers.get("range"), size)
+    if byte_range == "invalid":
+        headers["Content-Range"] = f"bytes */{size}"
+        return Response(status_code=416, headers=headers)
+    if byte_range is None:
+        data = await file_store.read(meta)
+        return Response(content=data, media_type=meta["content_type"], headers=headers)
+    start, end = byte_range
+    data = await file_store.read(meta, start, end)
+    headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    return Response(content=data, status_code=206, media_type=meta["content_type"], headers=headers)
 
 # ==================== VOICE MESSAGE ====================
 
@@ -2298,21 +2369,40 @@ async def get_file(
 async def upload_voice(request: Request):
     """Upload voice message as base64"""
     current_user = await get_current_user(request)
-    body = await request.json()
-    
+    body_limit = _voice_body_limit()
+    declared = request.headers.get("content-length")
+    if declared:
+        try:
+            if int(declared) > body_limit:
+                raise HTTPException(status_code=413, detail="File is too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid audio data")
+    raw = await request.body()
+    if len(raw) > body_limit:
+        raise HTTPException(status_code=413, detail="File is too large")
+    try:
+        body = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid audio data")
+
     audio_data = body.get("audio_data")  # base64 encoded
     duration = body.get("duration", 0)
-    
-    if not audio_data:
+
+    if not isinstance(audio_data, str) or not audio_data:
         raise HTTPException(status_code=400, detail="No audio data provided")
-    
-    # Decode base64
+
+    payload = audio_data.split(",", 1)[1] if "," in audio_data[:128] else audio_data
+    decoded_cap = max_bytes_for("audio")
+    if len(payload) > 4 * ((decoded_cap + 2) // 3):
+        raise HTTPException(status_code=413, detail="File is too large")
+
     try:
-        audio_bytes = base64.b64decode(audio_data.split(",")[1] if "," in audio_data else audio_data)
+        audio_bytes = base64.b64decode(payload, validate=False)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid audio data")
 
     content_type, media_class = _checked_upload(audio_bytes, voice=True)
+    await _enforce_upload_quota(current_user["user_id"], len(audio_bytes))
     stored = await file_store.save(
         data=audio_bytes,
         content_type=content_type,
@@ -2338,6 +2428,8 @@ async def delete_message(message_id: str, request: Request):
 
     if message["sender_id"] != current_user["user_id"]:
         raise HTTPException(status_code=403, detail="You can only delete your own messages")
+
+    await release_message_file(message)
 
     # Soft-delete: replace content with deleted marker so other clients can update UI
     await db.messages.update_one(
@@ -3322,6 +3414,19 @@ async def create_db_indexes():
         logger.warning("email normalize skipped: %s", type(exc).__name__)
 
     await _safe_index("stored_files.file_id", db.stored_files.create_index("file_id", unique=True, background=True))
+    await _safe_index(
+        "stored_files.uploader_created",
+        db.stored_files.create_index([("uploader_id", 1), ("created_at", 1)], background=True),
+    )
+    try:
+        rows = await db.stored_files.aggregate([
+            {"$group": {"_id": None, "total": {"$sum": "$size"}, "count": {"$sum": 1}}},
+        ]).to_list(1)
+        total = int(rows[0]["total"]) if rows else 0
+        count = int(rows[0]["count"]) if rows else 0
+        logger.info("stored uploads count=%s bytes=%s", count, total)
+    except Exception as exc:
+        logger.warning("stored upload size log skipped: %s", type(exc).__name__)
     await _safe_index("users.user_id", db.users.create_index("user_id", unique=True, background=True))
     await _safe_index("users.email", db.users.create_index("email", unique=True, background=True))
     await _safe_index("users.phone_number", db.users.create_index("phone_number", sparse=True, background=True))

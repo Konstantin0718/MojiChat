@@ -34,7 +34,8 @@ Set these on the service that needs them. Do not commit secret values.
 | `UPLOAD_MAX_IMAGE_BYTES` | no | Image cap. Default 10 MB |
 | `UPLOAD_MAX_MEDIA_BYTES` | no | Audio and video cap. Default 25 MB |
 | `UPLOAD_MAX_FILE_BYTES` | no | Other allowed files. Default 15 MB |
-| `FILE_URL_TTL_SECONDS` | no | Signed media URL lifetime. Default 600 |
+| `FILE_URL_WINDOW_SECONDS` | no | Signed media URLs stay the same inside this window and remain valid for one to two windows. Default `3600` |
+| `UPLOAD_DAILY_BYTES` | no | Per-user upload quota for the last 24 hours. Default 100 MB. Over the quota returns 429 |
 | `EXPOSE_RESET_TOKEN` | no | Leave unset. Dev-only token echo |
 | `PHONE_AUTH_ENABLED` | no | Set to `true` to turn on `/auth/phone/*`. Off by default, and those routes then return 404. The SMS code is never returned or logged |
 | `CORS_ALLOW_DEV_ORIGINS` | no | Set to `true` to also allow `http://localhost:3000` and `http://127.0.0.1:3000` |
