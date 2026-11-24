@@ -1104,7 +1104,9 @@ export const ChatLayout = () => {
                     </Avatar>
                     <div>
                       <p className="font-medium">{u.name}</p>
-                      <p className="text-xs text-muted-foreground">{u.email}</p>
+                      {u.username ? (
+                        <p className="text-xs text-muted-foreground">@{u.username}</p>
+                      ) : null}
                     </div>
                     {u.is_online && (
                       <div className="ml-auto w-2 h-2 rounded-full bg-green-500" />

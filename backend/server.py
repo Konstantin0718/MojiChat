@@ -3078,34 +3078,37 @@ async def _safe_index(label: str, awaitable):
         logger.warning("index %s not created: %s", label, type(exc).__name__)
 
 
-def _sync_db():
-    from pymongo import MongoClient
-    return MongoClient(mongo_url)[db.name]
-
-
 def dedupe_push_subscriptions() -> int:
     """Keep the newest push row per user. The app stores one token per user."""
     removed = 0
-    sync = _sync_db()
-    pipeline = [
-        {"$group": {"_id": "$user_id", "count": {"$sum": 1}}},
-        {"$match": {"count": {"$gt": 1}, "_id": {"$ne": None}}},
-    ]
-    for group in sync.push_subscriptions.aggregate(pipeline):
-        docs = list(
-            sync.push_subscriptions.find({"user_id": group["_id"]}).sort("created_at", -1).limit(100)
-        )
-        extras = [doc["_id"] for doc in docs[1:]]
-        if extras:
-            result = sync.push_subscriptions.delete_many({"_id": {"$in": extras}})
-            removed += result.deleted_count
+    from pymongo import MongoClient
+    with MongoClient(mongo_url) as client:
+        sync = client[db.name]
+        pipeline = [
+            {"$group": {"_id": "$user_id", "count": {"$sum": 1}}},
+            {"$match": {"count": {"$gt": 1}, "_id": {"$ne": None}}},
+        ]
+        for group in sync.push_subscriptions.aggregate(pipeline):
+            docs = list(
+                sync.push_subscriptions.find({"user_id": group["_id"]}).sort("created_at", -1).limit(100)
+            )
+            extras = [doc["_id"] for doc in docs[1:]]
+            if extras:
+                result = sync.push_subscriptions.delete_many({"_id": {"$in": extras}})
+                removed += result.deleted_count
     return removed
 
 
 def normalize_stored_emails() -> dict:
     """Lowercase stored emails. Colliding accounts are reported and left unchanged."""
     grouped = {}
-    sync = _sync_db()
+    from pymongo import MongoClient
+    with MongoClient(mongo_url) as client:
+        sync = client[db.name]
+        return _normalize_stored_emails(sync, grouped)
+
+
+def _normalize_stored_emails(sync, grouped) -> dict:
     for user in sync.users.find({"email": {"$type": "string"}}, {"user_id": 1, "email": 1}):
         key = normalize_email(user.get("email") or "")
         if not key:
