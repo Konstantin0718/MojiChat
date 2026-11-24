@@ -117,8 +117,30 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    let endpoint = null;
     try {
-      await api.post('/auth/logout');
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.getRegistration();
+        const subscription = registration ? await registration.pushManager.getSubscription() : null;
+        if (subscription) {
+          endpoint = subscription.endpoint;
+          try {
+            await api.delete('/notifications/unsubscribe', { data: { endpoint } });
+          } catch (e) {
+            // Logout still removes the endpoint below.
+          }
+          try {
+            await subscription.unsubscribe();
+          } catch (e) {
+            // The browser subscription can already be gone.
+          }
+        }
+      }
+    } catch (e) {
+      // A missing service worker must not block logout.
+    }
+    try {
+      await api.post('/auth/logout', endpoint ? { endpoint } : {});
     } catch (e) {
       // Ignore logout errors
     }

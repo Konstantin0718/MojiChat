@@ -84,7 +84,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = async () => {
-    await api.logoutApi();
+    const endpoints = notificationService.currentEndpoints();
+    notificationService.clearLocalTokens();
+    await api.logoutApi(endpoints);
     setUser(null);
     await notificationService.clearAllNotifications();
   };

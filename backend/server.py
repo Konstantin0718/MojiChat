@@ -927,6 +927,8 @@ async def logout(request: Request):
             {"$set": {"is_online": False, "last_seen": datetime.now(timezone.utc).isoformat()}}
         )
         await db.user_sessions.delete_many({"user_id": user["user_id"]})
+        # This device only. Other devices stay until logout-all.
+        await delete_push_endpoints(user["user_id"], await push_endpoints_from_request(request))
     except Exception:
         pass
     return {"message": "Logged out"}
@@ -941,6 +943,7 @@ async def logout_all(request: Request):
         {"$inc": {"token_version": 1}},
     )
     await db.user_sessions.delete_many({"user_id": user["user_id"]})
+    await db.push_subscriptions.delete_many({"user_id": user["user_id"]})
     return {"message": "All sessions revoked"}
 
 # ==================== PASSWORD RESET ====================
@@ -1890,9 +1893,8 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     # Broadcast new message via WebSocket
     await ws_manager.send_new_message(conversation_id, response_data, current_user["user_id"])
 
-    # One push path. Origin c389de4 sent via db.fcm_tokens, but nothing writes that
-    # collection: clients store Expo/FCM tokens in push_subscriptions. Delivery still
-    # uses the existing FCM Admin SDK or Expo Push API inside _deliver_push_to_token.
+    # One push path. Clients store one row per device endpoint in push_subscriptions.
+    # Delivery uses the FCM Admin SDK or Expo Push API inside _deliver_push_to_token.
     await notify_participants_new_message_push(
         conv,
         current_user["user_id"],
@@ -3015,12 +3017,12 @@ async def _deliver_push_to_token(
                     ),
                 ),
             )
-            response = fcm_messaging.send(fcm_message)
-            logger.info(f"FCM push sent: {response}")
-            return {"success": True, "message": "FCM push notification sent!", "details": {"message_id": str(response)}}
+            fcm_messaging.send(fcm_message)
+            logger.info("FCM push sent")
+            return {"success": True, "message": "FCM push notification sent!"}
         except Exception as e:
-            logger.error(f"FCM push error: {e}")
-            return {"success": False, "message": str(e)}
+            logger.error("FCM push error: %s", type(e).__name__)
+            return {"success": False, "message": "FCM push failed"}
 
     EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
     message = {
@@ -3034,7 +3036,7 @@ async def _deliver_push_to_token(
     if data:
         message["data"] = data
 
-    logger.info(f"Sending push notification to: {token[:30]}...")
+    logger.info("Sending push notification")
 
     try:
         async with httpx.AsyncClient() as client:
@@ -3048,7 +3050,7 @@ async def _deliver_push_to_token(
                 },
             )
             result = response.json()
-            logger.info(f"Expo Push API response: {result}")
+            logger.info("Expo push request finished status=%s", response.status_code)
 
             if response.status_code == 200 and "data" in result:
                 ticket = result["data"]
@@ -3068,8 +3070,8 @@ async def _deliver_push_to_token(
                 return {"success": True, "message": "Request sent", "details": result}
             return {"success": False, "message": f"HTTP {response.status_code}", "details": result}
     except Exception as e:
-        logger.error(f"Push notification error: {e}")
-        return {"success": False, "message": str(e)}
+        logger.error("Push notification error: %s", type(e).__name__)
+        return {"success": False, "message": "Push notification failed"}
 
 
 async def notify_participants_new_message_push(
@@ -3096,45 +3098,123 @@ async def notify_participants_new_message_push(
 
     async def one(uid: str):
         try:
-            sub = await db.push_subscriptions.find_one({"user_id": uid}, {"_id": 0})
-            if not sub:
-                return
-            tok = sub.get("endpoint")
-            if not tok:
-                return
-            res = await _deliver_push_to_token(
-                tok, title, preview, payload, android_channel_id="messages"
-            )
-            if not res.get("success"):
-                logger.warning(f"new_message push for user {uid}: {res.get('message')}")
+            subs = await db.push_subscriptions.find(
+                {"user_id": uid},
+                {"_id": 0, "endpoint": 1, "device_id": 1},
+            ).to_list(50)
+            for tok in choose_push_endpoints(subs):
+                res = await _deliver_push_to_token(
+                    tok, title, preview, payload, android_channel_id="messages"
+                )
+                if not res.get("success"):
+                    logger.warning("new_message push failed for user %s", uid)
         except Exception as e:
-            logger.warning(f"new_message push error for user {uid}: {e}")
+            logger.warning("new_message push error for user %s: %s", uid, type(e).__name__)
 
     await asyncio.gather(*[one(uid) for uid in targets], return_exceptions=True)
+
+
+def choose_push_endpoints(subs: list) -> list:
+    """One token per device. A phone may store both an Expo token and a native token."""
+    groups = {}
+    order = []
+    for sub in subs:
+        endpoint = sub.get("endpoint") if isinstance(sub, dict) else None
+        if not isinstance(endpoint, str) or not endpoint:
+            continue
+        device = sub.get("device_id")
+        if not isinstance(device, str) or not device.strip():
+            device = endpoint
+        else:
+            device = device.strip()
+        if device not in groups:
+            groups[device] = []
+            order.append(device)
+        groups[device].append(endpoint)
+    chosen = []
+    for device in order:
+        tokens = groups[device]
+        expo = next((tok for tok in tokens if tok.startswith("ExponentPushToken")), None)
+        chosen.append(expo or tokens[0])
+    return chosen
+
+
+def push_endpoints_from_body(body) -> list:
+    if not isinstance(body, dict):
+        return []
+    found = []
+    endpoint = body.get("endpoint")
+    if isinstance(endpoint, str) and endpoint.strip():
+        found.append(endpoint.strip())
+    endpoints = body.get("endpoints")
+    if isinstance(endpoints, list):
+        for item in endpoints:
+            if isinstance(item, str) and item.strip() and item.strip() not in found:
+                found.append(item.strip())
+    return found
+
+
+async def push_endpoints_from_request(request: Request) -> list:
+    try:
+        body = await request.json()
+    except Exception:
+        return []
+    return push_endpoints_from_body(body)
+
+
+async def delete_push_endpoints(user_id: str, endpoints: list) -> None:
+    if not endpoints:
+        return
+    await db.push_subscriptions.delete_many({
+        "user_id": user_id,
+        "endpoint": {"$in": endpoints},
+    })
+
+
+async def upsert_push_subscription(user_id: str, endpoint: str, keys: dict, token_type: str, device_id: Optional[str]) -> None:
+    endpoint = (endpoint or "").strip()
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="endpoint is required")
+    device = (device_id or "").strip() or endpoint
+    now = datetime.now(timezone.utc).isoformat()
+    await db.push_subscriptions.update_one(
+        {"endpoint": endpoint},
+        {
+            "$set": {
+                "user_id": user_id,
+                "endpoint": endpoint,
+                "keys": keys,
+                "token_type": token_type,
+                "device_id": device,
+                "updated_at": now,
+            },
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
+    )
 
 
 class PushSubscription(BaseModel):
     endpoint: str
     keys: dict
+    device_id: Optional[str] = None
 
 @api_router.post("/notifications/subscribe")
 async def subscribe_push(subscription: PushSubscription, request: Request):
-    """Subscribe to push notifications"""
+    """Store one push endpoint. A second device does not replace the first."""
     current_user = await get_current_user(request)
-    
-    # One row per user_id (unique index). Always replace token on re-login / new device.
-    await db.push_subscriptions.update_one(
-        {"user_id": current_user["user_id"]},
-        {"$set": {
-            "user_id": current_user["user_id"],
-            "endpoint": subscription.endpoint,
-            "keys": subscription.keys,
-            "token_type": "expo",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }},
-        upsert=True
+    token_type = "web"
+    if subscription.keys.get("expo"):
+        token_type = "expo"
+    elif subscription.keys.get("fcm"):
+        token_type = "fcm"
+    await upsert_push_subscription(
+        current_user["user_id"],
+        subscription.endpoint,
+        subscription.keys,
+        token_type,
+        subscription.device_id,
     )
-    
     return {"status": "subscribed", "firebase_enabled": firebase_app is not None}
 
 @api_router.post("/notifications/subscribe-fcm")
@@ -3143,46 +3223,26 @@ async def subscribe_fcm(request: Request):
     current_user = await get_current_user(request)
     body = await request.json()
     fcm_token = body.get("fcm_token")
-    
-    if not fcm_token:
+    if not isinstance(fcm_token, str) or not fcm_token.strip():
         raise HTTPException(status_code=400, detail="fcm_token is required")
-    
-    await db.push_subscriptions.update_one(
-        {"user_id": current_user["user_id"]},
-        {"$set": {
-            "user_id": current_user["user_id"],
-            "endpoint": fcm_token,
-            "token_type": "fcm",
-            "keys": {"fcm": True},
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }},
-        upsert=True
+    device_id = body.get("device_id") if isinstance(body.get("device_id"), str) else None
+    await upsert_push_subscription(
+        current_user["user_id"],
+        fcm_token.strip(),
+        {"fcm": True},
+        "fcm",
+        device_id,
     )
-    
     return {"status": "subscribed", "token_type": "fcm"}
 
 @api_router.delete("/notifications/unsubscribe")
 async def unsubscribe_push(request: Request):
-    """Unsubscribe from push notifications"""
+    """Remove this device's push endpoints. Other devices stay registered."""
     current_user = await get_current_user(request)
-    
-    try:
-        body = await request.json()
-        endpoint = body.get("endpoint")
-    except:
-        endpoint = None
-    
-    if endpoint:
-        await db.push_subscriptions.delete_one({
-            "user_id": current_user["user_id"],
-            "endpoint": endpoint
-        })
-    else:
-        # Delete all subscriptions for user
-        await db.push_subscriptions.delete_many({
-            "user_id": current_user["user_id"]
-        })
-    
+    endpoints = await push_endpoints_from_request(request)
+    if not endpoints:
+        raise HTTPException(status_code=400, detail="endpoint is required")
+    await delete_push_endpoints(current_user["user_id"], endpoints)
     return {"status": "unsubscribed"}
 
 @api_router.get("/notifications")
@@ -3354,19 +3414,35 @@ def backfill_token_versions() -> int:
         return result.modified_count
 
 
+def _drop_unique_user_push_index(sync) -> None:
+    """The old unique user_id index rejects a second device. Drop only that unique index."""
+    try:
+        info = sync.push_subscriptions.index_information()
+    except Exception as exc:
+        logger.warning("push index lookup skipped: %s", type(exc).__name__)
+        return
+    for name, spec in info.items():
+        if spec.get("unique") and list(spec.get("key") or []) == [("user_id", 1)]:
+            sync.push_subscriptions.drop_index(name)
+
+
 def dedupe_push_subscriptions() -> int:
-    """Keep the newest push row per user. The app stores one token per user."""
+    """Keep one row per endpoint. Different devices of the same user stay."""
     removed = 0
     from pymongo import MongoClient
     with MongoClient(mongo_url) as client:
         sync = client[db.name]
+        _drop_unique_user_push_index(sync)
         pipeline = [
-            {"$group": {"_id": "$user_id", "count": {"$sum": 1}}},
-            {"$match": {"count": {"$gt": 1}, "_id": {"$ne": None}}},
+            {"$match": {"endpoint": {"$type": "string"}}},
+            {"$group": {"_id": "$endpoint", "count": {"$sum": 1}}},
+            {"$match": {"count": {"$gt": 1}, "_id": {"$nin": [None, ""]}}},
         ]
         for group in sync.push_subscriptions.aggregate(pipeline):
             docs = list(
-                sync.push_subscriptions.find({"user_id": group["_id"]}).sort("created_at", -1).limit(100)
+                sync.push_subscriptions.find({"endpoint": group["_id"]}).sort(
+                    [("updated_at", -1), ("created_at", -1)]
+                )
             )
             extras = [doc["_id"] for doc in docs[1:]]
             if extras:
@@ -3478,7 +3554,16 @@ async def create_db_indexes():
     await _safe_index("notifications.created_at", db.notifications.create_index("created_at", background=True))
     await _safe_index(
         "push_subscriptions.user_id",
-        db.push_subscriptions.create_index("user_id", unique=True, background=True),
+        db.push_subscriptions.create_index("user_id", background=True),
+    )
+    await _safe_index(
+        "push_subscriptions.endpoint",
+        db.push_subscriptions.create_index(
+            "endpoint",
+            unique=True,
+            partialFilterExpression={"endpoint": {"$type": "string"}},
+            background=True,
+        ),
     )
     await _safe_index(
         "user_sessions.session_token",
