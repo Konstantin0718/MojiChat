@@ -711,6 +711,18 @@ export const ChatLayout = () => {
     navigate('/');
   };
 
+  const handleLogoutAll = async () => {
+    if (!window.confirm('Log out of all devices? You will need to sign in again on each one.')) return;
+    try {
+      await api.post('/auth/logout-all');
+    } catch (error) {
+      toast.error('Could not log out of all devices');
+      return;
+    }
+    await logout();
+    navigate('/');
+  };
+
   // Seen receipt tick for own messages
   const renderSeenTick = (msg) => {
     if (msg.sender_id !== user?.user_id) return null;
@@ -1324,6 +1336,15 @@ export const ChatLayout = () => {
 
       {/* Footer */}
       <div className="p-3 border-t border-border">
+        <Button
+          variant="ghost"
+          className="w-full justify-start gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+          onClick={handleLogoutAll}
+          data-testid="logout-all-btn"
+        >
+          <LogOut className="w-4 h-4" />
+          Log out of all devices
+        </Button>
         <Button
           variant="ghost"
           className="w-full justify-start gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"

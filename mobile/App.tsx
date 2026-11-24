@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationContainer, DefaultTheme, DarkTheme, getStateFromPath } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, DarkTheme, createNavigationContainerRef, getStateFromPath } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -34,6 +34,31 @@ const releasePrefixes = [
   'https://moji-chat-gamma.vercel.app',
 ];
 
+const navigationRef = createNavigationContainerRef();
+let pendingChatId: string | null = null;
+let handledNotificationId: string | null = null;
+
+function conversationIdFromNotification(response: any) {
+  if (!response) return null;
+  const identifier = response.notification?.request?.identifier || '';
+  if (identifier && handledNotificationId === identifier) return null;
+  const conversationId = response.notification?.request?.content?.data?.conversation_id;
+  if (typeof conversationId !== 'string' || !conversationId) return null;
+  if (identifier) handledNotificationId = identifier;
+  return conversationId;
+}
+
+function openNotificationChat(conversationId: string) {
+  pendingChatId = conversationId;
+  if (!navigationRef.isReady()) return;
+  const names = navigationRef.getRootState()?.routeNames || [];
+  if (!names.includes('Chat')) return;
+  pendingChatId = null;
+  const current = navigationRef.getCurrentRoute();
+  if (current?.name === 'Chat' && (current.params as { conversationId?: string } | undefined)?.conversationId === conversationId) return;
+  (navigationRef.navigate as (name: string, params?: object) => void)('Chat', { conversationId });
+}
+
 const linking = {
   prefixes: __DEV__ ? [...releasePrefixes, 'http://localhost:3000'] : releasePrefixes,
   config: {
@@ -52,24 +77,20 @@ const RootNavigator = () => {
   const { isAuthenticated, isLoading, offline, retryAuth } = useAuth();
   const { colors, isDark } = useTheme();
 
-  // Handle notification received while app is open
   useEffect(() => {
-    const receivedSubscription = notificationService.addNotificationReceivedListener((notification) => {
-      console.log('📬 Notification received:', notification.request.content);
-    });
-
-    return () => receivedSubscription.remove();
-  }, []);
-
-  // Handle notification responses (tapped)
-  useEffect(() => {
-    const subscription = notificationService.addNotificationResponseListener((response) => {
-      const data = response.notification.request.content.data;
-      console.log('👆 Notification tapped:', data);
-    });
-
+    const open = (response: Parameters<typeof conversationIdFromNotification>[0]) => {
+      const conversationId = conversationIdFromNotification(response);
+      if (conversationId) openNotificationChat(conversationId);
+    };
+    const subscription = notificationService.addNotificationResponseListener(open);
+    notificationService.getLastNotificationResponse().then(open).catch(() => {});
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated || isLoading || !pendingChatId) return;
+    openNotificationChat(pendingChatId);
+  }, [isAuthenticated, isLoading]);
 
   if (isLoading) {
     return (
@@ -115,7 +136,14 @@ const RootNavigator = () => {
   };
 
   return (
-    <NavigationContainer theme={navTheme} linking={linking}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={navTheme}
+      linking={linking}
+      onReady={() => {
+        if (pendingChatId) openNotificationChat(pendingChatId);
+      }}
+    >
       <Stack.Navigator
         screenOptions={{
           headerShown: false,

@@ -88,3 +88,5 @@ Stage 3 PR 1 (push): абонаментът е по endpoint/устройств�
 Stage 3 PR 2 (web chat): съобщенията се опресняват при реакция, изтриване и read_by; GIF, реакции и изтриване важат и за медия; Safari записва audio/mp4; file URL се проверява преди отваряне. Push към web endpoint не се праща, а мъртъв Expo/FCM токен се трие. Няма нов APK.
 
 Stage 3 PR 3 (links): `/join/:code` се пази през login и register и се връща само към същия сайт. Android App Link за Vercel е с autoVerify. Reset линкът отваря ForgotPassword и когато потребителят е влязъл. Няма нов APK.
+
+Stage 3 PR 4 (hardening): CSP и security headers на уеб. Токенът на телефона е в SecureStore. Излишни Android permissions са махнати. Тап на известие отваря чата. Има „изход от всички устройства“. Няма нов APK.

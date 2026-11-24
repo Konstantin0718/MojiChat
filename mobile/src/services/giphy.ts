@@ -1,6 +1,6 @@
 import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../config';
+import { getAuthToken } from './tokenStore';
 
 export interface GiphyGif {
   id: string;
@@ -22,7 +22,7 @@ export interface GiphySearchResult {
 
 class GiphyService {
   private async getAuthHeader(): Promise<{ Authorization: string } | {}> {
-    const token = await AsyncStorage.getItem('auth_token');
+    const token = await getAuthToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
 

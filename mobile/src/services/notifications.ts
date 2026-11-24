@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { api } from './api';
+import { getAuthToken } from './tokenStore';
 
 const PUSH_DEVICE_KEY = 'push_device_id';
 
@@ -63,7 +64,7 @@ class NotificationService {
   }
 
   private async onNativeTokenRotated(native: string) {
-    const auth = await AsyncStorage.getItem('auth_token');
+    const auth = await getAuthToken();
     if (!auth) return;
     const deviceId = this.deviceId || await pushDeviceId();
     this.deviceId = deviceId;
@@ -214,6 +215,10 @@ class NotificationService {
     return Notifications.addNotificationResponseReceivedListener((response) => {
       callback(response);
     });
+  }
+
+  getLastNotificationResponse() {
+    return Notifications.getLastNotificationResponseAsync();
   }
 
   // Schedule local notification (for testing)
