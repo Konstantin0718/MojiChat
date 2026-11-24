@@ -1,7 +1,6 @@
 from fastapi import FastAPI, APIRouter, BackgroundTasks, HTTPException, Depends, Request, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -34,12 +33,19 @@ if not mongo_url:
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ.get('DB_NAME', 'mojichat_db')]
 
-JWT_SECRET = os.environ.get('JWT_SECRET', 'default_secret')
+def _require_jwt_secret() -> str:
+    """Refuse to boot with a missing or guessable signing key."""
+    secret = (os.environ.get("JWT_SECRET") or "").strip()
+    if not secret or secret == "default_secret" or len(secret) < 32:
+        raise RuntimeError(
+            "JWT_SECRET must be set to a unique value of at least 32 characters"
+        )
+    return secret
+
+
+JWT_SECRET = _require_jwt_secret()
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
-
-if JWT_SECRET == "default_secret":
-    logging.warning("JWT_SECRET is using default_secret. Set JWT_SECRET in production for security.")
 
 app = FastAPI(title="MojiChat API")
 
@@ -1030,13 +1036,7 @@ async def send_verification_email(data: EmailVerificationRequest):
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     
-    # In production, send email here
-    logger.info(f"Email verification token for {data.email}: {verification_token}")
-    
-    return {
-        "message": "Verification email sent",
-        "verification_token": verification_token  # Remove in production
-    }
+    return {"message": "Verification email sent"}
 
 @api_router.get("/auth/verify-email/{token}")
 async def verify_email(token: str):
@@ -1064,9 +1064,19 @@ async def verify_email(token: str):
 
 # ==================== PHONE AUTHENTICATION ====================
 
+def _phone_auth_enabled() -> bool:
+    return (os.environ.get("PHONE_AUTH_ENABLED") or "").strip().lower() in ("1", "true", "yes")
+
+
+def _require_phone_auth():
+    if not _phone_auth_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 @api_router.post("/auth/phone/send-code")
 async def send_phone_verification_code(data: PhoneVerificationRequest):
-    """Send verification code to phone number (Firebase Phone Auth)"""
+    """Send verification code to phone number. Disabled unless PHONE_AUTH_ENABLED is set."""
+    _require_phone_auth()
     # Normalize phone number
     phone = data.phone_number.strip()
     if not phone.startswith('+'):
@@ -1086,19 +1096,15 @@ async def send_phone_verification_code(data: PhoneVerificationRequest):
         "attempts": 0
     })
     
-    # In production, use Firebase Phone Auth or SMS service
-    # For now, log the code for testing
-    logger.info(f"Phone verification code for {phone}: {verification_code}")
-    
     return {
         "message": "Verification code sent",
         "phone_number": phone,
-        "verification_code": verification_code  # Remove in production - for testing only
     }
 
 @api_router.post("/auth/phone/verify")
 async def verify_phone_and_register(data: PhoneVerificationConfirm, response: Response):
     """Verify phone code and register/login user"""
+    _require_phone_auth()
     phone = data.phone_number.strip()
     if not phone.startswith('+'):
         phone = '+' + phone
@@ -2364,30 +2370,6 @@ async def root():
 async def health():
     return {"status": "healthy"}
 
-@api_router.get("/download/code")
-async def download_code():
-    """Download source code ZIP file"""
-    zip_path = UPLOADS_DIR / "mijichat_code.zip"
-    if zip_path.exists():
-        return FileResponse(
-            path=str(zip_path),
-            filename="mijichat_code.zip",
-            media_type="application/zip"
-        )
-    raise HTTPException(status_code=404, detail="File not found")
-
-@api_router.get("/download/full")
-async def download_full_code():
-    """Download FULL source code ZIP file"""
-    zip_path = UPLOADS_DIR / "mijichat_full_code.zip"
-    if zip_path.exists():
-        return FileResponse(
-            path=str(zip_path),
-            filename="mijichat_full_code.zip",
-            media_type="application/zip"
-        )
-    raise HTTPException(status_code=404, detail="File not found")
-
 # ==================== MESSAGE SEARCH ====================
 
 @api_router.get("/search/messages")
@@ -2897,52 +2879,6 @@ async def get_unread_count(request: Request):
     })
     
     return {"count": count}
-
-class SendPushRequest(BaseModel):
-    expo_token: str
-    title: str = "Test Notification"
-    body: str = "This is a test push notification from MijiChat!"
-    data: Optional[dict] = None
-
-@api_router.post("/notifications/send-push")
-async def send_push_notification(push_data: SendPushRequest, request: Request):
-    """Send push notification via Expo Push API or FCM"""
-    await get_current_user(request)
-    return await _deliver_push_to_token(
-        push_data.expo_token,
-        push_data.title,
-        push_data.body,
-        push_data.data,
-        android_channel_id="default",
-    )
-
-@api_router.post("/notifications/send-to-user/{user_id}")
-async def send_push_to_user(user_id: str, request: Request):
-    """Send push notification to a specific user (for testing)"""
-    await get_current_user(request)
-    body = await request.json()
-    
-    # Get user's push token
-    subscription = await db.push_subscriptions.find_one(
-        {"user_id": user_id},
-        {"_id": 0}
-    )
-    
-    if not subscription:
-        raise HTTPException(status_code=404, detail="User has no push subscription")
-    
-    token = subscription.get("endpoint")
-    if not token:
-        raise HTTPException(status_code=400, detail="No push token stored")
-    
-    push_request = SendPushRequest(
-        expo_token=token,
-        title=body.get("title", "New Message"),
-        body=body.get("body", "You have a new message!"),
-        data=body.get("data")
-    )
-    
-    return await send_push_notification(push_request, request)
 
 # ==================== WEBSOCKET ENDPOINT ====================
 

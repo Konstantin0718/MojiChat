@@ -12,7 +12,7 @@ Set these on the service that needs them. Do not commit secret values.
 |---|---|---|
 | `MONGO_URL` | yes | MongoDB connection string |
 | `DB_NAME` | no | Database name, default `mojichat_db` |
-| `JWT_SECRET` | yes | Signs login tokens |
+| `JWT_SECRET` | yes | Signs login tokens. The API refuses to start if this is missing, `default_secret`, or shorter than 32 characters |
 | `CORS_ORIGINS` | no | Comma-separated web origins, or `*` |
 | `FRONTEND_URL` | for reset email | Public web origin used to build `/forgot-password?token=` links |
 | `BREVO_API_KEY` | for reset email on Render | Brevo HTTPS API key. When set, reset mail uses Brevo only |
@@ -27,6 +27,7 @@ Set these on the service that needs them. Do not commit secret values.
 | `GIPHY_API_KEY` | no | GIF search. Routes still require a logged-in user |
 | `EMERGENT_LLM_KEY` | no | Real translation. Without it, translation reports unavailable |
 | `EXPOSE_RESET_TOKEN` | no | Leave unset. Dev-only token echo |
+| `PHONE_AUTH_ENABLED` | no | Set to `true` to turn on `/auth/phone/*`. Off by default, and those routes then return 404. The SMS code is never returned or logged |
 
 Render free web services block outbound SMTP. Use `BREVO_API_KEY` there.
 

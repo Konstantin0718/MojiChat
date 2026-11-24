@@ -43,6 +43,9 @@ __pycache__/
 venv/
 .venv/
 
+# User uploads (never commit chat files or profile photos)
+backend/uploads/
+
 # IDE
 .idea/
 .vscode/

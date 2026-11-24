@@ -277,15 +277,6 @@ class ApiService {
     return response.data;
   }
 
-  async sendCloudNotification(expoToken: string, title: string, body: string) {
-    const response = await this.api.post('/notifications/send-push', {
-      expo_token: expoToken,
-      title,
-      body,
-    });
-    return response.data;
-  }
-
   // Blocked Users
   async getBlockedUsers() {
     const response = await this.api.get('/users/blocked');
