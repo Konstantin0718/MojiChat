@@ -508,6 +508,18 @@ class MessageResponse(BaseModel):
 class ReactionCreate(BaseModel):
     emoji: str
 
+    @field_validator("emoji")
+    @classmethod
+    def emoji_key(cls, value: str) -> str:
+        text = (value or "").strip()
+        if not text or len(text) > 32:
+            raise ValueError("invalid emoji")
+        if text.startswith("$") or any(ch in text for ch in ".$\\\x00"):
+            raise ValueError("invalid emoji")
+        if all(ch.isascii() and (ch.isalnum() or ch in " _") for ch in text):
+            raise ValueError("invalid emoji")
+        return text
+
 class UserLanguageUpdate(BaseModel):
     preferred_language: str
     country_code: Optional[str] = None
@@ -2200,6 +2212,31 @@ def _voice_body_limit() -> int:
     return encoded + 2048
 
 
+async def _read_capped_body(request: Request, limit: int) -> bytes:
+    """Read a JSON body, streaming when Content-Length is absent."""
+    declared = request.headers.get("content-length")
+    if declared is not None and str(declared).strip() != "":
+        try:
+            if int(declared) > limit:
+                raise HTTPException(status_code=413, detail="File is too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid audio data")
+        raw = await request.body()
+        if len(raw) > limit:
+            raise HTTPException(status_code=413, detail="File is too large")
+        return raw
+    chunks = []
+    total = 0
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        if total + len(chunk) > limit:
+            raise HTTPException(status_code=413, detail="File is too large")
+        total += len(chunk)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def _enforce_upload_quota(user_id: str, extra_bytes: int):
     since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     rows = await db.stored_files.aggregate([
@@ -2369,17 +2406,7 @@ async def get_file(
 async def upload_voice(request: Request):
     """Upload voice message as base64"""
     current_user = await get_current_user(request)
-    body_limit = _voice_body_limit()
-    declared = request.headers.get("content-length")
-    if declared:
-        try:
-            if int(declared) > body_limit:
-                raise HTTPException(status_code=413, detail="File is too large")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid audio data")
-    raw = await request.body()
-    if len(raw) > body_limit:
-        raise HTTPException(status_code=413, detail="File is too large")
+    raw = await _read_capped_body(request, _voice_body_limit())
     try:
         body = json.loads(raw)
     except json.JSONDecodeError:
@@ -2461,45 +2488,34 @@ async def delete_message(message_id: str, request: Request):
 async def add_reaction(message_id: str, reaction: ReactionCreate, request: Request):
     """Add emoji reaction to a message"""
     current_user = await get_current_user(request)
-    message = await get_message_for_user(message_id, current_user)
-    
-    # Get current reactions
-    reactions = message.get("reactions", {})
+    await get_message_for_user(message_id, current_user)
     emoji = reaction.emoji
-    
-    # Add user to this emoji's reactions
-    if emoji not in reactions:
-        reactions[emoji] = []
-    
-    if current_user["user_id"] not in reactions[emoji]:
-        reactions[emoji].append(current_user["user_id"])
-    
     await db.messages.update_one(
         {"message_id": message_id},
-        {"$set": {"reactions": reactions}}
+        {"$addToSet": {f"reactions.{emoji}": current_user["user_id"]}},
     )
-    
-    return {"message": "Reaction added", "reactions": reactions}
+    updated = await db.messages.find_one({"message_id": message_id}, {"_id": 0, "reactions": 1})
+    return {"message": "Reaction added", "reactions": (updated or {}).get("reactions") or {}}
 
 @api_router.delete("/messages/{message_id}/reactions/{emoji}")
 async def remove_reaction(message_id: str, emoji: str, request: Request):
     """Remove emoji reaction from a message"""
     current_user = await get_current_user(request)
-    message = await get_message_for_user(message_id, current_user)
-    
-    reactions = message.get("reactions", {})
-    
-    if emoji in reactions and current_user["user_id"] in reactions[emoji]:
-        reactions[emoji].remove(current_user["user_id"])
-        if not reactions[emoji]:
-            del reactions[emoji]
-    
+    await get_message_for_user(message_id, current_user)
+    try:
+        emoji = ReactionCreate(emoji=emoji).emoji
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid emoji")
     await db.messages.update_one(
         {"message_id": message_id},
-        {"$set": {"reactions": reactions}}
+        {"$pull": {f"reactions.{emoji}": current_user["user_id"]}},
     )
-    
-    return {"message": "Reaction removed", "reactions": reactions}
+    await db.messages.update_one(
+        {"message_id": message_id, f"reactions.{emoji}": {"$size": 0}},
+        {"$unset": {f"reactions.{emoji}": ""}},
+    )
+    updated = await db.messages.find_one({"message_id": message_id}, {"_id": 0, "reactions": 1})
+    return {"message": "Reaction removed", "reactions": (updated or {}).get("reactions") or {}}
 
 # ==================== GIPHY INTEGRATION ====================
 

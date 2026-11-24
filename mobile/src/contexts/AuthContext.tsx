@@ -8,6 +8,8 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  offline: boolean;
+  retryAuth: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -19,8 +21,13 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [offline, setOffline] = useState(false);
 
   useEffect(() => {
+    api.setUnauthorizedHandler(() => {
+      setUser(null);
+      setOffline(false);
+    });
     checkAuth();
   }, []);
 
@@ -41,13 +48,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (token) {
         const userData = await api.getMe();
         setUser(userData);
+        setOffline(false);
         
         // Register for push notifications (non-blocking)
         try { await notificationService.registerForPushNotifications(); } catch (_) {}
       }
-    } catch (error) {
-      console.error('Auth check failed:', error);
-      await AsyncStorage.removeItem('auth_token');
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 401) {
+        setOffline(false);
+        setUser(null);
+        await api.logout();
+      } else {
+        setOffline(true);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -87,6 +101,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         user,
         isLoading,
         isAuthenticated: !!user,
+        offline,
+        retryAuth: checkAuth,
         login,
         register,
         logout,

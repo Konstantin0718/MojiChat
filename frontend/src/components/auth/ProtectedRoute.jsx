@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
 
 export const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, offline, retryAuth } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -12,6 +12,19 @@ export const ProtectedRoute = ({ children }) => {
         <div className="text-center space-y-4">
           <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto" />
           <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (offline && !isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-4">
+          <p className="text-muted-foreground">Can't reach MojiChat. You are still signed in.</p>
+          <button type="button" className="text-primary underline" onClick={retryAuth}>
+            Retry
+          </button>
         </div>
       </div>
     );

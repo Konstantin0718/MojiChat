@@ -96,6 +96,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const flatListRef = useRef<FlatList>(null);
+  const failedMediaRef = useRef(new Set<string>());
   const [conversationData, setConversationData] = useState<any>(null);
 
   useEffect(() => {
@@ -149,8 +150,10 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         );
         setMessages(prev => {
           if (prev.length !== sorted.length) return sorted;
-          if (prev[0]?.message_id !== sorted[0]?.message_id) return sorted;
-          return prev;
+          const changed = prev.some((msg, index) =>
+            msg.message_id !== sorted[index]?.message_id || msg.file_url !== sorted[index]?.file_url
+          );
+          return changed ? sorted : prev;
         });
       } else {
         setMessages([]);
@@ -290,9 +293,14 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         colors={colors}
         translationLanguage={translationLang}
         onDelete={handleDeleteMessage}
+        onMediaError={(url) => {
+          if (!url || failedMediaRef.current.has(url)) return;
+          failedMediaRef.current.add(url);
+          loadMessages();
+        }}
       />
     ),
-    [user, conversationData, colors, translationLang, handleDeleteMessage]
+    [user, conversationData, colors, translationLang, handleDeleteMessage, loadMessages]
   );
 
   const keyExtractor = useCallback(

@@ -5,6 +5,7 @@ import { API_URL } from '../config';
 class ApiService {
   private api: AxiosInstance;
   private token: string | null = null;
+  private onUnauthorized: (() => void) | null = null;
 
   constructor() {
     this.api = axios.create({
@@ -33,12 +34,19 @@ class ApiService {
     this.api.interceptors.response.use(
       (response) => response,
       async (error) => {
-        if (error.response?.status === 401) {
+        const status = error?.response?.status;
+        const url = String(error?.config?.url || '');
+        if (status === 401 && !url.includes('/auth/login')) {
           await this.logout();
+          this.onUnauthorized?.();
         }
         return Promise.reject(error);
       }
     );
+  }
+
+  setUnauthorizedHandler(handler: () => void) {
+    this.onUnauthorized = handler;
   }
 
   async setToken(token: string) {

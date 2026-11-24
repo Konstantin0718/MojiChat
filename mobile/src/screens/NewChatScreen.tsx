@@ -37,7 +37,7 @@ export const NewChatScreen: React.FC<Props> = ({ navigation }) => {
     setLoading(true);
     try {
       const results = await api.searchUsers(query);
-      setSearchResults(results);
+      setSearchResults(Array.isArray(results) ? results : []);
     } catch (error) {
       console.error('Search error:', error);
     } finally {
@@ -81,7 +81,7 @@ export const NewChatScreen: React.FC<Props> = ({ navigation }) => {
       )}
       <View style={styles.userInfo}>
         <Text style={styles.userName}>{item.name}</Text>
-        <Text style={styles.userEmail}>{item.email}</Text>
+        {item.username ? <Text style={styles.userEmail}>@{item.username}</Text> : null}
       </View>
       {item.is_online && <View style={styles.onlineIndicator} />}
     </TouchableOpacity>
@@ -103,7 +103,7 @@ export const NewChatScreen: React.FC<Props> = ({ navigation }) => {
         <Ionicons name="search" size={20} color={colors.textSecondary} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search by name or email..."
+          placeholder="Search by name"
           placeholderTextColor={colors.textSecondary}
           value={searchQuery}
           onChangeText={handleSearch}
@@ -127,7 +127,7 @@ export const NewChatScreen: React.FC<Props> = ({ navigation }) => {
                 {loading ? 'Searching...' : 'No users found'}
               </Text>
               <Text style={styles.emptySubtext}>
-                Try searching with a different name or email
+                Try searching with a different name
               </Text>
             </View>
           ) : (
@@ -135,7 +135,7 @@ export const NewChatScreen: React.FC<Props> = ({ navigation }) => {
               <Text style={styles.emptyEmoji}>👋</Text>
               <Text style={styles.emptyText}>Find someone to chat with</Text>
               <Text style={styles.emptySubtext}>
-                Search by name or email address
+                Search by name
               </Text>
             </View>
           )

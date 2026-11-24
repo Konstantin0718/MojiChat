@@ -30,7 +30,7 @@ export const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
   const fetchConversations = useCallback(async () => {
     try {
       const data = await api.getConversations();
-      setConversations(data);
+      setConversations(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching conversations:', error);
     }
@@ -133,11 +133,11 @@ export const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
         </View>
 
         {/* Unread badge */}
-        {conv.unread_count && conv.unread_count > 0 && (
+        {Number(conv.unread_count) > 0 ? (
           <View style={styles.unreadBadge}>
             <Text style={styles.unreadText}>{conv.unread_count}</Text>
           </View>
-        )}
+        ) : null}
       </TouchableOpacity>
     );
   };

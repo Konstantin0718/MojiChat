@@ -30,8 +30,8 @@ export const SearchDialog = ({ isOpen, onClose, api, onSelectConversation, onSel
         api.get(`/search/messages?q=${encodeURIComponent(debouncedQuery)}`),
         api.get(`/search/conversations?q=${encodeURIComponent(debouncedQuery)}`)
       ]);
-      setMessageResults(messagesRes.data);
-      setConversationResults(convsRes.data);
+      setMessageResults(Array.isArray(messagesRes.data) ? messagesRes.data : []);
+      setConversationResults(Array.isArray(convsRes.data) ? convsRes.data : []);
     } catch (error) {
       console.error('Search error:', error);
     } finally {
@@ -64,9 +64,11 @@ export const SearchDialog = ({ isOpen, onClose, api, onSelectConversation, onSel
     return date.toLocaleDateString();
   };
 
+  const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
   const highlightMatch = (text, query) => {
     if (!query || !text) return text;
-    const parts = text.split(new RegExp(`(${query})`, 'gi'));
+    const parts = String(text).split(new RegExp(`(${escapeRegExp(query)})`, 'gi'));
     return parts.map((part, i) => 
       part.toLowerCase() === query.toLowerCase() 
         ? <mark key={i} className="bg-primary/30 text-inherit">{part}</mark>
