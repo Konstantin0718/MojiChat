@@ -288,27 +288,88 @@ def _rate_limit_ip(request: Request) -> str:
     return "unknown"
 
 
-async def enforce_rate_limit(request: Request, bucket: str, limit: int, window_seconds: int):
-    ip = _rate_limit_ip(request)
+async def enforce_named_rate_limits(checks):
+    """Apply every bucket, and record the hit only when all of them still have room."""
     now = time.time()
-    key = f"{bucket}:{ip}"
-
     async with _rate_lock:
-        timestamps = _rate_state.get(key, [])
-        # Keep only timestamps within the current window
-        timestamps = [t for t in timestamps if now - t < window_seconds]
+        prepared = []
+        for key, limit, window_seconds in checks:
+            timestamps = [t for t in _rate_state.get(key, []) if now - t < window_seconds]
+            if len(timestamps) >= limit:
+                oldest = min(timestamps) if timestamps else now
+                retry_after = max(1, int(window_seconds - (now - oldest)))
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many requests. Please try again later.",
+                    headers={"Retry-After": str(retry_after)},
+                )
+            prepared.append((key, timestamps))
+        for key, timestamps in prepared:
+            timestamps.append(now)
+            _rate_state[key] = timestamps
 
-        if len(timestamps) >= limit:
-            oldest = min(timestamps) if timestamps else now
-            retry_after = max(1, int(window_seconds - (now - oldest)))
-            raise HTTPException(
-                status_code=429,
-                detail="Too many requests. Please try again later.",
-                headers={"Retry-After": str(retry_after)},
-            )
 
-        timestamps.append(now)
-        _rate_state[key] = timestamps
+async def enforce_named_rate_limit(key: str, limit: int, window_seconds: int):
+    await enforce_named_rate_limits([(key, limit, window_seconds)])
+
+
+async def enforce_rate_limit(request: Request, bucket: str, limit: int, window_seconds: int):
+    await enforce_named_rate_limit(
+        f"{bucket}:{_rate_limit_ip(request)}",
+        limit,
+        window_seconds,
+    )
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def llm_max_input_chars() -> int:
+    return _positive_int_env("LLM_MAX_INPUT_CHARS", 2000)
+
+
+def llm_rate_per_minute() -> int:
+    return _positive_int_env("LLM_RATE_PER_MINUTE", 30)
+
+
+def llm_rate_per_day() -> int:
+    return _positive_int_env("LLM_RATE_PER_DAY", 300)
+
+
+def llm_ip_rate_per_minute() -> int:
+    return _positive_int_env("LLM_IP_RATE_PER_MINUTE", 60)
+
+
+async def enforce_llm_limits(request: Request, user: dict, text: str):
+    """Auth is already done. Reject oversized text, then count user and IP usage."""
+    if not isinstance(text, str):
+        raise HTTPException(status_code=422, detail="text must be a string")
+    if len(text) > llm_max_input_chars():
+        raise HTTPException(status_code=413, detail="Text is too long")
+    user_id = user["user_id"]
+    await enforce_named_rate_limits([
+        (f"llm:user:{user_id}:minute", llm_rate_per_minute(), 60),
+        (f"llm:user:{user_id}:day", llm_rate_per_day(), 86400),
+        (f"llm:ip:{_rate_limit_ip(request)}:minute", llm_ip_rate_per_minute(), 60),
+    ])
+
+
+async def llm_allowed(request: Request, user: dict, text: str) -> bool:
+    try:
+        await enforce_llm_limits(request, user, text)
+        return True
+    except HTTPException as exc:
+        if exc.status_code in (413, 429):
+            return False
+        raise
 
 # Supported languages for translation
 SUPPORTED_LANGUAGES = {
@@ -400,7 +461,7 @@ class ConversationResponse(BaseModel):
     unread_count: int = 0
 
 class MessageCreate(BaseModel):
-    content: str
+    content: Optional[str] = Field(None, max_length=10000)
     message_type: str = "text"  # text, image, video, audio, file
     file_url: Optional[str] = None
     file_name: Optional[str] = None
@@ -650,8 +711,8 @@ Example: "Happy birthday!" -> "🎉🎂🥳"
         response = await chat.send_message(user_message)
         return response.strip() if response else fallback_emoji_convert(text)
         
-    except Exception as e:
-        logger.error(f"AI emoji conversion error: {e}")
+    except Exception as exc:
+        logger.error("AI emoji conversion error: %s", type(exc).__name__)
         return fallback_emoji_convert(text)
 
 def fallback_emoji_convert(text: str) -> str:
@@ -1710,7 +1771,10 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     translations = {}  # NO AUTO-TRANSLATION - send message as-is
     
     if msg_data.message_type == "text" and msg_data.content:
-        emoji_content = await convert_text_to_emoji(msg_data.content)
+        if await llm_allowed(request, current_user, msg_data.content):
+            emoji_content = await convert_text_to_emoji(msg_data.content)
+        else:
+            emoji_content = fallback_emoji_convert(msg_data.content)
         # Removed auto-translation logic - messages are sent exactly as received
     
     message_id = f"msg_{uuid.uuid4().hex[:12]}"
@@ -1864,8 +1928,8 @@ async def heartbeat(request: Request):
 
 @api_router.post("/emoji/convert", response_model=EmojiConvertResponse)
 async def convert_emoji(data: EmojiConvertRequest, request: Request):
-    await get_current_user(request)
-    
+    current_user = await get_current_user(request)
+    await enforce_llm_limits(request, current_user, data.text)
     emoji = await convert_text_to_emoji(data.text)
     return {"original": data.text, "emoji": emoji}
 
@@ -1897,8 +1961,8 @@ Rules:
         response = await chat.send_message(user_message)
         return True, (response.strip() if response else text)
 
-    except Exception as e:
-        logger.error(f"Translation error: {e}")
+    except Exception as exc:
+        logger.error("Translation error: %s", type(exc).__name__)
         return False, text
 
 @api_router.post("/translate")
@@ -1908,6 +1972,9 @@ async def translate_endpoint(request: Request):
     body = await request.json()
     
     text = body.get("text", "")
+    if not isinstance(text, str):
+        raise HTTPException(status_code=422, detail="text must be a string")
+    await enforce_llm_limits(request, current_user, text)
     target_language = body.get("target_language", current_user.get("preferred_language", "en"))
     
     # If target_language is "auto", detect and use user's preferred language

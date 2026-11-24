@@ -68,6 +68,14 @@ jobs:
           JWT_SECRET: ci_test_secret_long_enough_value
           CORS_ORIGINS: "*"
         run: ./venv/bin/python -m pytest tests/test_stage1_session.py -q
+      - name: LLM limit tests
+        working-directory: backend
+        env:
+          MONGO_URL: mongodb://127.0.0.1:27017
+          DB_NAME: mojichat_llm_tests
+          JWT_SECRET: ci_test_secret_long_enough_value
+          CORS_ORIGINS: "*"
+        run: ./venv/bin/python -m pytest tests/test_stage1_llm.py -q
       - name: Start API
         working-directory: backend
         env:
