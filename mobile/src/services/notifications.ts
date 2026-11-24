@@ -1,8 +1,19 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
-import { Platform, Alert } from 'react-native';
+import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { api } from './api';
+
+const PUSH_DEVICE_KEY = 'push_device_id';
+
+async function pushDeviceId(): Promise<string> {
+  const existing = await AsyncStorage.getItem(PUSH_DEVICE_KEY);
+  if (existing) return existing;
+  const created = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  await AsyncStorage.setItem(PUSH_DEVICE_KEY, created);
+  return created;
+}
 
 // Configure notification handling - this runs when notification is received
 Notifications.setNotificationHandler({
@@ -18,78 +29,96 @@ Notifications.setNotificationHandler({
 class NotificationService {
   private expoPushToken: string | null = null;
   private fcmToken: string | null = null;
+  private deviceId: string | null = null;
+  private registered = false;
+  private registration: Promise<string | null> | null = null;
+  private pushListener: Notifications.Subscription | null = null;
 
   /**
-   * Register for push notifications and get tokens
-   * Call this on app startup after user login
+   * Register this device once after login. A later token change updates the same device.
    */
-  async registerForPushNotifications(): Promise<string | null> {
-    console.log('========================================');
-    console.log('🔔 PUSH NOTIFICATION REGISTRATION START');
-    console.log('========================================');
-    
-    // Check if physical device
+  async registerForPushNotifications(force = false): Promise<string | null> {
+    if (!force && this.registered && this.expoPushToken) {
+      return this.expoPushToken;
+    }
+    if (!force && this.registration) {
+      return this.registration;
+    }
+    const run = this.registerOnce();
+    this.registration = run;
+    try {
+      return await run;
+    } finally {
+      if (this.registration === run) this.registration = null;
+    }
+  }
+
+  private ensureRotationListener() {
+    if (this.pushListener) return;
+    this.pushListener = Notifications.addPushTokenListener((deviceToken) => {
+      const native = typeof deviceToken.data === 'string' ? deviceToken.data : null;
+      if (!native) return;
+      void this.onNativeTokenRotated(native);
+    });
+  }
+
+  private async onNativeTokenRotated(native: string) {
+    const auth = await AsyncStorage.getItem('auth_token');
+    if (!auth) return;
+    const deviceId = this.deviceId || await pushDeviceId();
+    this.deviceId = deviceId;
+    if (native !== this.fcmToken) {
+      this.fcmToken = native;
+      try {
+        await api.subscribeFcm(native, deviceId);
+      } catch {
+        // The next login registers again.
+      }
+    }
+    try {
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId || '84867f60-7222-42a4-b8b6-32d381c81e14';
+      const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+      if (tokenData.data && tokenData.data !== this.expoPushToken) {
+        this.expoPushToken = tokenData.data;
+        await api.subscribePush(tokenData.data, deviceId);
+      }
+    } catch {
+      // Ignore rotation refresh failures.
+    }
+  }
+
+  /** Endpoints stored for this device. Logout sends them before the auth token is cleared. */
+  currentEndpoints(): string[] {
+    return [this.expoPushToken, this.fcmToken].filter((value): value is string => !!value);
+  }
+
+  clearLocalTokens() {
+    this.expoPushToken = null;
+    this.fcmToken = null;
+    this.registered = false;
+  }
+
+  private async registerOnce(): Promise<string | null> {
+    this.ensureRotationListener();
     if (!Device.isDevice) {
-      console.log('❌ Push notifications require a physical device');
-      console.log('   Running on:', Device.modelName || 'Simulator/Emulator');
-      Alert.alert(
-        'Push Notifications',
-        'Push notifications only work on physical devices. You are running on a simulator/emulator.'
-      );
       return null;
     }
 
-    console.log('✅ Running on physical device:', Device.modelName);
-    console.log('   Brand:', Device.brand);
-    console.log('   OS:', Platform.OS, Platform.Version);
-
     try {
-      // Step 1: Check current permission status
-      console.log('\n📋 Step 1: Checking notification permissions...');
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      console.log('   Current permission status:', existingStatus);
-
       let finalStatus = existingStatus;
-
-      // Step 2: Request permission if not granted (required for Android 13+)
       if (existingStatus !== 'granted') {
-        console.log('\n📋 Step 2: Requesting notification permissions...');
-        console.log('   (Android 13+ requires explicit user permission)');
-        
         const { status } = await Notifications.requestPermissionsAsync({
-          ios: {
-            allowAlert: true,
-            allowBadge: true,
-            allowSound: true,
-          },
-          android: {
-            allowAlert: true,
-            allowBadge: true,
-            allowSound: true,
-          },
+          ios: { allowAlert: true, allowBadge: true, allowSound: true },
+          android: { allowAlert: true, allowBadge: true, allowSound: true },
         });
-        
         finalStatus = status;
-        console.log('   New permission status:', finalStatus);
       }
-
       if (finalStatus !== 'granted') {
-        console.log('\n❌ PERMISSION DENIED');
-        console.log('   User did not grant notification permissions');
-        Alert.alert(
-          'Notifications Disabled',
-          'Please enable notifications in Settings to receive messages when the app is closed.',
-          [{ text: 'OK' }]
-        );
         return null;
       }
 
-      console.log('\n✅ Notification permissions granted!');
-
-      // Step 3: Create Android notification channels (Android 8+)
       if (Platform.OS === 'android') {
-        console.log('\n📋 Step 3: Creating Android notification channels...');
-        
         await Notifications.setNotificationChannelAsync('default', {
           name: 'Default',
           importance: Notifications.AndroidImportance.MAX,
@@ -99,8 +128,6 @@ class NotificationService {
           enableVibrate: true,
           enableLights: true,
         });
-        console.log('   ✅ Created "default" channel');
-
         await Notifications.setNotificationChannelAsync('messages', {
           name: 'Messages',
           description: 'New message notifications',
@@ -110,8 +137,6 @@ class NotificationService {
           sound: 'default',
           enableVibrate: true,
         });
-        console.log('   ✅ Created "messages" channel');
-
         await Notifications.setNotificationChannelAsync('calls', {
           name: 'Calls',
           description: 'Incoming call notifications',
@@ -121,95 +146,44 @@ class NotificationService {
           sound: 'default',
           enableVibrate: true,
         });
-        console.log('   ✅ Created "calls" channel');
       }
 
-      // Step 4: Get Expo Push Token
-      console.log('\n📋 Step 4: Getting Expo Push Token...');
-      
-      // Use the EAS projectId from app.json
       const projectId = Constants.expoConfig?.extra?.eas?.projectId || '84867f60-7222-42a4-b8b6-32d381c81e14';
-      const firebaseProjectId = Constants.expoConfig?.extra?.firebaseProjectId || 'mijichat-7d13c';
-      console.log('   EAS Project ID:', projectId);
-      console.log('   Firebase Project ID:', firebaseProjectId);
-      
-      try {
-        const tokenData = await Notifications.getExpoPushTokenAsync({
-          projectId: projectId,
-        });
-        
-        this.expoPushToken = tokenData.data;
-        
-        console.log('\n========================================');
-        console.log('🎉 EXPO PUSH TOKEN OBTAINED!');
-        console.log('========================================');
-        console.log('TOKEN:', this.expoPushToken);
-        console.log('========================================');
-        console.log('\n📌 Copy this token to test via:');
-        console.log('   - Expo Push Tool: https://expo.dev/notifications');
-        console.log('========================================\n');
+      const deviceId = await pushDeviceId();
+      this.deviceId = deviceId;
 
-      } catch (tokenError: any) {
-        console.log('\n❌ Error getting Expo Push Token:', tokenError.message);
-        console.log('   Full error:', tokenError);
+      try {
+        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+        this.expoPushToken = tokenData.data;
+      } catch {
+        this.expoPushToken = null;
       }
 
-      // Step 5: Get native FCM/APNs token (for Firebase Console testing)
-      console.log('\n📋 Step 5: Getting native device token (FCM/APNs)...');
-      
       try {
         const deviceToken = await Notifications.getDevicePushTokenAsync();
-        this.fcmToken = deviceToken.data;
-        
-        console.log('\n========================================');
-        console.log('🔥 FCM/DEVICE TOKEN OBTAINED!');
-        console.log('========================================');
-        console.log('TYPE:', deviceToken.type);
-        console.log('TOKEN:', this.fcmToken);
-        console.log('========================================');
-        console.log('\n📌 Use this token in Firebase Console:');
-        console.log('   1. Go to Firebase Console > Cloud Messaging');
-        console.log('   2. Click "Send test message"');
-        console.log('   3. Paste this token in "FCM registration token"');
-        console.log('   4. Send test notification');
-        console.log('========================================\n');
-        
-      } catch (fcmError: any) {
-        console.log('\n⚠️ Could not get FCM token:', fcmError.message);
-        console.log('   This is normal in Expo Go - FCM needs a native build');
+        this.fcmToken = typeof deviceToken.data === 'string' ? deviceToken.data : null;
+      } catch {
+        this.fcmToken = null;
       }
 
-      // Step 6: Register with backend
       if (this.expoPushToken) {
-        console.log('\n📋 Step 6: Registering Expo token with backend...');
         try {
-          await api.subscribePush(this.expoPushToken);
-          console.log('   ✅ Expo token registered with backend');
-        } catch (backendError) {
-          console.log('   ⚠️ Failed to register Expo token with backend:', backendError);
+          await api.subscribePush(this.expoPushToken, deviceId);
+        } catch {
+          // Login still succeeds when push registration fails.
         }
       }
-
-      // Step 7: Register FCM token with backend (for Firebase Cloud Messaging)
       if (this.fcmToken) {
-        console.log('\n📋 Step 7: Registering FCM token with backend...');
         try {
-          await api.subscribeFcm(this.fcmToken);
-          console.log('   ✅ FCM token registered with backend');
-        } catch (fcmBackendError) {
-          console.log('   ⚠️ Failed to register FCM token with backend:', fcmBackendError);
+          await api.subscribeFcm(this.fcmToken, deviceId);
+        } catch {
+          // The Expo token is enough for delivery.
         }
       }
 
-      console.log('\n========================================');
-      console.log('✅ PUSH NOTIFICATION SETUP COMPLETE');
-      console.log('========================================\n');
-
+      this.registered = !!this.expoPushToken;
       return this.expoPushToken;
-
-    } catch (error: any) {
-      console.log('\n❌ REGISTRATION ERROR:', error.message);
-      console.log('   Full error:', error);
+    } catch {
       return null;
     }
   }
@@ -226,21 +200,6 @@ class NotificationService {
    */
   getFCMToken(): string | null {
     return this.fcmToken;
-  }
-
-  /**
-   * Show tokens in an alert (useful for testing)
-   */
-  showTokensAlert() {
-    const message = [
-      'Expo Token:',
-      this.expoPushToken || 'Not available',
-      '',
-      'FCM Token:',
-      this.fcmToken || 'Not available (need native build)',
-    ].join('\n');
-
-    Alert.alert('Push Notification Tokens', message, [{ text: 'OK' }]);
   }
 
   // Listen for notification received while app is foregrounded

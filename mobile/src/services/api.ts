@@ -84,9 +84,15 @@ class ApiService {
     return response.data;
   }
 
-  async logoutApi() {
+  async logoutApi(endpoints?: string[]) {
+    const body = endpoints && endpoints.length ? { endpoints } : {};
     try {
-      await this.api.post('/auth/logout');
+      if (endpoints && endpoints.length) {
+        await this.api.delete('/notifications/unsubscribe', { data: { endpoints } });
+      }
+    } catch (e) {}
+    try {
+      await this.api.post('/auth/logout', body);
     } catch (e) {}
     await this.logout();
   }
@@ -287,17 +293,19 @@ class ApiService {
   }
 
   // Notifications
-  async subscribePush(token: string) {
+  async subscribePush(token: string, deviceId?: string) {
     const response = await this.api.post('/notifications/subscribe', {
       endpoint: token,
       keys: { expo: true },
+      device_id: deviceId,
     });
     return response.data;
   }
 
-  async subscribeFcm(fcmToken: string) {
+  async subscribeFcm(fcmToken: string, deviceId?: string) {
     const response = await this.api.post('/notifications/subscribe-fcm', {
       fcm_token: fcmToken,
+      device_id: deviceId,
     });
     return response.data;
   }

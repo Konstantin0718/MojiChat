@@ -47,14 +47,6 @@ const RootNavigator = () => {
   const { isAuthenticated, isLoading, offline, retryAuth } = useAuth();
   const { colors, isDark } = useTheme();
 
-  // Register for push notifications when authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      console.log('🚀 User authenticated - registering for push notifications...');
-      notificationService.registerForPushNotifications();
-    }
-  }, [isAuthenticated]);
-
   // Handle notification received while app is open
   useEffect(() => {
     const receivedSubscription = notificationService.addNotificationReceivedListener((notification) => {

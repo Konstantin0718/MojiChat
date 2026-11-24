@@ -204,21 +204,25 @@ def test_email_normalize_reports_collisions_without_merging():
     assert _db().users.find_one({"user_id": alone})["email"] == f"solo.{suffix}@example.com"
 
 
-def test_push_dedupe_keeps_the_newest_row():
+def test_push_dedupe_keeps_distinct_devices_and_the_newest_duplicate():
     user_id = f"user_{uuid.uuid4().hex[:8]}"
-    try:
-        _db().push_subscriptions.drop_index("user_id_1")
-    except Exception:
-        pass
+    phone = f"phone-{uuid.uuid4().hex}"
+    web = f"web-{uuid.uuid4().hex}"
+    for name in ("user_id_1", "endpoint_1"):
+        try:
+            _db().push_subscriptions.drop_index(name)
+        except Exception:
+            pass
     _db().push_subscriptions.insert_many([
-        {"user_id": user_id, "endpoint": "old-token", "created_at": "2020-01-01T00:00:00"},
-        {"user_id": user_id, "endpoint": "new-token", "created_at": "2024-01-01T00:00:00"},
+        {"user_id": user_id, "endpoint": phone, "created_at": "2024-01-01T00:00:00"},
+        {"user_id": user_id, "endpoint": web, "updated_at": "2020-01-01T00:00:00", "created_at": "2020-01-01T00:00:00"},
+        {"user_id": user_id, "endpoint": web, "updated_at": "2024-06-01T00:00:00", "created_at": "2024-06-01T00:00:00"},
     ])
-    removed = server.dedupe_push_subscriptions()
-    assert removed == 1
+    server.dedupe_push_subscriptions()
     rows = list(_db().push_subscriptions.find({"user_id": user_id}))
-    assert len(rows) == 1
-    assert rows[0]["endpoint"] == "new-token"
+    assert sorted(row["endpoint"] for row in rows) == sorted([phone, web])
+    kept = next(row for row in rows if row["endpoint"] == web)
+    assert kept["updated_at"] == "2024-06-01T00:00:00"
 
 
 def test_one_index_failure_does_not_stop_the_next():

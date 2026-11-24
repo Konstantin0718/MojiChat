@@ -81,7 +81,7 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const handleRegisterNotifications = async () => {
     setRegisteringNotifications(true);
     try {
-      const token = await notificationService.registerForPushNotifications();
+      const token = await notificationService.registerForPushNotifications(true);
       if (token) {
         Alert.alert(t('success'), 'Push notifications registered!');
       }
