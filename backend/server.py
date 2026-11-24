@@ -17,6 +17,8 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 import bcrypt
 import jwt
+from bson import ObjectId
+from bson.errors import InvalidId
 import httpx
 import base64
 import mimetypes
@@ -1403,11 +1405,86 @@ def own_profile(user: dict) -> dict:
 
 
 async def public_profiles(user_ids, viewer_id: Optional[str] = None) -> list:
-    ids = [user_id for user_id in user_ids if isinstance(user_id, str)]
+    ids = []
+    seen = set()
+    for user_id in user_ids:
+        if isinstance(user_id, str) and user_id not in seen:
+            seen.add(user_id)
+            ids.append(user_id)
     if not ids:
         return []
-    users = await db.users.find({"user_id": {"$in": ids}}, {"_id": 0}).to_list(100)
+    users = await db.users.find(
+        {"user_id": {"$in": ids}},
+        {"_id": 0, "password": 0},
+    ).to_list(len(ids))
     return [public_user(user, viewer_id) for user in users]
+
+
+PAGE_MAX = 100
+MESSAGE_PAGE_DEFAULT = 50
+CONVERSATION_PAGE_DEFAULT = 100
+
+
+def bounded_limit(limit: Optional[int], default: int) -> int:
+    try:
+        value = int(limit)
+    except (TypeError, ValueError):
+        return default
+    if value < 1:
+        return 1
+    return min(value, PAGE_MAX)
+
+
+def encode_cursor(created_at: str, doc_id) -> str:
+    raw = json.dumps({"t": created_at, "id": str(doc_id)}, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def decode_cursor(cursor: str):
+    if not isinstance(cursor, str) or not cursor.strip():
+        raise HTTPException(status_code=422, detail="Invalid cursor")
+    padded = cursor.strip() + ("=" * (-len(cursor.strip()) % 4))
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded.encode()))
+        created_at = data["t"]
+        oid = ObjectId(data["id"])
+    except (KeyError, TypeError, ValueError, InvalidId, json.JSONDecodeError):
+        raise HTTPException(status_code=422, detail="Invalid cursor")
+    if not isinstance(created_at, str) or not created_at:
+        raise HTTPException(status_code=422, detail="Invalid cursor")
+    return created_at, oid
+
+
+def older_than_cursor(created_at: str, oid) -> dict:
+    return {"$or": [
+        {"created_at": {"$lt": created_at}},
+        {"created_at": created_at, "_id": {"$lt": oid}},
+    ]}
+
+
+async def last_messages_for(conversation_ids: List[str]) -> dict:
+    if not conversation_ids:
+        return {}
+    rows = await db.messages.aggregate([
+        {"$match": {"conversation_id": {"$in": conversation_ids}}},
+        {"$sort": {"created_at": -1, "_id": -1}},
+        {"$group": {"_id": "$conversation_id", "doc": {"$first": "$$ROOT"}}},
+    ]).to_list(len(conversation_ids))
+    return {row["_id"]: row["doc"] for row in rows}
+
+
+async def unread_counts_for(conversation_ids: List[str], user_id: str) -> dict:
+    if not conversation_ids:
+        return {}
+    rows = await db.messages.aggregate([
+        {"$match": {
+            "conversation_id": {"$in": conversation_ids},
+            "sender_id": {"$ne": user_id},
+            "read_by": {"$nin": [user_id]},
+        }},
+        {"$group": {"_id": "$conversation_id", "count": {"$sum": 1}}},
+    ]).to_list(len(conversation_ids))
+    return {row["_id"]: int(row["count"]) for row in rows}
 
 
 @api_router.get("/users/search")
@@ -1736,46 +1813,56 @@ async def create_conversation(conv_data: ConversationCreate, request: Request):
     }
 
 @api_router.get("/conversations")
-async def get_conversations(request: Request):
+async def get_conversations(
+    request: Request,
+    response: Response,
+    limit: int = CONVERSATION_PAGE_DEFAULT,
+    cursor: Optional[str] = None,
+):
     current_user = await get_current_user(request)
-    
-    conversations = await db.conversations.find(
-        {"participant_ids": current_user["user_id"]},
-        {"_id": 0}
-    ).to_list(100)
-    
+    page_size = bounded_limit(limit, CONVERSATION_PAGE_DEFAULT)
+    query = {"participant_ids": current_user["user_id"]}
+    if cursor:
+        created_at, oid = decode_cursor(cursor)
+        query = {"$and": [query, older_than_cursor(created_at, oid)]}
+
+    conversations = await db.conversations.find(query).sort(
+        [("created_at", -1), ("_id", -1)]
+    ).limit(page_size + 1).to_list(page_size + 1)
+    has_more = len(conversations) > page_size
+    conversations = conversations[:page_size]
+    if has_more and conversations:
+        last = conversations[-1]
+        response.headers["X-Next-Cursor"] = encode_cursor(last.get("created_at") or "", last["_id"])
+
+    conv_ids = [conv["conversation_id"] for conv in conversations if conv.get("conversation_id")]
+    participant_ids = []
+    for conv in conversations:
+        participant_ids.extend(conv.get("participant_ids") or [])
+    profiles = {
+        profile["user_id"]: profile
+        for profile in await public_profiles(participant_ids, current_user["user_id"])
+    }
+    latest = await last_messages_for(conv_ids)
+    unread = await unread_counts_for(conv_ids, current_user["user_id"])
+
     result = []
     for conv in conversations:
-        # Get participants info
-        participants = await public_profiles(conv["participant_ids"], current_user["user_id"])
-        
-        # Get last message
-        last_msg = await db.messages.find_one(
-            {"conversation_id": conv["conversation_id"]},
-            {"_id": 0},
-            sort=[("created_at", -1)]
-        )
-        
-        # Count unread
-        unread = await db.messages.count_documents({
-            "conversation_id": conv["conversation_id"],
-            "sender_id": {"$ne": current_user["user_id"]},
-            "read_by": {"$nin": [current_user["user_id"]]}
-        })
-        
+        participants = [
+            profiles[user_id]
+            for user_id in (conv.get("participant_ids") or [])
+            if user_id in profiles
+        ]
+        last_msg = latest.get(conv["conversation_id"])
         result.append({
             "conversation_id": conv["conversation_id"],
             "participants": participants,
             "name": conv.get("name"),
             "is_group": conv.get("is_group", False),
-            "created_at": conv["created_at"],
+            "created_at": conv.get("created_at"),
             "last_message": present_message(last_msg, current_user["user_id"]) if last_msg else None,
-            "unread_count": unread
+            "unread_count": unread.get(conv["conversation_id"], 0),
         })
-    
-    # Sort by last message time
-    result.sort(key=lambda x: x.get("last_message", {}).get("created_at", "") if x.get("last_message") else "", reverse=True)
-    
     return result
 
 @api_router.get("/conversations/{conversation_id}")
@@ -1928,19 +2015,34 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     return present_message(response_data, current_user["user_id"])
 
 @api_router.get("/conversations/{conversation_id}/messages")
-async def get_messages(conversation_id: str, request: Request, limit: int = 50, before: Optional[str] = None):
+async def get_messages(
+    conversation_id: str,
+    request: Request,
+    response: Response,
+    limit: int = MESSAGE_PAGE_DEFAULT,
+    before: Optional[str] = None,
+    cursor: Optional[str] = None,
+):
     current_user = await get_current_user(request)
     await get_conversation_for_user(conversation_id, current_user)
-    
+    page_size = bounded_limit(limit, MESSAGE_PAGE_DEFAULT)
+
     query = {"conversation_id": conversation_id}
-    if before:
+    if cursor:
+        created_at, oid = decode_cursor(cursor)
+        query = {"$and": [query, older_than_cursor(created_at, oid)]}
+    elif before:
         query["created_at"] = {"$lt": before}
-    
-    messages = await db.messages.find(
-        query,
-        {"_id": 0}
-    ).sort("created_at", -1).limit(limit).to_list(limit)
-    
+
+    messages = await db.messages.find(query).sort(
+        [("created_at", -1), ("_id", -1)]
+    ).limit(page_size + 1).to_list(page_size + 1)
+    has_more = len(messages) > page_size
+    messages = messages[:page_size]
+    if has_more and messages:
+        oldest = messages[-1]
+        response.headers["X-Next-Cursor"] = encode_cursor(oldest.get("created_at") or "", oldest["_id"])
+
     # Mark as read
     await db.messages.update_many(
         {
@@ -1950,7 +2052,7 @@ async def get_messages(conversation_id: str, request: Request, limit: int = 50, 
         },
         {"$addToSet": {"read_by": current_user["user_id"]}}
     )
-    
+
     return [present_message(message, current_user["user_id"]) for message in reversed(messages)]
 
 # ==================== TYPING & STATUS ====================
@@ -2754,18 +2856,26 @@ async def search_conversations(q: str, request: Request):
     if not q.strip():
         return []
     
-    # Get user's conversations
     conversations = await db.conversations.find(
         {"participant_ids": current_user["user_id"]},
         {"_id": 0}
-    ).to_list(100)
-    
+    ).sort([("created_at", -1)]).limit(CONVERSATION_PAGE_DEFAULT).to_list(CONVERSATION_PAGE_DEFAULT)
+
+    participant_ids = []
+    for conv in conversations:
+        participant_ids.extend(conv.get("participant_ids") or [])
+    profiles = {
+        profile["user_id"]: profile
+        for profile in await public_profiles(participant_ids, current_user["user_id"])
+    }
+
     results = []
     for conv in conversations:
-        # Get participants
-        participants = await public_profiles(conv["participant_ids"], current_user["user_id"])
-        
-        # Check if query matches conversation name or participant names
+        participants = [
+            profiles[user_id]
+            for user_id in (conv.get("participant_ids") or [])
+            if user_id in profiles
+        ]
         conv_name = conv.get("name") or ""
         participant_names = " ".join([p.get("name", "") or "" for p in participants])
         
@@ -3587,6 +3697,24 @@ async def create_db_indexes():
     await _safe_index(
         "messages.conversation_created",
         db.messages.create_index([("conversation_id", 1), ("created_at", -1)], background=True),
+    )
+    await _safe_index(
+        "messages.conversation_created_id",
+        db.messages.create_index(
+            [("conversation_id", 1), ("created_at", -1), ("_id", -1)],
+            background=True,
+        ),
+    )
+    await _safe_index(
+        "messages.conversation_sender",
+        db.messages.create_index([("conversation_id", 1), ("sender_id", 1)], background=True),
+    )
+    await _safe_index(
+        "conversations.participant_created",
+        db.conversations.create_index(
+            [("participant_ids", 1), ("created_at", -1), ("_id", -1)],
+            background=True,
+        ),
     )
     await _safe_index(
         "messages.text",

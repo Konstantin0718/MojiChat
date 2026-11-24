@@ -90,3 +90,5 @@ Stage 3 PR 2 (web chat): съобщенията се опресняват при
 Stage 3 PR 3 (links): `/join/:code` се пази през login и register и се връща само към същия сайт. Android App Link за Vercel е с autoVerify. Reset линкът отваря ForgotPassword и когато потребителят е влязъл. Няма нов APK.
 
 Stage 3 PR 4 (hardening): CSP и security headers на уеб. Токенът на телефона е в SecureStore. Излишни Android permissions са махнати. Тап на известие отваря чата. Има „изход от всички устройства“. Няма нов APK.
+
+Stage 4 PR 1: странициране на съобщения и списък с разговори по cursor (created_at/_id). Списъкът зарежда участници и последно съобщение накуп. Клиентите остават на първата страница, защото polling подменя целия списък. Няма нов APK.
