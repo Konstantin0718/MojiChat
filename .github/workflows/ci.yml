@@ -25,6 +25,18 @@ jobs:
           ./venv/bin/pip install --upgrade pip
           ./venv/bin/pip install -r requirements.txt \
             --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
+      - name: Render image can import the API
+        working-directory: backend
+        env:
+          MONGO_URL: mongodb://127.0.0.1:27017
+          DB_NAME: mojichat_import_check
+          JWT_SECRET: ci_test_secret_long_enough_value
+        run: |
+          python -m venv /tmp/render-venv
+          /tmp/render-venv/bin/pip install --upgrade pip
+          /tmp/render-venv/bin/pip install -r requirements.prod.txt \
+            --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
+          /tmp/render-venv/bin/python -c 'import server'
       - name: Critical flake8
         working-directory: backend
         run: ./venv/bin/flake8 server.py file_storage.py --select=E9,F63,F7,F82
