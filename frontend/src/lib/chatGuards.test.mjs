@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { mediaUrl } from './mediaUrl.mjs';
 import { messageViewChanged } from './messageSync.mjs';
 import { preferredVoiceMime } from './voiceMime.mjs';
+import { safeRedirect } from './safeRedirect.mjs';
 
 test('mediaUrl allows Giphy and app paths, and rejects other hosts', () => {
   process.env.REACT_APP_BACKEND_URL = 'https://api.example';
@@ -29,6 +30,15 @@ test('message refresh notices reactions, deletion, and read receipts', () => {
   assert.equal(messageViewChanged(base, { ...base, deleted: true }), true);
   assert.equal(messageViewChanged(base, { ...base, read_by: ['friend', 'me'] }), true);
   assert.equal(messageViewChanged(base, { ...base, read_by: ['me'] }), false);
+});
+
+test('invite redirects stay on same-origin relative paths', () => {
+  assert.equal(safeRedirect('/join/abc'), '/join/abc');
+  assert.equal(safeRedirect('/join/abc?x=1'), '/join/abc?x=1');
+  assert.equal(safeRedirect('https://evil.example/join/abc'), null);
+  assert.equal(safeRedirect('//evil.example/join/abc'), null);
+  assert.equal(safeRedirect('/%2f%2fevil.example'), null);
+  assert.equal(safeRedirect('/\\evil'), null);
 });
 
 test('Safari voice recording falls back to audio/mp4', () => {

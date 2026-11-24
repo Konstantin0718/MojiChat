@@ -1,10 +1,10 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, DarkTheme, createNavigationContainerRef, getStateFromPath } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ActivityIndicator, View, Text, TouchableOpacity } from 'react-native';
+import { ActivityIndicator, Linking, View, Text, TouchableOpacity } from 'react-native';
 
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
@@ -25,27 +25,51 @@ import { VideoCallScreen } from './src/screens/VideoCallScreen';
 import { BlockedUsersScreen } from './src/screens/BlockedUsersScreen';
 import { NotificationSettingsScreen } from './src/screens/NotificationSettingsScreen';
 import { StatusScreen } from './src/screens/StatusScreen';
+import { resetLinkTarget } from './src/navigation/resetLink';
 
 const Stack = createNativeStackNavigator();
 
-// https://<FRONTEND_URL>/forgot-password?token=... and mojichat://forgot-password?token=...
+// https://moji-chat-gamma.vercel.app/forgot-password?token=... and mojichat://forgot-password?token=...
+const releasePrefixes = [
+  'mojichat://',
+  'https://moji-chat-gamma.vercel.app',
+];
+
 const linking = {
-  prefixes: [
-    'mojichat://',
-    'https://moji-chat-gamma.vercel.app',
-    'http://localhost:3000',
-  ],
+  prefixes: __DEV__ ? [...releasePrefixes, 'http://localhost:3000'] : releasePrefixes,
   config: {
     screens: {
       ForgotPassword: 'forgot-password',
     },
   },
+  getStateFromPath(path: string, options: Parameters<typeof getStateFromPath>[1]) {
+    const normalized = path.replace(/^\/?reset-password(?=\?|$)/, 'forgot-password');
+    return getStateFromPath(normalized, options);
+  },
 };
+
+const navigationRef = createNavigationContainerRef();
+
+function openResetLink(url: string | null) {
+  const target = resetLinkTarget(url);
+  if (!target || !navigationRef.isReady()) return;
+  (navigationRef.navigate as (name: string, params?: object) => void)(
+    'ForgotPassword',
+    { token: target.token },
+  );
+}
 
 // Root Navigator
 const RootNavigator = () => {
   const { isAuthenticated, isLoading, offline, retryAuth } = useAuth();
   const { colors, isDark } = useTheme();
+
+  useEffect(() => {
+    if (isLoading) return undefined;
+    Linking.getInitialURL().then(openResetLink);
+    const subscription = Linking.addEventListener('url', (event) => openResetLink(event.url));
+    return () => subscription.remove();
+  }, [isLoading, isAuthenticated]);
 
   // Handle notification received while app is open
   useEffect(() => {
@@ -110,7 +134,14 @@ const RootNavigator = () => {
   };
 
   return (
-    <NavigationContainer theme={navTheme} linking={linking}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={navTheme}
+      linking={linking}
+      onReady={() => {
+        Linking.getInitialURL().then(openResetLink);
+      }}
+    >
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
@@ -129,16 +160,15 @@ const RootNavigator = () => {
             <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
             <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
             <Stack.Screen name="Status" component={StatusScreen} />
-            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
           </>
         ) : (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
-            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
             <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} />
           </>
         )}
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.mojichat.app",
+      "sha256_cert_fingerprints": [
+        "13:EE:C1:BA:84:F3:F7:6B:FD:E7:DE:57:66:AA:CE:8E:63:CF:63:42:07:8D:94:6B:6D:2B:BE:2C:92:BD:7F:CF"
+      ]
+    }
+  }
+]

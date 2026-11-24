@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, User, ArrowRight, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -7,22 +7,30 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { useAuth } from '../contexts/AuthContext';
+import { consumeRedirect, peekRedirect, rememberRedirect, safeRedirect } from '../lib/safeRedirect.mjs';
 import { Toaster, toast } from 'sonner';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { register, loginWithGoogle, isAuthenticated } = useAuth();
   
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const redirectTarget = safeRedirect(searchParams.get('redirect')) || peekRedirect();
 
-  // Redirect if already authenticated
-  if (isAuthenticated) {
-    navigate('/chat');
-    return null;
-  }
+  useEffect(() => {
+    const safe = safeRedirect(searchParams.get('redirect'));
+    if (safe) rememberRedirect(safe);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate(consumeRedirect('/chat'), { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -39,7 +47,6 @@ export default function RegisterPage() {
     try {
       await register(email, password, name);
       toast.success('Account created! Welcome to MojiChat!');
-      navigate('/chat');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Registration failed');
     } finally {
@@ -248,7 +255,7 @@ export default function RegisterPage() {
           >
             Already have an account?{' '}
             <Link 
-              to="/login" 
+              to={redirectTarget ? `/login?redirect=${encodeURIComponent(redirectTarget)}` : '/login'} 
               className="text-primary hover:underline font-medium"
               data-testid="login-link"
             >

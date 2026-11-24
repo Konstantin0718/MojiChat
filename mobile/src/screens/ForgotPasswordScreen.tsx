@@ -68,7 +68,13 @@ export const ForgotPasswordScreen: React.FC<Props> = ({ navigation, route }) => 
     try {
       await api.resetPassword(linkToken.trim(), newPassword);
       Alert.alert('Success', 'Password has been reset successfully', [
-        { text: 'OK', onPress: () => navigation.navigate('Login') }
+        {
+          text: 'OK',
+          onPress: () => {
+            const names = navigation.getState?.()?.routeNames || [];
+            navigation.navigate(names.includes('Login') ? 'Login' : 'Conversations');
+          },
+        },
       ]);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to reset password');

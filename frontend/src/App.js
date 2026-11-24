@@ -12,6 +12,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import AuthCallback from "./pages/AuthCallback";
 import ChatLayout from "./components/chat/ChatLayout";
 import { ChatErrorBoundary } from "./components/ChatErrorBoundary";
+import { rememberRedirect, safeRedirect } from "./lib/safeRedirect.mjs";
 
 // Invite join page — handles /join/:inviteCode
 const JoinPage = () => {
@@ -22,7 +23,9 @@ const JoinPage = () => {
 
   useEffect(() => {
     if (!isAuthenticated) {
-      navigate(`/login?redirect=/join/${inviteCode}`);
+      const target = safeRedirect(`/join/${encodeURIComponent(inviteCode || '')}`);
+      if (target) rememberRedirect(target);
+      navigate(target ? `/login?redirect=${encodeURIComponent(target)}` : '/login', { replace: true });
       return;
     }
     api.post(`/users/join/${inviteCode}`)
