@@ -44,6 +44,7 @@ interface Props {
   colors: any;
   translationLanguage?: string;
   onDelete?: (messageId: string) => void;
+  onMediaError?: () => void;
 }
 
 export const MessageBubble: React.FC<Props> = ({
@@ -53,6 +54,7 @@ export const MessageBubble: React.FC<Props> = ({
   colors,
   translationLanguage = 'bg',
   onDelete,
+  onMediaError,
 }) => {
   const isOwn = message.sender_id === currentUser?.user_id;
   const [isRevealed, setIsRevealed] = useState(false);
@@ -120,13 +122,19 @@ export const MessageBubble: React.FC<Props> = ({
 
   // Image
   if (message.message_type === 'image' && message.file_url) {
+    const imageUri = mediaUrl(message.file_url);
     return (
       <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
-        <Image
-          source={{ uri: mediaUrl(message.file_url) }}
-          style={styles.image}
-          resizeMode="cover"
-        />
+        {imageUri ? (
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.image}
+            resizeMode="cover"
+            onError={() => onMediaError?.()}
+          />
+        ) : (
+          <Text style={[styles.time, { color: colors.textSecondary }]}>File unavailable</Text>
+        )}
         <Text style={[styles.time, { color: colors.textSecondary }]}>
           {formatTime(message.created_at)}
         </Text>
@@ -137,9 +145,16 @@ export const MessageBubble: React.FC<Props> = ({
   // GIF
   if (message.message_type === 'gif' && message.file_url) {
     const url = mediaUrl(message.file_url);
+    if (!url) {
+      return (
+        <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+          <Text style={[styles.time, { color: colors.textSecondary }]}>File unavailable</Text>
+        </View>
+      );
+    }
     return (
       <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
-        <Image source={{ uri: url }} style={styles.gif} resizeMode="contain" />
+        <Image source={{ uri: url }} style={styles.gif} resizeMode="contain" onError={() => onMediaError?.()} />
         <Text style={[styles.time, { color: colors.textSecondary }]}>
           {formatTime(message.created_at)}
         </Text>
@@ -149,6 +164,13 @@ export const MessageBubble: React.FC<Props> = ({
 
   if ((message.message_type === 'video' || message.message_type === 'audio' || message.message_type === 'file') && message.file_url) {
     const uri = mediaUrl(message.file_url);
+    if (!uri) {
+      return (
+        <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+          <Text style={[styles.time, { color: colors.textSecondary }]}>File unavailable</Text>
+        </View>
+      );
+    }
     return (
       <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
         {message.message_type === 'video' ? (
@@ -157,6 +179,7 @@ export const MessageBubble: React.FC<Props> = ({
             style={styles.video}
             useNativeControls
             resizeMode={ResizeMode.CONTAIN}
+            onError={() => onMediaError?.()}
           />
         ) : null}
         {message.message_type === 'audio' ? <VoiceNote uri={uri} /> : null}

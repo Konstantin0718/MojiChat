@@ -3,7 +3,9 @@
 export const API_URL = 'https://mojichat.onrender.com';
 
 export function mediaUrl(path?: string | null): string {
-  if (!path) return '';
+  if (!path || typeof path !== 'string') return '';
+  const pathOnly = path.split('?')[0];
+  if (pathOnly.startsWith('/uploads') || pathOnly.includes('/uploads/')) return '';
   if (/^https?:\/\//i.test(path)) return path;
   return `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
 }
@@ -42,7 +44,7 @@ export const WEBRTC_CONFIG = {
 // App Configuration
 export const APP_CONFIG = {
   name: 'MojiChat',
-  version: '2.3.4',
+  version: '2.3.5',
   defaultLanguage: 'en',
   supportedLanguages: {
     en: 'English',

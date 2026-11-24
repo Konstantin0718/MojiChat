@@ -1,6 +1,7 @@
 export interface User {
   user_id: string;
   email?: string;
+  username?: string;
   name: string;
   picture?: string;
   is_online?: boolean;

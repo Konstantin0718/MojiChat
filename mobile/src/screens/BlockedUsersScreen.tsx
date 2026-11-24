@@ -22,7 +22,7 @@ interface Props {
 interface BlockedUser {
   user_id: string;
   name: string;
-  email: string;
+  username?: string;
   picture?: string;
   blocked_at: string;
 }
@@ -83,7 +83,7 @@ export const BlockedUsersScreen: React.FC<Props> = ({ navigation }) => {
       )}
       <View style={styles.userInfo}>
         <Text style={styles.userName}>{item.name}</Text>
-        <Text style={styles.userEmail}>{item.email}</Text>
+        {item.username ? <Text style={styles.userEmail}>@{item.username}</Text> : null}
       </View>
       <TouchableOpacity
         style={styles.unblockButton}

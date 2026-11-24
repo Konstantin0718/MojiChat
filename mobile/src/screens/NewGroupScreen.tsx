@@ -110,7 +110,7 @@ export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
       )}
       <View style={styles.userInfo}>
         <Text style={styles.userName}>{item.name}</Text>
-        <Text style={styles.userEmail}>{item.email}</Text>
+        {item.username ? <Text style={styles.userEmail}>@{item.username}</Text> : null}
       </View>
       <Ionicons name="add-circle" size={28} color={colors.primary} />
     </TouchableOpacity>

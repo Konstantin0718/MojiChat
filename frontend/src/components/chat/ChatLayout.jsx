@@ -127,17 +127,24 @@ export const ChatLayout = () => {
       const response = await api.get(`/conversations/${conversationId}/messages`);
       const newMsgs = response.data;
       setMessages(prev => {
-        // Only update if messages actually changed (preserve component state)
         if (prev.length !== newMsgs.length) return newMsgs;
-        const lastOld = prev[prev.length - 1];
-        const lastNew = newMsgs[newMsgs.length - 1];
-        if (lastOld?.message_id !== lastNew?.message_id) return newMsgs;
-        return prev;
+        const changed = prev.some((msg, index) => {
+          const next = newMsgs[index];
+          return msg?.message_id !== next?.message_id || msg?.file_url !== next?.file_url;
+        });
+        return changed ? newMsgs : prev;
       });
     } catch (error) {
       console.error('Error fetching messages:', error);
     }
   }, [api, conversationId]);
+
+  const failedMediaRef = useRef(new Set());
+  const handleMediaError = useCallback((url) => {
+    if (!url || failedMediaRef.current.has(url)) return;
+    failedMediaRef.current.add(url);
+    fetchMessages();
+  }, [fetchMessages]);
 
   // Fetch conversation details
   const fetchConversationDetails = useCallback(async () => {
@@ -748,10 +755,14 @@ export const ChatLayout = () => {
             isOwn ? "rounded-br-sm" : "rounded-bl-sm"
           )}>
             <img 
-              src={mediaUrl(msg.file_url)} 
+              src={mediaUrl(msg.file_url) || undefined}
               alt="Shared image" 
               className="max-w-full max-h-64 object-cover cursor-pointer hover:opacity-90 transition-opacity"
-              onClick={() => window.open(mediaUrl(msg.file_url), '_blank')}
+              onError={() => handleMediaError(msg.file_url)}
+              onClick={() => {
+                const src = mediaUrl(msg.file_url);
+                if (src) window.open(src, '_blank');
+              }}
             />
             <div className={cn(
               "px-3 py-1 text-xs",
@@ -785,9 +796,10 @@ export const ChatLayout = () => {
             isOwn ? "rounded-br-sm bg-primary" : "rounded-bl-sm bg-muted"
           )}>
             <video 
-              src={mediaUrl(msg.file_url)} 
+              src={mediaUrl(msg.file_url) || undefined}
               controls 
               className="max-w-full max-h-64"
+              onError={() => handleMediaError(msg.file_url)}
             />
           </div>
         </motion.div>
@@ -816,8 +828,13 @@ export const ChatLayout = () => {
           )}>
             <div className="flex items-center gap-3">
               <Mic className="w-5 h-5" />
-              <audio src={mediaUrl(msg.file_url)} controls className="h-8" />
-              {msg.duration && (
+              <audio
+                src={mediaUrl(msg.file_url) || undefined}
+                controls
+                className="h-8"
+                onError={() => handleMediaError(msg.file_url)}
+              />
+              {Number(msg.duration) > 0 && (
                 <span className="text-xs opacity-70">
                   {Math.floor(msg.duration / 60)}:{(msg.duration % 60).toString().padStart(2, '0')}
                 </span>
@@ -845,7 +862,7 @@ export const ChatLayout = () => {
             <Forward className="w-3.5 h-3.5" />
           </button>
           <a
-            href={mediaUrl(msg.file_url)}
+            href={mediaUrl(msg.file_url) || undefined}
             target="_blank"
             rel="noopener noreferrer"
             className={cn(
@@ -856,7 +873,7 @@ export const ChatLayout = () => {
             <FileText className="w-8 h-8" />
             <div className="min-w-0">
               <p className="font-medium truncate">{msg.file_name || 'File'}</p>
-              {msg.file_size && (
+              {Number(msg.file_size) > 0 && (
                 <p className="text-xs opacity-70">
                   {(msg.file_size / 1024).toFixed(1)} KB
                 </p>
