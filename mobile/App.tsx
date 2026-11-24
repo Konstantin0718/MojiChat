@@ -169,10 +169,10 @@ const RootNavigator = () => {
 };
 
 // Main App Component
-class ErrorBoundary extends React.Component {
-  state = { error: null };
+class ErrorBoundary extends React.Component<{ children?: React.ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
 
-  static getDerivedStateFromError(error) {
+  static getDerivedStateFromError(error: Error) {
     return { error };
   }
 

@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from '../config';
 
 class ApiService {
@@ -184,9 +185,16 @@ class ApiService {
   async uploadFile(uri: string, fileName?: string, mimeType?: string) {
     const name = fileName || uri.split('/').pop() || 'file';
     const type = mimeType || 'application/octet-stream';
+    let uploadUri = uri;
+    if (!uri.startsWith('file://')) {
+      const safeName = name.replace(/[^\w.\-]+/g, '_').slice(-80) || 'upload';
+      const dest = `${FileSystem.cacheDirectory}upload-${Date.now()}-${safeName}`;
+      await FileSystem.copyAsync({ from: uri, to: dest });
+      uploadUri = dest;
+    }
     const formData = new FormData();
     formData.append('file', {
-      uri,
+      uri: uploadUri,
       name,
       type,
     } as any);
@@ -208,6 +216,13 @@ class ApiService {
   // Reactions
   async addReaction(messageId: string, emoji: string) {
     const response = await this.api.post(`/messages/${messageId}/reactions`, { emoji });
+    return response.data;
+  }
+
+  async removeReaction(messageId: string, emoji: string) {
+    const response = await this.api.delete(
+      `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`
+    );
     return response.data;
   }
 

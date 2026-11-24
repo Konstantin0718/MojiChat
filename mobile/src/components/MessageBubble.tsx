@@ -11,7 +11,22 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio, ResizeMode, Video } from 'expo-av';
-import { Message, User, Conversation } from '../types';
+import { User, Conversation } from '../types';
+
+interface BubbleMessage {
+  message_id: string;
+  sender_id: string;
+  sender_name?: string;
+  content?: string;
+  emoji_content?: string;
+  message_type?: string;
+  file_url?: string;
+  file_name?: string;
+  created_at: string;
+  deleted?: boolean;
+  reactions?: Record<string, string[]>;
+  read_by?: string[];
+}
 import { mediaUrl } from '../config';
 import { api } from '../services/api';
 
@@ -38,14 +53,17 @@ const LANG_FLAGS: Record<string, string> = {
 };
 
 interface Props {
-  message: Message;
+  message: BubbleMessage;
   currentUser: User | null;
   conversation: Conversation | null;
   colors: any;
   translationLanguage?: string;
   onDelete?: (messageId: string) => void;
+  onReact?: (messageId: string, emoji: string) => void;
   onMediaError?: (url?: string) => void;
 }
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 export const MessageBubble: React.FC<Props> = ({
   message,
@@ -54,6 +72,7 @@ export const MessageBubble: React.FC<Props> = ({
   colors,
   translationLanguage = 'bg',
   onDelete,
+  onReact,
   onMediaError,
 }) => {
   const isOwn = message.sender_id === currentUser?.user_id;
@@ -62,14 +81,55 @@ export const MessageBubble: React.FC<Props> = ({
   const [isTranslating, setIsTranslating] = useState(false);
   const [lastTranslatedLang, setLastTranslatedLang] = useState<string | null>(null);
   const [translationNote, setTranslationNote] = useState<string | null>(null);
+  const [showReactions, setShowReactions] = useState(false);
 
   const handleLongPress = () => {
-    if (!isOwn || !onDelete) return;
-    Alert.alert('Delete Message', 'Are you sure you want to delete this message?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => onDelete(message.message_id) },
-    ]);
+    setShowReactions((open) => !open);
   };
+
+  const reactionUi = (
+    <View>
+      {showReactions ? (
+        <View style={styles.reactionPicker}>
+          {QUICK_REACTIONS.map((emoji) => (
+            <TouchableOpacity
+              key={emoji}
+              onPress={() => {
+                setShowReactions(false);
+                onReact?.(message.message_id, emoji);
+              }}
+              style={styles.reactionChoice}
+            >
+              <Text style={styles.reactionChoiceText}>{emoji}</Text>
+            </TouchableOpacity>
+          ))}
+          {isOwn && onDelete ? (
+            <TouchableOpacity
+              onPress={() => {
+                setShowReactions(false);
+                Alert.alert('Delete Message', 'Are you sure you want to delete this message?', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Delete', style: 'destructive', onPress: () => onDelete(message.message_id) },
+                ]);
+              }}
+              style={styles.reactionChoice}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.error || '#EF4444'} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+      {message.reactions && Object.keys(message.reactions).length > 0 ? (
+        <View style={styles.reactionRow}>
+          {Object.entries(message.reactions).map(([emoji, users]) => (
+            <TouchableOpacity key={emoji} onPress={() => onReact?.(message.message_id, emoji)} style={styles.reactionPill}>
+              <Text style={{ color: colors.text }}>{emoji} {users?.length || 0}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
 
   const doTranslate = useCallback(async () => {
     // Skip if already translated with same language
@@ -77,7 +137,7 @@ export const MessageBubble: React.FC<Props> = ({
     setIsTranslating(true);
     try {
       const targetLang = translationLanguage === 'auto' ? 'bg' : (translationLanguage || 'bg');
-      const result = await api.translate(message.content, targetLang);
+      const result = await api.translate(message.content || '', targetLang);
       if (result?.available === false) {
         setTranslatedText(null);
         setTranslationNote('Translation is not available');
@@ -104,7 +164,7 @@ export const MessageBubble: React.FC<Props> = ({
   }
 
   const hasEmoji = !!message.emoji_content;
-  const detectedLang = detectLanguage(message.content);
+  const detectedLang = detectLanguage(message.content || '');
   const langFlag = LANG_FLAGS[detectedLang] || '🌐';
   const hasTranslation = !!translatedText && translatedText !== message.content;
 
@@ -124,7 +184,12 @@ export const MessageBubble: React.FC<Props> = ({
   if (message.message_type === 'image' && message.file_url) {
     const imageUri = mediaUrl(message.file_url);
     return (
-      <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onLongPress={handleLongPress}
+        style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}
+      >
+        {reactionUi}
         {imageUri ? (
           <Image
             source={{ uri: imageUri }}
@@ -138,7 +203,7 @@ export const MessageBubble: React.FC<Props> = ({
         <Text style={[styles.time, { color: colors.textSecondary }]}>
           {formatTime(message.created_at)}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   }
 
@@ -153,12 +218,17 @@ export const MessageBubble: React.FC<Props> = ({
       );
     }
     return (
-      <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onLongPress={handleLongPress}
+        style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}
+      >
+        {reactionUi}
         <Image source={{ uri: url }} style={styles.gif} resizeMode="contain" onError={() => onMediaError?.(message.file_url)} />
         <Text style={[styles.time, { color: colors.textSecondary }]}>
           {formatTime(message.created_at)}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   }
 
@@ -172,7 +242,12 @@ export const MessageBubble: React.FC<Props> = ({
       );
     }
     return (
-      <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onLongPress={handleLongPress}
+        style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}
+      >
+        {reactionUi}
         {message.message_type === 'video' ? (
           <Video
             source={{ uri }}
@@ -192,7 +267,7 @@ export const MessageBubble: React.FC<Props> = ({
         <Text style={[styles.time, { color: colors.textSecondary }]}>
           {formatTime(message.created_at)}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   }
 
@@ -208,6 +283,7 @@ export const MessageBubble: React.FC<Props> = ({
         { backgroundColor: isOwn ? colors.primary : colors.card },
       ]}
     >
+      {reactionUi}
       {!isOwn && conversation?.is_group && (
         <Text style={[styles.sender, { color: colors.primary }]}>
           {message.sender_name}
@@ -285,9 +361,9 @@ export const MessageBubble: React.FC<Props> = ({
         </Text>
         {isOwn && (
           <Ionicons
-            name={message.read_by?.length > 1 ? 'checkmark-done' : 'checkmark'}
+            name={(message.read_by?.length || 0) > 1 ? 'checkmark-done' : 'checkmark'}
             size={14}
-            color={message.read_by?.length > 1 ? '#34C759' : 'rgba(255,255,255,0.6)'}
+            color={(message.read_by?.length || 0) > 1 ? '#34C759' : 'rgba(255,255,255,0.6)'}
           />
         )}
       </View>
@@ -368,6 +444,25 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   time: { fontSize: 11 },
+  reactionPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    marginBottom: 4,
+    gap: 2,
+  },
+  reactionChoice: { paddingHorizontal: 4, paddingVertical: 2 },
+  reactionChoiceText: { fontSize: 20 },
+  reactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
+  reactionPill: {
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
   image: { width: 200, height: 200, borderRadius: 12 },
   gif: { width: 200, height: 150, borderRadius: 12 },
   video: { width: 220, height: 160, borderRadius: 12, backgroundColor: '#000' },

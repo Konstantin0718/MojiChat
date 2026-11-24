@@ -207,13 +207,16 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      mediaTypes: ['images', 'videos'],
       quality: 0.8,
+      videoMaxDuration: 30,
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      const mimeType = asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg');
-      await uploadAndSendFile(asset.uri, asset.type === 'video' ? 'video' : 'image', undefined, mimeType);
+      const isVideo = asset.type === 'video';
+      const mimeType = asset.mimeType || (isVideo ? 'video/mp4' : 'image/jpeg');
+      const name = isVideo ? (asset.fileName || 'video.mp4') : (asset.fileName || undefined);
+      await uploadAndSendFile(asset.uri, isVideo ? 'video' : 'image', name, mimeType);
     }
   };
 
@@ -223,11 +226,35 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       Alert.alert('Permission needed', 'Camera access is required');
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      quality: 0.8,
+    });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
       const mimeType = asset.mimeType || 'image/jpeg';
-      await uploadAndSendFile(asset.uri, 'image', undefined, mimeType);
+      await uploadAndSendFile(asset.uri, 'image', asset.fileName || undefined, mimeType);
+    }
+  };
+
+  const recordVideo = async () => {
+    const camera = await ImagePicker.requestCameraPermissionsAsync();
+    if (camera.status !== 'granted') {
+      Alert.alert('Permission needed', 'Camera access is required to record video');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['videos'],
+      videoMaxDuration: 30,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      await uploadAndSendFile(
+        asset.uri,
+        'video',
+        asset.fileName || 'video.mp4',
+        asset.mimeType || 'video/mp4'
+      );
     }
   };
 
@@ -256,8 +283,9 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         uploadRes.file_url
       );
       await loadMessages();
-    } catch (e) {
-      Alert.alert('Error', 'Failed to send file');
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail;
+      Alert.alert('Error', typeof detail === 'string' ? detail : (e?.message || 'Failed to send file'));
     } finally { setSending(false); }
   };
 
@@ -268,6 +296,24 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     await AsyncStorage.setItem('mojichat_translation_lang', langCode);
     setShowLangModal(false);
   };
+
+  const handleReact = useCallback(async (messageId: string, emoji: string) => {
+    const current = messages.find((item) => item.message_id === messageId);
+    const already = !!user?.user_id && (current?.reactions?.[emoji] || []).includes(user.user_id);
+    try {
+      const result = already
+        ? await api.removeReaction(messageId, emoji)
+        : await api.addReaction(messageId, emoji);
+      setMessages((prev) =>
+        prev.map((item) =>
+          item.message_id === messageId ? { ...item, reactions: result.reactions || {} } : item
+        )
+      );
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail;
+      Alert.alert('Error', typeof detail === 'string' ? detail : 'Could not update reaction');
+    }
+  }, [messages, user?.user_id]);
 
   const handleDeleteMessage = useCallback(async (messageId: string) => {
     try {
@@ -293,6 +339,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         colors={colors}
         translationLanguage={translationLang}
         onDelete={handleDeleteMessage}
+        onReact={handleReact}
         onMediaError={(url) => {
           if (!url || failedMediaRef.current.has(url)) return;
           failedMediaRef.current.add(url);
@@ -300,7 +347,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         }}
       />
     ),
-    [user, conversationData, colors, translationLang, handleDeleteMessage, loadMessages]
+    [user, conversationData, colors, translationLang, handleDeleteMessage, handleReact, loadMessages]
   );
 
   const keyExtractor = useCallback(
@@ -400,6 +447,10 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             <TouchableOpacity style={[s.toolbarBtn, { backgroundColor: '#FF6B35' }]} onPress={takePhoto}>
               <Ionicons name="camera" size={24} color="#fff" />
               <Text style={s.toolbarLabel}>Camera</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.toolbarBtn, { backgroundColor: '#EF4444' }]} onPress={recordVideo}>
+              <Ionicons name="videocam" size={24} color="#fff" />
+              <Text style={s.toolbarLabel}>Video</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[s.toolbarBtn, { backgroundColor: '#7C3AED' }]} onPress={pickImage}>
               <Ionicons name="images" size={24} color="#fff" />

@@ -109,6 +109,15 @@ class _StreamRequest:
             yield chunk
 
 
+def test_phone_video_containers_are_accepted():
+    from file_storage import detect_upload
+
+    hevc = b"\x00\x00\x00\x18ftyphvc1" + b"\x00" * 24
+    phone = b"\x00\x00\x00\x18ftyp3gp4" + b"\x00" * 24
+    assert detect_upload(hevc) == ("video/mp4", "video")
+    assert detect_upload(phone) == ("video/3gpp", "video")
+
+
 def test_voice_body_without_content_length_stops_at_the_cap():
     small = _StreamRequest([b'{"audio_data":"aa"}'])
     body = _LOOP.run_until_complete(server._read_capped_body(small, 100))
