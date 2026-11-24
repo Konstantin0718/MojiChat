@@ -26,7 +26,7 @@ Set these on the service that needs them. Do not commit secret values.
 | `SMTP_USE_TLS` | no | Default true for ports other than 465 |
 | `GIPHY_API_KEY` | no | GIF search. Routes still require a logged-in user |
 | `EMERGENT_LLM_KEY` | no | Real translation and emoji conversion. Without it, translation reports unavailable and emoji conversion uses the local fallback |
-| `LLM_MAX_INPUT_CHARS` | no | Max text sent to those routes. Default `2000`. Longer text returns 413 |
+| `LLM_MAX_INPUT_CHARS` | no | Max text for `/translate` and `/emoji/convert`. Default `2000`; longer text returns 413. A chat message still sends and uses the local emoji fallback |
 | `LLM_RATE_PER_MINUTE` | no | Per-user LLM calls per minute. Default `30` |
 | `LLM_RATE_PER_DAY` | no | Per-user LLM calls per day. Default `300` |
 | `LLM_IP_RATE_PER_MINUTE` | no | Per-IP LLM calls per minute, using the trusted client IP. Default `60` |

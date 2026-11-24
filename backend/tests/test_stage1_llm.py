@@ -129,9 +129,7 @@ def test_ip_limit_uses_true_client_ip(client, monkeypatch):
     assert other_ip.status_code == 200, other_ip.text
 
 
-def test_chat_send_is_limited_before_the_model(client, monkeypatch):
-    monkeypatch.setenv("LLM_MAX_INPUT_CHARS", "10")
-    owner = _register(client)
+def _conversation(client, owner):
     friend = _register(client)
     created = client.post(
         "/api/conversations",
@@ -139,13 +137,114 @@ def test_chat_send_is_limited_before_the_model(client, monkeypatch):
         json={"participant_ids": [friend["user_id"]]},
     )
     assert created.status_code == 200, created.text
-    sent = client.post(
-        f"/api/conversations/{created.json()['conversation_id']}/messages",
+    return created.json()["conversation_id"]
+
+
+def _install_model_spy(monkeypatch):
+    calls = []
+
+    class Boom:
+        def __init__(self, **kwargs):
+            pass
+
+        def with_model(self, *args, **kwargs):
+            return self
+
+        async def send_message(self, message):
+            calls.append(message)
+            return "FROM_MODEL"
+
+    module = types.ModuleType("emergentintegrations.llm.chat")
+    module.LlmChat = Boom
+    module.UserMessage = lambda text: text
+    monkeypatch.setitem(sys.modules, "emergentintegrations.llm.chat", module)
+    monkeypatch.setenv("EMERGENT_LLM_KEY", "test-key-not-a-secret")
+    return calls
+
+
+def _send(client, owner, conversation_id, content):
+    return client.post(
+        f"/api/conversations/{conversation_id}/messages",
         headers=_auth(owner),
-        json={"content": "x" * 11, "message_type": "text"},
+        json={"content": content, "message_type": "text"},
     )
-    assert sent.status_code == 413
-    assert "x" * 11 not in sent.text
+
+
+def test_chat_send_uses_fallback_when_the_model_is_blocked(client, monkeypatch):
+    calls = _install_model_spy(monkeypatch)
+    monkeypatch.setenv("LLM_RATE_PER_MINUTE", "1")
+    monkeypatch.setenv("LLM_RATE_PER_DAY", "10")
+    monkeypatch.setenv("LLM_IP_RATE_PER_MINUTE", "10")
+    monkeypatch.setenv("LLM_MAX_INPUT_CHARS", "2000")
+    owner = _register(client)
+    conversation_id = _conversation(client, owner)
+    used = client.post("/api/emoji/convert", headers=_auth(owner), json={"text": "warm up"})
+    assert used.status_code == 200, used.text
+    assert calls, "the warmup call should reach the model"
+    calls.clear()
+
+    content = "hello"
+    sent = _send(client, owner, conversation_id, content)
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["emoji_content"] == server.fallback_emoji_convert(content)
+    assert calls == []
+
+    server._rate_state.clear()
+    calls.clear()
+    long_text = "y" * 2001
+    long_sent = _send(client, owner, conversation_id, long_text)
+    assert long_sent.status_code == 200, long_sent.text
+    assert long_sent.json()["emoji_content"] == server.fallback_emoji_convert(long_text)
+    assert calls == []
+
+
+def test_message_content_has_its_own_length_cap(client):
+    owner = _register(client)
+    conversation_id = _conversation(client, owner)
+    rejected = _send(client, owner, conversation_id, "z" * 10001)
+    assert rejected.status_code == 422
+    accepted = _send(client, owner, conversation_id, "z" * 10000)
+    assert accepted.status_code == 200, accepted.text
+
+
+def test_rejected_limit_does_not_consume_a_passing_bucket(client, monkeypatch):
+    monkeypatch.setenv("LLM_RATE_PER_MINUTE", "2")
+    monkeypatch.setenv("LLM_RATE_PER_DAY", "1")
+    monkeypatch.setenv("LLM_IP_RATE_PER_MINUTE", "10")
+    user = _register(client)
+    headers = _auth(user)
+    assert client.post("/api/emoji/convert", headers=headers, json={"text": "one"}).status_code == 200
+    blocked = client.post("/api/translate", headers=headers, json={"text": "two", "target_language": "en"})
+    assert blocked.status_code == 429
+    for key in [key for key in list(server._rate_state) if key.endswith(":day")]:
+        del server._rate_state[key]
+    allowed = client.post("/api/emoji/convert", headers=headers, json={"text": "three"})
+    assert allowed.status_code == 200, allowed.text
+
+    server._rate_state.clear()
+    monkeypatch.setenv("LLM_RATE_PER_MINUTE", "1")
+    monkeypatch.setenv("LLM_RATE_PER_DAY", "10")
+    monkeypatch.setenv("LLM_IP_RATE_PER_MINUTE", "1")
+    first = _register(client)
+    second = _register(client)
+    opened = client.post(
+        "/api/emoji/convert",
+        headers={**_auth(first), "True-Client-IP": "203.0.113.10"},
+        json={"text": "a"},
+    )
+    assert opened.status_code == 200, opened.text
+    same_ip = client.post(
+        "/api/emoji/convert",
+        headers={**_auth(second), "True-Client-IP": "203.0.113.10"},
+        json={"text": "b"},
+    )
+    assert same_ip.status_code == 429
+    other_ip = client.post(
+        "/api/emoji/convert",
+        headers={**_auth(second), "True-Client-IP": "203.0.113.20"},
+        json={"text": "c"},
+    )
+    assert other_ip.status_code == 200, other_ip.text
 
 
 def test_conversion_errors_do_not_log_the_input(client, monkeypatch, caplog):

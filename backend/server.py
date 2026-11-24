@@ -288,21 +288,29 @@ def _rate_limit_ip(request: Request) -> str:
     return "unknown"
 
 
-async def enforce_named_rate_limit(key: str, limit: int, window_seconds: int):
+async def enforce_named_rate_limits(checks):
+    """Apply every bucket, and record the hit only when all of them still have room."""
     now = time.time()
     async with _rate_lock:
-        timestamps = _rate_state.get(key, [])
-        timestamps = [t for t in timestamps if now - t < window_seconds]
-        if len(timestamps) >= limit:
-            oldest = min(timestamps) if timestamps else now
-            retry_after = max(1, int(window_seconds - (now - oldest)))
-            raise HTTPException(
-                status_code=429,
-                detail="Too many requests. Please try again later.",
-                headers={"Retry-After": str(retry_after)},
-            )
-        timestamps.append(now)
-        _rate_state[key] = timestamps
+        prepared = []
+        for key, limit, window_seconds in checks:
+            timestamps = [t for t in _rate_state.get(key, []) if now - t < window_seconds]
+            if len(timestamps) >= limit:
+                oldest = min(timestamps) if timestamps else now
+                retry_after = max(1, int(window_seconds - (now - oldest)))
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many requests. Please try again later.",
+                    headers={"Retry-After": str(retry_after)},
+                )
+            prepared.append((key, timestamps))
+        for key, timestamps in prepared:
+            timestamps.append(now)
+            _rate_state[key] = timestamps
+
+
+async def enforce_named_rate_limit(key: str, limit: int, window_seconds: int):
+    await enforce_named_rate_limits([(key, limit, window_seconds)])
 
 
 async def enforce_rate_limit(request: Request, bucket: str, limit: int, window_seconds: int):
@@ -347,21 +355,21 @@ async def enforce_llm_limits(request: Request, user: dict, text: str):
     if len(text) > llm_max_input_chars():
         raise HTTPException(status_code=413, detail="Text is too long")
     user_id = user["user_id"]
-    await enforce_named_rate_limit(
-        f"llm:user:{user_id}:minute",
-        llm_rate_per_minute(),
-        60,
-    )
-    await enforce_named_rate_limit(
-        f"llm:user:{user_id}:day",
-        llm_rate_per_day(),
-        86400,
-    )
-    await enforce_named_rate_limit(
-        f"llm:ip:{_rate_limit_ip(request)}:minute",
-        llm_ip_rate_per_minute(),
-        60,
-    )
+    await enforce_named_rate_limits([
+        (f"llm:user:{user_id}:minute", llm_rate_per_minute(), 60),
+        (f"llm:user:{user_id}:day", llm_rate_per_day(), 86400),
+        (f"llm:ip:{_rate_limit_ip(request)}:minute", llm_ip_rate_per_minute(), 60),
+    ])
+
+
+async def llm_allowed(request: Request, user: dict, text: str) -> bool:
+    try:
+        await enforce_llm_limits(request, user, text)
+        return True
+    except HTTPException as exc:
+        if exc.status_code in (413, 429):
+            return False
+        raise
 
 # Supported languages for translation
 SUPPORTED_LANGUAGES = {
@@ -453,7 +461,7 @@ class ConversationResponse(BaseModel):
     unread_count: int = 0
 
 class MessageCreate(BaseModel):
-    content: str
+    content: Optional[str] = Field(None, max_length=10000)
     message_type: str = "text"  # text, image, video, audio, file
     file_url: Optional[str] = None
     file_name: Optional[str] = None
@@ -1763,8 +1771,10 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     translations = {}  # NO AUTO-TRANSLATION - send message as-is
     
     if msg_data.message_type == "text" and msg_data.content:
-        await enforce_llm_limits(request, current_user, msg_data.content)
-        emoji_content = await convert_text_to_emoji(msg_data.content)
+        if await llm_allowed(request, current_user, msg_data.content):
+            emoji_content = await convert_text_to_emoji(msg_data.content)
+        else:
+            emoji_content = fallback_emoji_convert(msg_data.content)
         # Removed auto-translation logic - messages are sent exactly as received
     
     message_id = f"msg_{uuid.uuid4().hex[:12]}"
