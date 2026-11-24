@@ -18,6 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { api } from '../services/api';
+import { mediaUrl } from '../config';
 
 interface Props {
   navigation: any;
@@ -205,7 +206,7 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
     >
       <View style={styles.statusRing}>
         {item.user_picture ? (
-          <Image source={{ uri: item.user_picture }} style={styles.statusAvatar} />
+          <Image source={{ uri: mediaUrl(item.user_picture) }} style={styles.statusAvatar} />
         ) : (
           <View style={[styles.statusAvatar, { backgroundColor: colors.primary }]}>
             <Text style={styles.avatarText}>{item.user_name?.[0]?.toUpperCase()}</Text>
@@ -241,7 +242,7 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
               >
                 <View style={styles.addStatusButton}>
                   {user?.picture ? (
-                    <Image source={{ uri: user.picture }} style={styles.myStatusAvatar} />
+                    <Image source={{ uri: mediaUrl(user.picture) }} style={styles.myStatusAvatar} />
                   ) : (
                     <View style={[styles.myStatusAvatar, { backgroundColor: colors.primary }]}>
                       <Text style={styles.avatarTextLarge}>{user?.name?.[0]?.toUpperCase()}</Text>
@@ -411,7 +412,7 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.statusHeader}>
               <View style={styles.statusUserInfo}>
                 {viewingStatus.user_picture ? (
-                  <Image source={{ uri: viewingStatus.user_picture }} style={styles.statusUserAvatar} />
+                  <Image source={{ uri: mediaUrl(viewingStatus.user_picture) }} style={styles.statusUserAvatar} />
                 ) : (
                   <View style={[styles.statusUserAvatar, { backgroundColor: colors.primary }]}>
                     <Text style={styles.avatarTextSmall}>{viewingStatus.user_name?.[0]}</Text>
@@ -427,7 +428,7 @@ export const StatusScreen: React.FC<Props> = ({ navigation }) => {
             {/* Content */}
             <View style={[styles.statusContent, { backgroundColor: viewingStatus.background_color || colors.primary }]}>
               {viewingStatus.content_type === 'image' && viewingStatus.content_url ? (
-                <Image source={{ uri: viewingStatus.content_url }} style={styles.statusImage} />
+                <Image source={{ uri: mediaUrl(viewingStatus.content_url) }} style={styles.statusImage} />
               ) : (
                 <Text style={styles.statusText}>{viewingStatus.text_content}</Text>
               )}

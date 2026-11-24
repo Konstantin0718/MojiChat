@@ -15,6 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { api } from '../services/api';
 import { User } from '../types';
+import { mediaUrl } from '../config';
 
 interface Props {
   navigation: any;
@@ -99,7 +100,7 @@ export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
       onPress={() => toggleUser(item)}
     >
       {item.picture ? (
-        <Image source={{ uri: item.picture }} style={styles.avatar} />
+        <Image source={{ uri: mediaUrl(item.picture) }} style={styles.avatar} />
       ) : (
         <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
           <Text style={styles.avatarText}>
@@ -121,7 +122,7 @@ export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
       onPress={() => toggleUser(item)}
     >
       {item.picture ? (
-        <Image source={{ uri: item.picture }} style={styles.chipAvatar} />
+        <Image source={{ uri: mediaUrl(item.picture) }} style={styles.chipAvatar} />
       ) : (
         <View style={[styles.chipAvatar, { backgroundColor: colors.accent }]}>
           <Text style={styles.chipAvatarText}>

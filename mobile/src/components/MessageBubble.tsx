@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Audio, ResizeMode, Video } from 'expo-av';
 import { Message, User, Conversation } from '../types';
-import { API_URL } from '../config';
+import { mediaUrl } from '../config';
 import { api } from '../services/api';
 
 // Language detection heuristics
@@ -121,7 +123,7 @@ export const MessageBubble: React.FC<Props> = ({
     return (
       <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
         <Image
-          source={{ uri: `${API_URL}${message.file_url}` }}
+          source={{ uri: mediaUrl(message.file_url) }}
           style={styles.image}
           resizeMode="cover"
         />
@@ -134,12 +136,36 @@ export const MessageBubble: React.FC<Props> = ({
 
   // GIF
   if (message.message_type === 'gif' && message.file_url) {
-    const url = message.file_url.startsWith('http')
-      ? message.file_url
-      : `${API_URL}${message.file_url}`;
+    const url = mediaUrl(message.file_url);
     return (
       <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
         <Image source={{ uri: url }} style={styles.gif} resizeMode="contain" />
+        <Text style={[styles.time, { color: colors.textSecondary }]}>
+          {formatTime(message.created_at)}
+        </Text>
+      </View>
+    );
+  }
+
+  if ((message.message_type === 'video' || message.message_type === 'audio' || message.message_type === 'file') && message.file_url) {
+    const uri = mediaUrl(message.file_url);
+    return (
+      <View style={[styles.container, isOwn ? styles.containerOwn : styles.containerOther]}>
+        {message.message_type === 'video' ? (
+          <Video
+            source={{ uri }}
+            style={styles.video}
+            useNativeControls
+            resizeMode={ResizeMode.CONTAIN}
+          />
+        ) : null}
+        {message.message_type === 'audio' ? <VoiceNote uri={uri} /> : null}
+        {message.message_type === 'file' ? (
+          <TouchableOpacity onPress={() => Linking.openURL(uri)} style={styles.fileLink}>
+            <Ionicons name="document-outline" size={18} color={colors.primary} />
+            <Text style={{ color: colors.text }}>{message.file_name || 'Open file'}</Text>
+          </TouchableOpacity>
+        ) : null}
         <Text style={[styles.time, { color: colors.textSecondary }]}>
           {formatTime(message.created_at)}
         </Text>
@@ -246,6 +272,45 @@ export const MessageBubble: React.FC<Props> = ({
   );
 };
 
+function VoiceNote({ uri }: { uri: string }) {
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const [playing, setPlaying] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      soundRef.current?.unloadAsync();
+    };
+  }, []);
+
+  const toggle = async () => {
+    const current = soundRef.current;
+    if (current) {
+      const status = await current.getStatusAsync();
+      if (status.isLoaded && status.isPlaying) {
+        await current.pauseAsync();
+        setPlaying(false);
+        return;
+      }
+      if (status.isLoaded) {
+        await current.playAsync();
+        setPlaying(true);
+        return;
+      }
+    }
+    const { sound } = await Audio.Sound.createAsync({ uri });
+    soundRef.current = sound;
+    setPlaying(true);
+    await sound.playAsync();
+  };
+
+  return (
+    <TouchableOpacity onPress={toggle} style={styles.fileLink}>
+      <Ionicons name={playing ? 'pause' : 'play'} size={18} color="#8B5CF6" />
+      <Text>Voice message</Text>
+    </TouchableOpacity>
+  );
+}
+
 const formatTime = (date: string) => {
   return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
@@ -282,4 +347,6 @@ const styles = StyleSheet.create({
   time: { fontSize: 11 },
   image: { width: 200, height: 200, borderRadius: 12 },
   gif: { width: 200, height: 150, borderRadius: 12 },
+  video: { width: 220, height: 160, borderRadius: 12, backgroundColor: '#000' },
+  fileLink: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8 },
 });

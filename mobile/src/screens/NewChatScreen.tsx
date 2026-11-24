@@ -14,6 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { api } from '../services/api';
 import { User } from '../types';
+import { mediaUrl } from '../config';
 
 interface Props {
   navigation: any;
@@ -70,7 +71,7 @@ export const NewChatScreen: React.FC<Props> = ({ navigation }) => {
       disabled={creating}
     >
       {item.picture ? (
-        <Image source={{ uri: item.picture }} style={styles.avatar} />
+        <Image source={{ uri: mediaUrl(item.picture) }} style={styles.avatar} />
       ) : (
         <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
           <Text style={styles.avatarText}>

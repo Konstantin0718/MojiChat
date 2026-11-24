@@ -27,7 +27,7 @@ jobs:
             --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
       - name: Critical flake8
         working-directory: backend
-        run: ./venv/bin/flake8 server.py --select=E9,F63,F7,F82
+        run: ./venv/bin/flake8 server.py file_storage.py --select=E9,F63,F7,F82
       - name: Reset email tests
         working-directory: backend
         env:
@@ -76,6 +76,14 @@ jobs:
           JWT_SECRET: ci_test_secret_long_enough_value
           CORS_ORIGINS: "*"
         run: ./venv/bin/python -m pytest tests/test_stage1_llm.py -q
+      - name: Upload storage tests
+        working-directory: backend
+        env:
+          MONGO_URL: mongodb://127.0.0.1:27017
+          DB_NAME: mojichat_upload_tests
+          JWT_SECRET: ci_test_secret_long_enough_value
+          CORS_ORIGINS: "*"
+        run: ./venv/bin/python -m pytest tests/test_stage1_uploads.py -q
       - name: Start API
         working-directory: backend
         env:

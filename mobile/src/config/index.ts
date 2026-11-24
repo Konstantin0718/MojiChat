@@ -2,6 +2,12 @@
 // Replace with your actual backend URL
 export const API_URL = 'https://mojichat.onrender.com';
 
+export function mediaUrl(path?: string | null): string {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 type IceServer = { urls: string; username?: string; credential?: string };
 
 function buildIceServers(): IceServer[] {
