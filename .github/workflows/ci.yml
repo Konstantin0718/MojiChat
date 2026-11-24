@@ -104,6 +104,14 @@ jobs:
           JWT_SECRET: ci_test_secret_long_enough_value
           CORS_ORIGINS: "*"
         run: ./venv/bin/python -m pytest tests/test_stage2.py -q
+      - name: Stage 4 pagination tests
+        working-directory: backend
+        env:
+          MONGO_URL: mongodb://127.0.0.1:27017
+          DB_NAME: mojichat_stage4_tests
+          JWT_SECRET: ci_test_secret_long_enough_value
+          CORS_ORIGINS: "*"
+        run: ./venv/bin/python -m pytest tests/test_stage4_pagination.py -q
       - name: Stage 3 push subscription tests
         working-directory: backend
         env:
@@ -152,6 +160,15 @@ jobs:
         run: |
           yarn install --frozen-lockfile
           yarn build
+
+  backend-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t mojichat-backend:ci backend
+      - name: Image can import the API
+        run: docker run --rm -e MONGO_URL=mongodb://127.0.0.1:27017 -e JWT_SECRET=ci_test_secret_long_enough_value mojichat-backend:ci python -c 'import server'
 
   mobile:
     runs-on: ubuntu-latest
