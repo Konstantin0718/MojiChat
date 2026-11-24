@@ -1,6 +1,5 @@
 from fastapi import FastAPI, APIRouter, BackgroundTasks, HTTPException, Depends, Request, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer
-from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -32,6 +31,22 @@ if not mongo_url:
     raise RuntimeError("MONGO_URL or MONGODB_URI environment variable is required")
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ.get('DB_NAME', 'mojichat_db')]
+
+from file_storage import (  # noqa: E402
+    build_file_store,
+    content_disposition,
+    detect_upload,
+    file_url_window,
+    max_bytes_for,
+    parse_byte_range,
+    parse_file_id,
+    present_file_url,
+    sanitize_filename,
+    upload_byte_ceiling,
+    upload_daily_bytes,
+    verify_file_signature,
+)
+file_store = build_file_store(db)
 
 def _require_jwt_secret() -> str:
     """Refuse to boot with a missing or guessable signing key."""
@@ -93,10 +108,6 @@ async def add_security_headers(request: Request, call_next):
 
 api_router = APIRouter(prefix="/api")
 security = HTTPBearer(auto_error=False)
-
-UPLOADS_DIR = ROOT_DIR / "uploads"
-UPLOADS_DIR.mkdir(exist_ok=True)
-
 
 # Giphy API Key
 GIPHY_API_KEY = os.environ.get('GIPHY_API_KEY', '')
@@ -225,13 +236,22 @@ class ConnectionManager:
     
     async def send_new_message(self, conversation_id: str, message_data: dict, sender_id: str):
         """Send new message notification to conversation participants"""
-        message = {
-            "type": "new_message",
-            "conversation_id": conversation_id,
-            "message": message_data,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-        await self.broadcast_to_conversation(conversation_id, message, exclude_user=sender_id)
+        conv = await db.conversations.find_one(
+            {"conversation_id": conversation_id},
+            {"_id": 0, "participant_ids": 1},
+        )
+        if not conv:
+            return
+        timestamp = datetime.now(timezone.utc).isoformat()
+        for user_id in conv["participant_ids"]:
+            if user_id == sender_id:
+                continue
+            await self.send_to_user(user_id, {
+                "type": "new_message",
+                "conversation_id": conversation_id,
+                "message": present_message(message_data, user_id),
+                "timestamp": timestamp,
+            })
     
     async def send_message_read(self, conversation_id: str, message_id: str, reader_id: str):
         """Send read receipt to conversation"""
@@ -798,7 +818,7 @@ async def login(request: Request, user_data: UserLogin):
         "user_id": user["user_id"],
         "email": user["email"],
         "name": user["name"],
-        "picture": user.get("picture"),
+        "picture": present_file_url(user.get("picture"), user["user_id"]),
         "token": token
     }
 
@@ -877,7 +897,7 @@ async def process_google_session(request: Request):
         "user_id": user_id,
         "email": email,
         "name": name,
-        "picture": picture,
+        "picture": present_file_url(picture, user_id),
         "token": emergent_session_token
     }
 
@@ -1320,20 +1340,31 @@ async def verify_phone_and_register(data: PhoneVerificationConfirm):
         "phone_number": phone,
         "name": user.get("name"),
         "email": user.get("email"),
-        "picture": user.get("picture"),
+        "picture": present_file_url(user.get("picture"), user_id),
         "token": token,
         "is_new_user": not existing_user
     }
 
 # ==================== USER ENDPOINTS ====================
 
-def public_user(user: dict) -> dict:
+def present_message(message: Optional[dict], viewer_id: Optional[str]):
+    if not message:
+        return message
+    shown = dict(message)
+    shown.pop("_id", None)
+    if shown.get("file_url"):
+        shown["file_url"] = present_file_url(shown.get("file_url"), viewer_id)
+    return shown
+
+
+def public_user(user: dict, viewer_id: Optional[str] = None) -> dict:
     """Fields safe to show to someone else."""
+    picture = user.get("picture") or user.get("avatar")
     return {
         "user_id": user.get("user_id"),
         "name": user.get("name") or user.get("display_name"),
         "username": user.get("username"),
-        "picture": user.get("picture") or user.get("avatar"),
+        "picture": present_file_url(picture, viewer_id) if viewer_id else picture,
         "bio": user.get("bio"),
         "status": user.get("status"),
         "is_online": bool(user.get("is_online", False)),
@@ -1343,7 +1374,7 @@ def public_user(user: dict) -> dict:
 
 def own_profile(user: dict) -> dict:
     """Account fields for the signed-in user. Never includes the password hash."""
-    profile = public_user(user)
+    profile = public_user(user, user.get("user_id"))
     profile.update({
         "email": user.get("email"),
         "phone_number": user.get("phone_number"),
@@ -1355,12 +1386,12 @@ def own_profile(user: dict) -> dict:
     return profile
 
 
-async def public_profiles(user_ids) -> list:
+async def public_profiles(user_ids, viewer_id: Optional[str] = None) -> list:
     ids = [user_id for user_id in user_ids if isinstance(user_id, str)]
     if not ids:
         return []
     users = await db.users.find({"user_id": {"$in": ids}}, {"_id": 0}).to_list(100)
-    return [public_user(user) for user in users]
+    return [public_user(user, viewer_id) for user in users]
 
 
 @api_router.get("/users/search")
@@ -1388,7 +1419,7 @@ async def search_users(q: str, request: Request):
         },
         {"_id": 0},
     ).to_list(20)
-    return [public_user(user) for user in users]
+    return [public_user(user, current_user["user_id"]) for user in users]
 
 # ==================== BLOCKED USERS ====================
 
@@ -1412,7 +1443,7 @@ async def get_blocked_users(request: Request):
     result = []
     for user in users:
         block_record = next((b for b in blocked if b["blocked_id"] == user["user_id"]), None)
-        profile = public_user(user)
+        profile = public_user(user, current_user["user_id"])
         profile["blocked_at"] = block_record["blocked_at"] if block_record else None
         result.append(profile)
     
@@ -1508,7 +1539,8 @@ async def get_statuses(request: Request):
     for status in statuses:
         user_info = user_map.get(status["user_id"], {})
         status["user_name"] = user_info.get("name", "Unknown")
-        status["user_picture"] = user_info.get("picture")
+        status["user_picture"] = present_file_url(user_info.get("picture"), current_user["user_id"])
+        status["content_url"] = present_file_url(status.get("content_url"), current_user["user_id"])
     
     # Separate into my, recent, and viewed
     my_statuses = [s for s in statuses if s["user_id"] == current_user["user_id"]]
@@ -1529,6 +1561,12 @@ async def create_status(request: Request):
     current_user = await get_current_user(request)
     body = await request.json()
     
+    content_url = body.get("file_url")
+    status_file_id = parse_file_id(content_url)
+    if status_file_id:
+        await attach_owned_file(status_file_id, current_user, kind="status")
+        content_url = f"/api/files/{status_file_id}"
+
     status_id = f"status_{uuid.uuid4().hex[:12]}"
     status_doc = {
         "status_id": status_id,
@@ -1536,7 +1574,7 @@ async def create_status(request: Request):
         "content_type": body.get("content_type", "text"),
         "text_content": body.get("text_content"),
         "background_color": body.get("background_color", "#8B5CF6"),
-        "content_url": body.get("file_url"),
+        "content_url": content_url,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
         "viewed_by": []
@@ -1590,6 +1628,11 @@ async def forward_message(message_id: str, body: ForwardMessageBody, request: Re
 
     forwarded_messages = []
     for conv_id in body.conversation_ids:
+        forwarded_url = original.get("file_url")
+        forwarded_file_id = parse_file_id(forwarded_url)
+        if forwarded_file_id:
+            await attach_owned_file(forwarded_file_id, current_user, conversation_id=conv_id)
+            forwarded_url = f"/api/files/{forwarded_file_id}"
         # Create forwarded message
         new_msg_id = f"msg_{uuid.uuid4().hex[:12]}"
         new_msg = {
@@ -1600,7 +1643,7 @@ async def forward_message(message_id: str, body: ForwardMessageBody, request: Re
             "content": original.get("content"),
             "emoji_content": original.get("emoji_content"),
             "message_type": original.get("message_type", "text"),
-            "file_url": original.get("file_url"),
+            "file_url": forwarded_url,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "read_by": [current_user["user_id"]],
             "reactions": {},
@@ -1668,7 +1711,7 @@ async def get_conversations(request: Request):
     result = []
     for conv in conversations:
         # Get participants info
-        participants = await public_profiles(conv["participant_ids"])
+        participants = await public_profiles(conv["participant_ids"], current_user["user_id"])
         
         # Get last message
         last_msg = await db.messages.find_one(
@@ -1690,7 +1733,7 @@ async def get_conversations(request: Request):
             "name": conv.get("name"),
             "is_group": conv.get("is_group", False),
             "created_at": conv["created_at"],
-            "last_message": last_msg,
+            "last_message": present_message(last_msg, current_user["user_id"]) if last_msg else None,
             "unread_count": unread
         })
     
@@ -1704,7 +1747,7 @@ async def get_conversation(conversation_id: str, request: Request):
     current_user = await get_current_user(request)
     conv = await get_conversation_for_user(conversation_id, current_user)
     
-    participants = await public_profiles(conv["participant_ids"])
+    participants = await public_profiles(conv["participant_ids"], current_user["user_id"])
     
     return {
         "conversation_id": conv["conversation_id"],
@@ -1765,6 +1808,15 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     )
     if block_detail:
         raise HTTPException(status_code=403, detail=block_detail)
+
+    if (msg_data.message_type or "text") == "text" and not (msg_data.content or "").strip():
+        raise HTTPException(status_code=422, detail="Message is empty")
+
+    file_url = msg_data.file_url
+    file_id = parse_file_id(file_url)
+    if file_id:
+        await attach_owned_file(file_id, current_user, conversation_id=conversation_id)
+        file_url = f"/api/files/{file_id}"
     
     # Convert text to emoji (only for text messages)
     emoji_content = ""
@@ -1786,7 +1838,7 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
         "content": msg_data.content,
         "emoji_content": emoji_content,
         "message_type": msg_data.message_type,
-        "file_url": msg_data.file_url,
+        "file_url": file_url,
         "file_name": msg_data.file_name,
         "file_size": msg_data.file_size,
         "duration": msg_data.duration,
@@ -1813,7 +1865,7 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
         "content": msg_data.content,
         "emoji_content": emoji_content,
         "message_type": msg_data.message_type,
-        "file_url": msg_data.file_url,
+        "file_url": file_url,
         "file_name": msg_data.file_name,
         "file_size": msg_data.file_size,
         "duration": msg_data.duration,
@@ -1838,7 +1890,7 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
         message_id,
     )
 
-    return response_data
+    return present_message(response_data, current_user["user_id"])
 
 @api_router.get("/conversations/{conversation_id}/messages")
 async def get_messages(conversation_id: str, request: Request, limit: int = 50, before: Optional[str] = None):
@@ -1864,7 +1916,7 @@ async def get_messages(conversation_id: str, request: Request, limit: int = 50, 
         {"$addToSet": {"read_by": current_user["user_id"]}}
     )
     
-    return list(reversed(messages))
+    return [present_message(message, current_user["user_id"]) for message in reversed(messages)]
 
 # ==================== TYPING & STATUS ====================
 
@@ -2029,22 +2081,18 @@ async def update_profile(request: Request, file: UploadFile = File(None), name: 
         update_data["name"] = name.strip()
 
     if file:
-        MAX_SIZE = 5 * 1024 * 1024  # 5 MB
-        content = await file.read()
-        if len(content) > MAX_SIZE:
-            raise HTTPException(status_code=400, detail="Image too large. Max 5MB.")
-
-        mime = (file.content_type or "").lower()
-        if not mime.startswith("image/"):
-            raise HTTPException(status_code=400, detail="Only image files are allowed for profile picture.")
-
-        ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
-        file_id = f"avatar_{current_user['user_id']}{ext}"
-        file_path = UPLOADS_DIR / file_id
-        with open(file_path, "wb") as f:
-            f.write(content)
-
-        update_data["picture"] = f"/api/files/{file_id}"
+        content = await _read_limited_upload(file)
+        content_type, media_class = _checked_upload(content, images_only=True)
+        await _enforce_upload_quota(current_user["user_id"], len(content))
+        stored = await file_store.save(
+            data=content,
+            content_type=content_type,
+            media_class=media_class,
+            original_name=sanitize_filename(file.filename),
+            uploader_id=current_user["user_id"],
+            kind="avatar",
+        )
+        update_data["picture"] = f"/api/files/{stored['file_id']}"
 
     if not update_data:
         raise HTTPException(status_code=400, detail="Nothing to update.")
@@ -2059,7 +2107,7 @@ async def update_profile(request: Request, file: UploadFile = File(None), name: 
         "user_id": updated["user_id"],
         "email": updated["email"],
         "name": updated["name"],
-        "picture": updated.get("picture"),
+        "picture": present_file_url(updated.get("picture"), current_user["user_id"]),
         "preferred_language": updated.get("preferred_language", "en"),
     }
 
@@ -2134,85 +2182,186 @@ async def get_user(user_id: str, request: Request):
         raise HTTPException(status_code=404, detail="User not found")
     if user_id == current_user["user_id"]:
         return own_profile(user)
-    return public_user(user)
+    return public_user(user, current_user["user_id"])
 
 # ==================== FILE UPLOAD ====================
+
+async def _read_limited_upload(file: UploadFile) -> bytes:
+    ceiling = upload_byte_ceiling()
+    content = await file.read(ceiling + 1)
+    if len(content) > ceiling:
+        raise HTTPException(status_code=413, detail="File is too large")
+    return content
+
+
+def _voice_body_limit() -> int:
+    decoded = max_bytes_for("audio")
+    encoded = 4 * ((decoded + 2) // 3)
+    return encoded + 2048
+
+
+async def _enforce_upload_quota(user_id: str, extra_bytes: int):
+    since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    rows = await db.stored_files.aggregate([
+        {"$match": {"uploader_id": user_id, "created_at": {"$gte": since}}},
+        {"$group": {"_id": None, "total": {"$sum": "$size"}}},
+    ]).to_list(1)
+    used = int(rows[0]["total"]) if rows else 0
+    if used + extra_bytes > upload_daily_bytes():
+        raise HTTPException(
+            status_code=429,
+            detail="Upload quota exceeded",
+            headers={"Retry-After": "86400"},
+        )
+
+
+def _checked_upload(content: bytes, *, images_only: bool = False, voice: bool = False):
+    if content and len(content) > upload_byte_ceiling():
+        raise HTTPException(status_code=413, detail="File is too large")
+    detected = detect_upload(content)
+    if not detected:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+    content_type, media_class = detected
+    if images_only and media_class != "image":
+        raise HTTPException(status_code=400, detail="Only image files are allowed for profile picture.")
+    if voice:
+        if media_class == "audio" or content_type == "video/webm":
+            media_class = "audio"
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported audio type")
+    if len(content) > max_bytes_for(media_class):
+        raise HTTPException(status_code=413, detail="File is too large")
+    return content_type, media_class
+
+
+async def user_can_read_file(user: dict, meta: dict) -> bool:
+    if meta.get("kind") == "avatar":
+        return True
+    if meta.get("uploader_id") == user.get("user_id"):
+        return True
+    for conversation_id in meta.get("conversation_ids") or []:
+        try:
+            await get_conversation_for_user(conversation_id, user)
+            return True
+        except HTTPException:
+            continue
+    if meta.get("kind") == "status" and meta.get("uploader_id"):
+        shared = await db.conversations.find_one(
+            {"participant_ids": {"$all": [user["user_id"], meta["uploader_id"]]}},
+            {"_id": 1},
+        )
+        return shared is not None
+    return False
+
+
+async def attach_owned_file(file_id: str, user: dict, *, conversation_id: str = None, kind: str = None):
+    meta = await file_store.get_meta(file_id)
+    if not meta or not await user_can_read_file(user, meta):
+        raise HTTPException(status_code=404, detail="File not found")
+    if kind is not None:
+        if meta.get("kind") == "avatar" or meta.get("uploader_id") != user.get("user_id"):
+            raise HTTPException(status_code=404, detail="File not found")
+    await file_store.link(file_id, conversation_id=conversation_id, kind=kind)
+
+
+async def release_message_file(message: dict):
+    """Drop this conversation's claim. Delete the bytes when nothing else uses the file."""
+    file_id = parse_file_id(message.get("file_url"))
+    conversation_id = message.get("conversation_id")
+    if not file_id or not conversation_id:
+        return
+    canonical = f"/api/files/{file_id}"
+    others = await db.messages.count_documents({
+        "file_url": canonical,
+        "conversation_id": conversation_id,
+        "message_id": {"$ne": message.get("message_id")},
+        "deleted": {"$ne": True},
+    })
+    if others:
+        return
+    await file_store.pull_conversation(file_id, conversation_id)
+    meta = await file_store.get_meta(file_id)
+    if not meta or meta.get("conversation_ids") or meta.get("kind") in ("avatar", "status"):
+        return
+    if await db.users.find_one({"picture": canonical}, {"_id": 1}):
+        return
+    if await db.statuses.find_one({"content_url": canonical}, {"_id": 1}):
+        return
+    await file_store.delete(file_id)
+
+
+def _canonical_file_url(url: Optional[str]) -> Optional[str]:
+    file_id = parse_file_id(url)
+    if not file_id:
+        return url
+    return f"/api/files/{file_id}"
+
 
 @api_router.post("/upload")
 async def upload_file(request: Request, file: UploadFile = File(...)):
     """Upload a file (image, video, audio, document)"""
     current_user = await get_current_user(request)
-    
-    # Validate file size (max 50MB)
-    MAX_SIZE = 50 * 1024 * 1024
-    content = await file.read()
-    if len(content) > MAX_SIZE:
-        raise HTTPException(status_code=400, detail="File too large. Maximum 50MB")
-    
-    # Generate unique filename
-    ext = Path(file.filename).suffix.lower() if file.filename else ""
-    file_id = f"{uuid.uuid4().hex[:16]}{ext}"
-    file_path = UPLOADS_DIR / file_id
-    
-    # Save file
-    with open(file_path, "wb") as f:
-        f.write(content)
-    
-    # Determine file type
-    mime_type = (file.content_type or mimetypes.guess_type(file.filename)[0] or "application/octet-stream").lower()
-    # Basic whitelist to reduce abuse from unexpected file types.
-    allowed_mime_prefixes = (
-        "image/",
-        "video/",
-        "audio/",
-        "text/plain",
-        "text/",
-        "application/pdf",
-        "application/zip",
-        "application/json",
-        "application/xml",
-        # Common office formats
-        "application/vnd.openxmlformats-officedocument",
-        "application/msword",
-        "application/vnd.ms-excel",
-        "application/vnd.ms-powerpoint",
+    content = await _read_limited_upload(file)
+    content_type, media_class = _checked_upload(content)
+    await _enforce_upload_quota(current_user["user_id"], len(content))
+    stored = await file_store.save(
+        data=content,
+        content_type=content_type,
+        media_class=media_class,
+        original_name=sanitize_filename(file.filename),
+        uploader_id=current_user["user_id"],
+        kind="upload",
     )
-    if not any(mime_type.startswith(p) for p in allowed_mime_prefixes):
-        raise HTTPException(status_code=400, detail="Unsupported file type")
-    if mime_type.startswith("image/"):
-        file_type = "image"
-    elif mime_type.startswith("video/"):
-        file_type = "video"
-    elif mime_type.startswith("audio/"):
-        file_type = "audio"
-    else:
-        file_type = "file"
-    
-    # Build URL
-    file_url = f"/api/files/{file_id}"
-    
     return {
-        "file_id": file_id,
-        "file_url": file_url,
-        "file_name": file.filename,
-        "file_size": len(content),
-        "file_type": file_type,
-        "mime_type": mime_type
+        "file_id": stored["file_id"],
+        "file_url": present_file_url(f"/api/files/{stored['file_id']}", current_user["user_id"]),
+        "file_name": stored["original_name"],
+        "file_size": stored["size"],
+        "file_type": media_class if media_class != "file" else "file",
+        "mime_type": content_type,
     }
 
+
 @api_router.get("/files/{file_id}")
-async def get_file(file_id: str):
-    """Serve uploaded file"""
-    file_path = UPLOADS_DIR / file_id
-    if not file_path.exists():
+async def get_file(
+    file_id: str,
+    request: Request,
+    uid: Optional[str] = None,
+    exp: Optional[str] = None,
+    sig: Optional[str] = None,
+):
+    """Serve a stored file to an authorized viewer or a valid signed URL."""
+    auth_header = request.headers.get("Authorization") or ""
+    if auth_header.startswith("Bearer "):
+        current_user = await get_current_user(request)
+    elif uid and exp and sig and verify_file_signature(file_id, uid, exp, sig):
+        current_user = await db.users.find_one({"user_id": uid}, {"_id": 0, "password": 0})
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+    else:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    meta = await file_store.get_meta(file_id)
+    if not meta or not await user_can_read_file(current_user, meta):
         raise HTTPException(status_code=404, detail="File not found")
-    
-    mime_type = mimetypes.guess_type(file_id)[0] or "application/octet-stream"
-    
-    with open(file_path, "rb") as f:
-        content = f.read()
-    
-    return Response(content=content, media_type=mime_type)
+    size = int(meta.get("size") or 0)
+    headers = {
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": content_disposition(meta["media_class"], meta.get("original_name")),
+        "Cache-Control": f"private, max-age={file_url_window()}",
+        "Accept-Ranges": "bytes",
+    }
+    byte_range = parse_byte_range(request.headers.get("range"), size)
+    if byte_range == "invalid":
+        headers["Content-Range"] = f"bytes */{size}"
+        return Response(status_code=416, headers=headers)
+    if byte_range is None:
+        data = await file_store.read(meta)
+        return Response(content=data, media_type=meta["content_type"], headers=headers)
+    start, end = byte_range
+    data = await file_store.read(meta, start, end)
+    headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    return Response(content=data, status_code=206, media_type=meta["content_type"], headers=headers)
 
 # ==================== VOICE MESSAGE ====================
 
@@ -2220,37 +2369,53 @@ async def get_file(file_id: str):
 async def upload_voice(request: Request):
     """Upload voice message as base64"""
     current_user = await get_current_user(request)
-    body = await request.json()
-    
+    body_limit = _voice_body_limit()
+    declared = request.headers.get("content-length")
+    if declared:
+        try:
+            if int(declared) > body_limit:
+                raise HTTPException(status_code=413, detail="File is too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid audio data")
+    raw = await request.body()
+    if len(raw) > body_limit:
+        raise HTTPException(status_code=413, detail="File is too large")
+    try:
+        body = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid audio data")
+
     audio_data = body.get("audio_data")  # base64 encoded
     duration = body.get("duration", 0)
-    
-    if not audio_data:
+
+    if not isinstance(audio_data, str) or not audio_data:
         raise HTTPException(status_code=400, detail="No audio data provided")
-    
-    # Decode base64
+
+    payload = audio_data.split(",", 1)[1] if "," in audio_data[:128] else audio_data
+    decoded_cap = max_bytes_for("audio")
+    if len(payload) > 4 * ((decoded_cap + 2) // 3):
+        raise HTTPException(status_code=413, detail="File is too large")
+
     try:
-        audio_bytes = base64.b64decode(audio_data.split(",")[1] if "," in audio_data else audio_data)
+        audio_bytes = base64.b64decode(payload, validate=False)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid audio data")
 
-    # Validate voice size (avoid very large payloads / abuse).
-    MAX_VOICE_BYTES = 20 * 1024 * 1024  # 20MB
-    if len(audio_bytes) > MAX_VOICE_BYTES:
-        raise HTTPException(status_code=400, detail="Voice message is too large")
-    
-    # Save file
-    file_id = f"voice_{uuid.uuid4().hex[:16]}.webm"
-    file_path = UPLOADS_DIR / file_id
-    
-    with open(file_path, "wb") as f:
-        f.write(audio_bytes)
-    
+    content_type, media_class = _checked_upload(audio_bytes, voice=True)
+    await _enforce_upload_quota(current_user["user_id"], len(audio_bytes))
+    stored = await file_store.save(
+        data=audio_bytes,
+        content_type=content_type,
+        media_class=media_class,
+        original_name="voice.webm" if content_type == "video/webm" else "voice",
+        uploader_id=current_user["user_id"],
+        kind="voice",
+    )
     return {
-        "file_id": file_id,
-        "file_url": f"/api/files/{file_id}",
+        "file_id": stored["file_id"],
+        "file_url": present_file_url(f"/api/files/{stored['file_id']}", current_user["user_id"]),
         "duration": duration,
-        "file_size": len(audio_bytes)
+        "file_size": stored["size"],
     }
 
 # ==================== DELETE MESSAGE ====================
@@ -2263,6 +2428,8 @@ async def delete_message(message_id: str, request: Request):
 
     if message["sender_id"] != current_user["user_id"]:
         raise HTTPException(status_code=403, detail="You can only delete your own messages")
+
+    await release_message_file(message)
 
     # Soft-delete: replace content with deleted marker so other clients can update UI
     await db.messages.update_one(
@@ -2531,7 +2698,7 @@ async def search_messages(q: str, request: Request, conversation_id: Optional[st
         {"_id": 0}
     ).sort("created_at", -1).limit(50).to_list(50)
     
-    return messages
+    return [present_message(message, current_user["user_id"]) for message in messages]
 
 @api_router.get("/search/conversations")
 async def search_conversations(q: str, request: Request):
@@ -2550,7 +2717,7 @@ async def search_conversations(q: str, request: Request):
     results = []
     for conv in conversations:
         # Get participants
-        participants = await public_profiles(conv["participant_ids"])
+        participants = await public_profiles(conv["participant_ids"], current_user["user_id"])
         
         # Check if query matches conversation name or participant names
         conv_name = conv.get("name") or ""
@@ -3145,9 +3312,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
 # Include router and configure app
 app.include_router(api_router)
 
-# Mount uploads directory for static file serving
-app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
-
 
 async def _safe_index(label: str, awaitable):
     """One failed index must not skip the rest."""
@@ -3249,6 +3413,20 @@ async def create_db_indexes():
     except Exception as exc:
         logger.warning("email normalize skipped: %s", type(exc).__name__)
 
+    await _safe_index("stored_files.file_id", db.stored_files.create_index("file_id", unique=True, background=True))
+    await _safe_index(
+        "stored_files.uploader_created",
+        db.stored_files.create_index([("uploader_id", 1), ("created_at", 1)], background=True),
+    )
+    try:
+        rows = await db.stored_files.aggregate([
+            {"$group": {"_id": None, "total": {"$sum": "$size"}, "count": {"$sum": 1}}},
+        ]).to_list(1)
+        total = int(rows[0]["total"]) if rows else 0
+        count = int(rows[0]["count"]) if rows else 0
+        logger.info("stored uploads count=%s bytes=%s", count, total)
+    except Exception as exc:
+        logger.warning("stored upload size log skipped: %s", type(exc).__name__)
     await _safe_index("users.user_id", db.users.create_index("user_id", unique=True, background=True))
     await _safe_index("users.email", db.users.create_index("email", unique=True, background=True))
     await _safe_index("users.phone_number", db.users.create_index("phone_number", sparse=True, background=True))

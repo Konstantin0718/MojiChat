@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { mediaUrl } from '../../lib/mediaUrl';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { cn } from '../../lib/utils';
 import { toast } from 'sonner';
 
 const STORY_COLORS = ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#EF4444'];
-const API_URL = process.env.REACT_APP_BACKEND_URL || '';
-
 function groupStories(items, currentUserId) {
   const map = new Map();
   items.forEach((status) => {
@@ -160,7 +159,7 @@ export const StoryRail = ({ api, currentUser }) => {
         <button type="button" onClick={openMine} className="flex flex-col items-center gap-1 shrink-0 w-16" data-testid="my-story-btn">
           <span className={cn('rounded-full p-0.5', mine.length ? 'bg-primary' : 'bg-muted')}>
             <Avatar className="w-12 h-12 border-2 border-card">
-              <AvatarImage src={currentUser?.picture} />
+              <AvatarImage src={mediaUrl(currentUser?.picture)} />
               <AvatarFallback>{currentUser?.name?.[0]?.toUpperCase() || 'Y'}</AvatarFallback>
             </Avatar>
           </span>
@@ -187,7 +186,7 @@ export const StoryRail = ({ api, currentUser }) => {
           >
             <span className={cn('rounded-full p-0.5', group.unseen ? 'bg-primary' : 'bg-muted-foreground/40')}>
               <Avatar className="w-12 h-12 border-2 border-card">
-                <AvatarImage src={group.picture} />
+                <AvatarImage src={mediaUrl(group.picture)} />
                 <AvatarFallback>{group.name?.[0]?.toUpperCase()}</AvatarFallback>
               </Avatar>
             </span>
@@ -279,7 +278,7 @@ export const StoryRail = ({ api, currentUser }) => {
             />
             {currentStatus.content_type === 'image' && currentStatus.content_url ? (
               <img
-                src={currentStatus.content_url.startsWith('http') ? currentStatus.content_url : `${API_URL}${currentStatus.content_url}`}
+                src={mediaUrl(currentStatus.content_url)}
                 alt="Story"
                 className="max-h-[80vh] max-w-full object-contain"
               />
