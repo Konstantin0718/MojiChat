@@ -139,6 +139,14 @@ def test_android_m4a_voice_is_stored_as_audio(client):
         assert mongo[os.environ["DB_NAME"]]["uploads.files"].find_one({"_id": stored["gridfs_id"]})
 
 
+def test_default_media_cap_is_40mb(monkeypatch):
+    monkeypatch.delenv("UPLOAD_MAX_MEDIA_BYTES", raising=False)
+    from file_storage import max_bytes_for
+
+    assert max_bytes_for("video") == 40 * 1024 * 1024
+    assert max_bytes_for("audio") == 40 * 1024 * 1024
+
+
 def test_phone_video_containers_are_accepted():
     from file_storage import detect_upload
 

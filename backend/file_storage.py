@@ -70,7 +70,7 @@ def max_bytes_for(media_class: str) -> int:
     if media_class == "image":
         return _positive_int_env("UPLOAD_MAX_IMAGE_BYTES", 10 * 1024 * 1024)
     if media_class in ("audio", "video"):
-        return _positive_int_env("UPLOAD_MAX_MEDIA_BYTES", 25 * 1024 * 1024)
+        return _positive_int_env("UPLOAD_MAX_MEDIA_BYTES", 40 * 1024 * 1024)
     return _positive_int_env("UPLOAD_MAX_FILE_BYTES", 15 * 1024 * 1024)
 
 

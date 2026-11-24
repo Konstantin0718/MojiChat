@@ -2,6 +2,8 @@
 // Replace with your actual backend URL
 export const API_URL = 'https://mojichat.onrender.com';
 
+export const MAX_MEDIA_BYTES = 40 * 1024 * 1024;
+
 export function mediaUrl(path?: string | null): string {
   if (!path || typeof path !== 'string') return '';
   const pathOnly = path.split('?')[0];
@@ -44,7 +46,7 @@ export const WEBRTC_CONFIG = {
 // App Configuration
 export const APP_CONFIG = {
   name: 'MojiChat',
-  version: '2.3.6',
+  version: '2.3.7',
   defaultLanguage: 'en',
   supportedLanguages: {
     en: 'English',

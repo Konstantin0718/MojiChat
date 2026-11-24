@@ -32,7 +32,7 @@ Set these on the service that needs them. Do not commit secret values.
 | `LLM_IP_RATE_PER_MINUTE` | no | Per-IP LLM calls per minute, using the trusted client IP. Default `60` |
 | `FILE_STORAGE` | no | `gridfs` (default) stores uploads in the existing Mongo database. `s3` or `r2` selects the object-storage seam |
 | `UPLOAD_MAX_IMAGE_BYTES` | no | Image cap. Default 10 MB |
-| `UPLOAD_MAX_MEDIA_BYTES` | no | Audio and video cap. Default 25 MB |
+| `UPLOAD_MAX_MEDIA_BYTES` | no | Audio and video cap. Default 40 MB |
 | `UPLOAD_MAX_FILE_BYTES` | no | Other allowed files. Default 15 MB |
 | `FILE_URL_WINDOW_SECONDS` | no | Signed media URLs stay the same inside this window and remain valid for one to two windows. Default `3600` |
 | `UPLOAD_DAILY_BYTES` | no | Per-user upload quota for the last 24 hours. Default 100 MB. Over the quota returns 429 |
