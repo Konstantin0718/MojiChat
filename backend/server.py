@@ -481,6 +481,12 @@ class PhoneLoginRequest(BaseModel):
 
 # ==================== AUTH HELPERS ====================
 
+def normalize_email(value) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip().lower()
+
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
@@ -638,8 +644,8 @@ def fallback_emoji_convert(text: str) -> str:
 
 @api_router.post("/auth/register")
 async def register(user_data: UserCreate, response: Response):
-    # Check if user exists
-    existing = await db.users.find_one({"email": user_data.email})
+    email = normalize_email(str(user_data.email))
+    existing = await db.users.find_one({"email": email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
@@ -648,7 +654,7 @@ async def register(user_data: UserCreate, response: Response):
     
     user_doc = {
         "user_id": user_id,
-        "email": user_data.email,
+        "email": email,
         "name": user_data.name,
         "password": hashed_pwd,
         "picture": None,
@@ -677,7 +683,7 @@ async def register(user_data: UserCreate, response: Response):
     
     return {
         "user_id": user_id,
-        "email": user_data.email,
+        "email": email,
         "name": user_data.name,
         "picture": None,
         "token": token
@@ -687,7 +693,8 @@ async def register(user_data: UserCreate, response: Response):
 async def login(request: Request, user_data: UserLogin, response: Response):
     # Rate limit to reduce brute-force attempts.
     await enforce_rate_limit(request, bucket="auth_login", limit=10, window_seconds=600)
-    user = await db.users.find_one({"email": user_data.email}, {"_id": 0})
+    email = normalize_email(str(user_data.email))
+    user = await db.users.find_one({"email": email}, {"_id": 0})
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
@@ -746,12 +753,13 @@ async def process_google_session(request: Request, response: Response):
             logger.error(f"Error calling Emergent Auth: {e}")
             raise HTTPException(status_code=500, detail="Auth service error")
     
-    email = data.get("email")
+    email = normalize_email(data.get("email") or "")
     name = data.get("name")
     picture = data.get("picture")
     emergent_session_token = data.get("session_token")
+    if not email:
+        raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Check if user exists
     existing_user = await db.users.find_one({"email": email}, {"_id": 0})
     
     if existing_user:
@@ -812,16 +820,7 @@ async def process_google_session(request: Request, response: Response):
 @api_router.get("/auth/me")
 async def get_me(request: Request):
     user = await get_current_user(request)
-    return {
-        "user_id": user["user_id"],
-        "email": user["email"],
-        "name": user["name"],
-        "picture": user.get("picture"),
-        "is_online": user.get("is_online", False),
-        "last_seen": user.get("last_seen"),
-        "preferred_language": user.get("preferred_language", "en"),
-        "country_code": user.get("country_code")
-    }
+    return own_profile(user)
 
 @api_router.post("/auth/logout")
 async def logout(request: Request, response: Response):
@@ -1031,10 +1030,11 @@ async def deliver_reset_email(to_email: str, reset_token: str) -> None:
 async def forgot_password(request: Request, data: PasswordResetRequest, background_tasks: BackgroundTasks):
     """Send password reset email. The response does not reveal whether the account exists."""
     generic = {"message": RESET_EMAIL_MESSAGE}
-    if await forgot_password_limited(data.email, _get_client_ip(request)):
+    email = normalize_email(str(data.email))
+    if await forgot_password_limited(email, _get_client_ip(request)):
         return generic
 
-    user = await db.users.find_one({"email": data.email}, {"_id": 0})
+    user = await db.users.find_one({"email": email}, {"_id": 0})
     if not user:
         return generic
 
@@ -1042,15 +1042,15 @@ async def forgot_password(request: Request, data: PasswordResetRequest, backgrou
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_MINUTES)
     token_hash = hash_reset_token(reset_token)
     await db.password_resets.delete_many({"user_id": user["user_id"]})
-    await db.password_resets.delete_many({"email": data.email})
+    await db.password_resets.delete_many({"email": email})
     await db.password_resets.insert_one({
-        "email": data.email,
+        "email": email,
         "user_id": user["user_id"],
         "token": token_hash,
         "expires_at": expires_at.isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    background_tasks.add_task(deliver_reset_email, data.email, reset_token)
+    background_tasks.add_task(deliver_reset_email, email, reset_token)
 
     if os.environ.get("EXPOSE_RESET_TOKEN", "").lower() in ("1", "true", "yes"):
         return {"message": RESET_EMAIL_MESSAGE, "reset_token": reset_token}
@@ -1081,28 +1081,20 @@ async def reset_password(data: PasswordResetConfirm):
 # ==================== EMAIL VERIFICATION ====================
 
 @api_router.post("/auth/send-verification")
-async def send_verification_email(data: EmailVerificationRequest):
-    """Send email verification link"""
-    user = await db.users.find_one({"email": data.email}, {"_id": 0})
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    if user.get("email_verified"):
-        return {"message": "Email already verified"}
-    
-    # Generate verification token
-    verification_token = uuid.uuid4().hex
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
-    
-    # Store verification token
-    await db.email_verifications.delete_many({"email": data.email})
-    await db.email_verifications.insert_one({
-        "email": data.email,
-        "token": verification_token,
-        "expires_at": expires_at.isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
+async def send_verification_email(request: Request):
+    """Send a verification token for the signed-in user. The response does not reveal account state."""
+    user = await get_current_user(request)
+    email = normalize_email(user.get("email") or "")
+    if email and not user.get("email_verified"):
+        verification_token = uuid.uuid4().hex
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+        await db.email_verifications.delete_many({"email": email})
+        await db.email_verifications.insert_one({
+            "email": email,
+            "token": verification_token,
+            "expires_at": expires_at.isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
     
     return {"message": "Verification email sent"}
 
@@ -1266,30 +1258,68 @@ async def verify_phone_and_register(data: PhoneVerificationConfirm, response: Re
 
 # ==================== USER ENDPOINTS ====================
 
+def public_user(user: dict) -> dict:
+    """Fields safe to show to someone else."""
+    return {
+        "user_id": user.get("user_id"),
+        "name": user.get("name") or user.get("display_name"),
+        "username": user.get("username"),
+        "picture": user.get("picture") or user.get("avatar"),
+        "bio": user.get("bio"),
+        "status": user.get("status"),
+        "is_online": bool(user.get("is_online", False)),
+        "last_seen": user.get("last_seen"),
+    }
+
+
+def own_profile(user: dict) -> dict:
+    """Account fields for the signed-in user. Never includes the password hash."""
+    profile = public_user(user)
+    profile.update({
+        "email": user.get("email"),
+        "phone_number": user.get("phone_number"),
+        "preferred_language": user.get("preferred_language", "en"),
+        "country_code": user.get("country_code"),
+        "email_verified": bool(user.get("email_verified", False)),
+        "phone_verified": bool(user.get("phone_verified", False)),
+    })
+    return profile
+
+
+async def public_profiles(user_ids) -> list:
+    ids = [user_id for user_id in user_ids if isinstance(user_id, str)]
+    if not ids:
+        return []
+    users = await db.users.find({"user_id": {"$in": ids}}, {"_id": 0}).to_list(100)
+    return [public_user(user) for user in users]
+
+
 @api_router.get("/users/search")
 async def search_users(q: str, request: Request):
     current_user = await get_current_user(request)
-    query = (q or "").strip()
+    query = (q or "").strip()[:100]
     if not query:
         return []
-    # User input is a literal substring. Escaping stops regex metacharacters
-    # from changing the match or throwing a Mongo regex error.
     safe_q = re.escape(query)
+    clauses = [
+        {"name": {"$regex": safe_q, "$options": "i"}},
+        {"username": {"$regex": safe_q, "$options": "i"}},
+    ]
+    if "@" in query:
+        clauses.append({"email": normalize_email(query)})
+    else:
+        phone = query.replace(" ", "")
+        if phone.startswith("+") or phone.isdigit():
+            clauses.append({"phone_number": phone})
 
     users = await db.users.find(
         {
-            "$and": [
-                {"user_id": {"$ne": current_user["user_id"]}},
-                {"$or": [
-                    {"name": {"$regex": safe_q, "$options": "i"}},
-                    {"email": {"$regex": safe_q, "$options": "i"}}
-                ]}
-            ]
+            "user_id": {"$ne": current_user["user_id"]},
+            "$or": clauses,
         },
-        {"_id": 0, "password": 0}
+        {"_id": 0},
     ).to_list(20)
-    
-    return users
+    return [public_user(user) for user in users]
 
 # ==================== BLOCKED USERS ====================
 
@@ -1307,16 +1337,15 @@ async def get_blocked_users(request: Request):
     blocked_ids = [b["blocked_id"] for b in blocked]
     users = await db.users.find(
         {"user_id": {"$in": blocked_ids}},
-        {"_id": 0, "password": 0}
+        {"_id": 0}
     ).to_list(100)
     
     result = []
     for user in users:
         block_record = next((b for b in blocked if b["blocked_id"] == user["user_id"]), None)
-        result.append({
-            **user,
-            "blocked_at": block_record["blocked_at"] if block_record else None
-        })
+        profile = public_user(user)
+        profile["blocked_at"] = block_record["blocked_at"] if block_record else None
+        result.append(profile)
     
     return result
 
@@ -1485,6 +1514,8 @@ async def forward_message(message_id: str, body: ForwardMessageBody, request: Re
     """Forward a message to other conversations the caller belongs to."""
     current_user = await get_current_user(request)
     original = await get_message_for_user(message_id, current_user)
+    if original.get("deleted"):
+        raise HTTPException(status_code=404, detail="Not found")
     for conv_id in body.conversation_ids:
         await get_conversation_for_user(conv_id, current_user)
 
@@ -1568,10 +1599,7 @@ async def get_conversations(request: Request):
     result = []
     for conv in conversations:
         # Get participants info
-        participants = await db.users.find(
-            {"user_id": {"$in": conv["participant_ids"]}},
-            {"_id": 0, "password": 0}
-        ).to_list(100)
+        participants = await public_profiles(conv["participant_ids"])
         
         # Get last message
         last_msg = await db.messages.find_one(
@@ -1607,10 +1635,7 @@ async def get_conversation(conversation_id: str, request: Request):
     current_user = await get_current_user(request)
     conv = await get_conversation_for_user(conversation_id, current_user)
     
-    participants = await db.users.find(
-        {"user_id": {"$in": conv["participant_ids"]}},
-        {"_id": 0, "password": 0}
-    ).to_list(100)
+    participants = await public_profiles(conv["participant_ids"])
     
     return {
         "conversation_id": conv["conversation_id"],
@@ -1625,6 +1650,11 @@ async def add_member(conversation_id: str, body: AddMemberBody, request: Request
     current_user = await get_current_user(request)
     conv = await get_conversation_for_user(conversation_id, current_user)
     if not conv.get("is_group"):
+        raise HTTPException(status_code=404, detail="Not found")
+    target = await db.users.find_one({"user_id": body.user_id}, {"_id": 0, "user_id": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="Not found")
+    if await messaging_block_detail(current_user["user_id"], [body.user_id]):
         raise HTTPException(status_code=404, detail="Not found")
     
     await db.conversations.update_one(
@@ -2022,12 +2052,14 @@ async def join_via_invite(invite_code: str, request: Request):
 # them and they return 404.
 @api_router.get("/users/{user_id}")
 async def get_user(user_id: str, request: Request):
-    await get_current_user(request)
+    current_user = await get_current_user(request)
 
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0})
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    if user_id == current_user["user_id"]:
+        return own_profile(user)
+    return public_user(user)
 
 # ==================== FILE UPLOAD ====================
 
@@ -2443,10 +2475,7 @@ async def search_conversations(q: str, request: Request):
     results = []
     for conv in conversations:
         # Get participants
-        participants = await db.users.find(
-            {"user_id": {"$in": conv["participant_ids"]}},
-            {"_id": 0, "password": 0}
-        ).to_list(100)
+        participants = await public_profiles(conv["participant_ids"])
         
         # Check if query matches conversation name or participant names
         conv_name = conv.get("name") or ""
@@ -3041,81 +3070,137 @@ app.include_router(api_router)
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 
+async def _safe_index(label: str, awaitable):
+    """One failed index must not skip the rest."""
+    try:
+        await awaitable
+    except Exception as exc:
+        logger.warning("index %s not created: %s", label, type(exc).__name__)
+
+
+def dedupe_push_subscriptions() -> int:
+    """Keep the newest push row per user. The app stores one token per user."""
+    removed = 0
+    from pymongo import MongoClient
+    with MongoClient(mongo_url) as client:
+        sync = client[db.name]
+        pipeline = [
+            {"$group": {"_id": "$user_id", "count": {"$sum": 1}}},
+            {"$match": {"count": {"$gt": 1}, "_id": {"$ne": None}}},
+        ]
+        for group in sync.push_subscriptions.aggregate(pipeline):
+            docs = list(
+                sync.push_subscriptions.find({"user_id": group["_id"]}).sort("created_at", -1).limit(100)
+            )
+            extras = [doc["_id"] for doc in docs[1:]]
+            if extras:
+                result = sync.push_subscriptions.delete_many({"_id": {"$in": extras}})
+                removed += result.deleted_count
+    return removed
+
+
+def normalize_stored_emails() -> dict:
+    """Lowercase stored emails. Colliding accounts are reported and left unchanged."""
+    grouped = {}
+    from pymongo import MongoClient
+    with MongoClient(mongo_url) as client:
+        sync = client[db.name]
+        return _normalize_stored_emails(sync, grouped)
+
+
+def _normalize_stored_emails(sync, grouped) -> dict:
+    for user in sync.users.find({"email": {"$type": "string"}}, {"user_id": 1, "email": 1}):
+        key = normalize_email(user.get("email") or "")
+        if not key:
+            continue
+        grouped.setdefault(key, []).append(user)
+    updated = 0
+    collisions = 0
+    for key, rows in grouped.items():
+        user_ids = sorted({row.get("user_id") for row in rows})
+        if len(user_ids) > 1:
+            collisions += 1
+            logger.warning("email collision left unchanged user_ids=%s", user_ids)
+            continue
+        row = rows[0]
+        if row.get("email") == key:
+            continue
+        sync.users.update_one({"user_id": row["user_id"]}, {"$set": {"email": key}})
+        sync.password_resets.update_many({"email": row["email"]}, {"$set": {"email": key}})
+        sync.email_verifications.update_many({"email": row["email"]}, {"$set": {"email": key}})
+        updated += 1
+    return {"updated": updated, "collisions": collisions}
+
+
 @app.on_event("startup")
 async def create_db_indexes():
     """
     Create MongoDB indexes on startup.
-    MongoDB is idempotent for index creation — safe to run on every restart.
+    A failure on one index does not skip the others.
     """
     _warn_email_from_missing()
     try:
-        # ── users ──────────────────────────────────────────────────────────
-        await db.users.create_index("user_id", unique=True, background=True)
-        await db.users.create_index("email", unique=True, background=True)
-        await db.users.create_index("phone_number", sparse=True, background=True)
+        removed = await asyncio.to_thread(dedupe_push_subscriptions)
+        if removed:
+            logger.info("removed %s duplicate push subscription rows", removed)
+    except Exception as exc:
+        logger.warning("push subscription dedupe skipped: %s", type(exc).__name__)
+    try:
+        email_result = await asyncio.to_thread(normalize_stored_emails)
+        if email_result["collisions"] or email_result["updated"]:
+            logger.info(
+                "email normalize updated=%s collisions=%s",
+                email_result["updated"],
+                email_result["collisions"],
+            )
+    except Exception as exc:
+        logger.warning("email normalize skipped: %s", type(exc).__name__)
 
-        # ── conversations ──────────────────────────────────────────────────
-        await db.conversations.create_index("conversation_id", unique=True, background=True)
-        # Finding all conversations a user belongs to (used on every page load)
-        await db.conversations.create_index("participant_ids", background=True)
-
-        # ── messages ───────────────────────────────────────────────────────
-        await db.messages.create_index("message_id", unique=True, background=True)
-        # Fetching messages for a conversation sorted by time (most common query)
-        await db.messages.create_index(
-            [("conversation_id", 1), ("created_at", -1)],
-            background=True,
-        )
-        # Full-text search on message content
-        await db.messages.create_index(
-            [("content", "text"), ("sender_name", "text")],
-            background=True,
-        )
-
-        # ── typing_status ──────────────────────────────────────────────────
-        await db.typing_status.create_index(
-            [("conversation_id", 1), ("user_id", 1)],
-            unique=True,
-            background=True,
-        )
-        # Auto-expire typing status after 10 seconds if the client crashes
-        await db.typing_status.create_index(
-            "timestamp", expireAfterSeconds=10, background=True
-        )
-
-        # ── calls ──────────────────────────────────────────────────────────
-        await db.calls.create_index("call_id", unique=True, background=True)
-        await db.calls.create_index("conversation_id", background=True)
-
-        # ── notifications ──────────────────────────────────────────────────
-        await db.notifications.create_index("user_id", background=True)
-        await db.notifications.create_index("created_at", background=True)
-
-        # ── push_subscriptions ─────────────────────────────────────────────
-        await db.push_subscriptions.create_index("user_id", unique=True, background=True)
-
-        # ── user_sessions ──────────────────────────────────────────────────
-        await db.user_sessions.create_index("session_token", unique=True, background=True)
-        await db.user_sessions.create_index("user_id", background=True)
-
-        # ── password_resets ────────────────────────────────────────────────
-        await db.password_resets.create_index("token", unique=True, background=True)
-        await db.password_resets.create_index("email", background=True)
-
-        # ── statuses ───────────────────────────────────────────────────────
-        await db.statuses.create_index("user_id", background=True)
-        # Auto-expire statuses after 24 hours (like WhatsApp Stories)
-        await db.statuses.create_index(
-            "created_at", expireAfterSeconds=86400, background=True
-        )
-
-        # ── invite_links ───────────────────────────────────────────────────
-        await db.invite_links.create_index("user_id", unique=True, background=True)
-        await db.invite_links.create_index("invite_code", unique=True, background=True)
-
-        logger.info("MongoDB indexes created/verified successfully.")
-    except Exception as e:
-        logger.error(f"Failed to create MongoDB indexes: {e}")
+    await _safe_index("users.user_id", db.users.create_index("user_id", unique=True, background=True))
+    await _safe_index("users.email", db.users.create_index("email", unique=True, background=True))
+    await _safe_index("users.phone_number", db.users.create_index("phone_number", sparse=True, background=True))
+    await _safe_index("conversations.conversation_id", db.conversations.create_index("conversation_id", unique=True, background=True))
+    await _safe_index("conversations.participant_ids", db.conversations.create_index("participant_ids", background=True))
+    await _safe_index("messages.message_id", db.messages.create_index("message_id", unique=True, background=True))
+    await _safe_index(
+        "messages.conversation_created",
+        db.messages.create_index([("conversation_id", 1), ("created_at", -1)], background=True),
+    )
+    await _safe_index(
+        "messages.text",
+        db.messages.create_index([("content", "text"), ("sender_name", "text")], background=True),
+    )
+    await _safe_index(
+        "typing.conversation_user",
+        db.typing_status.create_index([("conversation_id", 1), ("user_id", 1)], unique=True, background=True),
+    )
+    await _safe_index(
+        "typing.timestamp",
+        db.typing_status.create_index("timestamp", expireAfterSeconds=10, background=True),
+    )
+    await _safe_index("calls.call_id", db.calls.create_index("call_id", unique=True, background=True))
+    await _safe_index("calls.conversation_id", db.calls.create_index("conversation_id", background=True))
+    await _safe_index("notifications.user_id", db.notifications.create_index("user_id", background=True))
+    await _safe_index("notifications.created_at", db.notifications.create_index("created_at", background=True))
+    await _safe_index(
+        "push_subscriptions.user_id",
+        db.push_subscriptions.create_index("user_id", unique=True, background=True),
+    )
+    await _safe_index(
+        "user_sessions.session_token",
+        db.user_sessions.create_index("session_token", unique=True, background=True),
+    )
+    await _safe_index("user_sessions.user_id", db.user_sessions.create_index("user_id", background=True))
+    await _safe_index("password_resets.token", db.password_resets.create_index("token", unique=True, background=True))
+    await _safe_index("password_resets.email", db.password_resets.create_index("email", background=True))
+    await _safe_index("statuses.user_id", db.statuses.create_index("user_id", background=True))
+    await _safe_index(
+        "statuses.created_at",
+        db.statuses.create_index("created_at", expireAfterSeconds=86400, background=True),
+    )
+    await _safe_index("invite_links.user_id", db.invite_links.create_index("user_id", unique=True, background=True))
+    await _safe_index("invite_links.invite_code", db.invite_links.create_index("invite_code", unique=True, background=True))
+    logger.info("MongoDB index setup finished")
 
 
 @app.on_event("shutdown")

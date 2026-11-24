@@ -67,7 +67,7 @@ def _register(client, name):
         json={"email": email, "password": "Test1234!", "name": name},
     )
     assert response.status_code == 200, response.text
-    return email
+    return response.json()["email"]
 
 
 def _pin_token(monkeypatch, raw):

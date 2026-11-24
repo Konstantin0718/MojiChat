@@ -91,11 +91,25 @@ def test_enabled_phone_auth_does_not_return_or_log_the_code(client, monkeypatch,
 
 def test_email_verification_token_is_not_returned_or_logged(client, caplog):
     email = _register(client, "Verify")
+    logged_in = client.post(
+        "/api/auth/login",
+        json={"email": email, "password": "Test1234!"},
+    )
+    assert logged_in.status_code == 200, logged_in.text
+    headers = {"Authorization": f"Bearer {logged_in.json()['token']}"}
     caplog.set_level(logging.DEBUG)
-    sent = client.post("/api/auth/send-verification", json={"email": email})
+    anonymous = client.post("/api/auth/send-verification", json={"email": email})
+    assert anonymous.status_code == 401
+    sent = client.post(
+        "/api/auth/send-verification",
+        headers=headers,
+        json={"email": "someone-else@example.com"},
+    )
     assert sent.status_code == 200, sent.text
     assert "verification_token" not in sent.json()
-    stored = _email_verifications().find_one({"email": email})
+    me = client.get("/api/auth/me", headers=headers)
+    stored = _email_verifications().find_one({"email": me.json().get("email")})
+    assert _email_verifications().find_one({"email": "someone-else@example.com"}) is None
     assert stored and stored.get("token")
     token = stored["token"]
     assert token not in sent.text
