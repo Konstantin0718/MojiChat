@@ -279,6 +279,53 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   }, []);
 
+  const [forwarding, setForwarding] = useState<Message | null>(null);
+  const [forwardChats, setForwardChats] = useState<any[]>([]);
+  const [forwardingBusy, setForwardingBusy] = useState(false);
+
+  const handleReact = useCallback(async (messageId: string, emoji: string) => {
+    try {
+      const result = await api.addReaction(messageId, emoji);
+      setMessages((prev) =>
+        prev.map((m) => (m.message_id === messageId ? { ...m, reactions: result.reactions || m.reactions } : m))
+      );
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail;
+      Alert.alert('Error', typeof detail === 'string' ? detail : 'Could not add reaction');
+    }
+  }, []);
+
+  const openForward = useCallback(async (message: Message) => {
+    try {
+      const list = await api.getConversations();
+      setForwardChats((list || []).filter((chat: any) => chat.conversation_id !== conversationId));
+      setForwarding(message);
+    } catch (e) {
+      Alert.alert('Error', 'Could not load chats');
+    }
+  }, [conversationId]);
+
+  const sendForward = async (targetId: string) => {
+    if (!forwarding) return;
+    setForwardingBusy(true);
+    try {
+      await api.forwardMessage(forwarding.message_id, [targetId]);
+      setForwarding(null);
+      Alert.alert('Forwarded', 'Message sent to the selected chat');
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail;
+      Alert.alert('Error', typeof detail === 'string' ? detail : 'Could not forward message');
+    } finally {
+      setForwardingBusy(false);
+    }
+  };
+
+  const chatTitle = (chat: any) => {
+    if (chat.name) return chat.name;
+    const others = (chat.participants || []).filter((person: any) => person.user_id !== user?.user_id);
+    return others.map((person: any) => person.name).filter(Boolean).join(', ') || 'Chat';
+  };
+
   // ============ RENDER ============
 
   const renderMessage = useCallback(
@@ -290,9 +337,11 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         colors={colors}
         translationLanguage={translationLang}
         onDelete={handleDeleteMessage}
+        onReact={handleReact}
+        onForward={openForward}
       />
     ),
-    [user, conversationData, colors, translationLang, handleDeleteMessage]
+    [user, conversationData, colors, translationLang, handleDeleteMessage, handleReact, openForward]
   );
 
   const keyExtractor = useCallback(
@@ -510,6 +559,31 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <Modal visible={!!forwarding} animationType="slide" transparent onRequestClose={() => setForwarding(null)}>
+        <View style={s.forwardOverlay}>
+          <View style={[s.forwardSheet, { backgroundColor: colors.card }]}>
+            <Text style={[s.forwardTitle, { color: colors.text }]}>Forward to</Text>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {forwardChats.length === 0 ? (
+                <Text style={{ color: colors.textSecondary, padding: 12 }}>No other chats</Text>
+              ) : forwardChats.map((chat) => (
+                <TouchableOpacity
+                  key={chat.conversation_id}
+                  style={[s.forwardRow, { borderBottomColor: colors.border }]}
+                  disabled={forwardingBusy}
+                  onPress={() => sendForward(chat.conversation_id)}
+                >
+                  <Text style={{ color: colors.text, fontSize: 16 }}>{chatTitle(chat)}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity onPress={() => setForwarding(null)} style={{ padding: 14 }}>
+              <Text style={{ color: colors.primary, textAlign: 'center', fontWeight: '600' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -601,4 +675,8 @@ const s = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: 16 },
   langOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, marginBottom: 4 },
   langName: { fontSize: 16, fontWeight: '500' },
+  forwardOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  forwardSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 16, paddingBottom: 24 },
+  forwardTitle: { fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: 8 },
+  forwardRow: { paddingVertical: 14, paddingHorizontal: 20, borderBottomWidth: StyleSheet.hairlineWidth },
 });
