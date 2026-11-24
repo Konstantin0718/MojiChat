@@ -3022,6 +3022,7 @@ async def _deliver_push_to_token(
             return {"success": True, "message": "FCM push notification sent!"}
         except Exception as e:
             logger.error("FCM push error: %s", type(e).__name__)
+            await drop_unregistered_push_token(token, exc=e)
             return {"success": False, "message": "FCM push failed"}
 
     EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
@@ -3054,6 +3055,10 @@ async def _deliver_push_to_token(
 
             if response.status_code == 200 and "data" in result:
                 ticket = result["data"]
+                if isinstance(ticket, list):
+                    ticket = ticket[0] if ticket else {}
+                if not isinstance(ticket, dict):
+                    ticket = {}
                 if ticket.get("status") == "ok":
                     return {
                         "success": True,
@@ -3061,10 +3066,10 @@ async def _deliver_push_to_token(
                         "ticket_id": ticket.get("id"),
                         "details": ticket,
                     }
+                await drop_unregistered_push_token(token, ticket=ticket)
                 return {
                     "success": False,
-                    "message": f"Push failed: {ticket.get('message', 'Unknown error')}",
-                    "details": ticket,
+                    "message": "Push notification failed",
                 }
             if response.status_code == 200:
                 return {"success": True, "message": "Request sent", "details": result}
@@ -3099,7 +3104,7 @@ async def notify_participants_new_message_push(
     async def one(uid: str):
         try:
             subs = await db.push_subscriptions.find(
-                {"user_id": uid},
+                {"user_id": uid, "token_type": {"$ne": "web"}},
                 {"_id": 0, "endpoint": 1, "device_id": 1},
             ).to_list(50)
             for tok in choose_push_endpoints(subs):
@@ -3112,6 +3117,39 @@ async def notify_participants_new_message_push(
             logger.warning("new_message push error for user %s: %s", uid, type(e).__name__)
 
     await asyncio.gather(*[one(uid) for uid in targets], return_exceptions=True)
+
+
+def push_failure_is_unregistered(ticket=None, exc=None) -> bool:
+    """Expo DeviceNotRegistered, or FCM UnregisteredError / registration-token-not-registered."""
+    if isinstance(ticket, dict):
+        details = ticket.get("details") if isinstance(ticket.get("details"), dict) else {}
+        if details.get("error") == "DeviceNotRegistered":
+            return True
+    if exc is not None:
+        if type(exc).__name__ == "UnregisteredError":
+            return True
+        text = f"{getattr(exc, 'code', '')} {exc}".lower()
+        if "registration-token-not-registered" in text:
+            return True
+    return False
+
+
+def _delete_push_endpoint_sync(token: str) -> int:
+    from pymongo import MongoClient
+    with MongoClient(mongo_url) as client:
+        result = client[db.name].push_subscriptions.delete_many({"endpoint": token})
+        return result.deleted_count
+
+
+async def drop_unregistered_push_token(token: str, ticket=None, exc=None) -> bool:
+    if not token or not push_failure_is_unregistered(ticket=ticket, exc=exc):
+        return False
+    try:
+        await asyncio.to_thread(_delete_push_endpoint_sync, token)
+    except Exception as cleanup_error:
+        logger.warning("dead push token cleanup failed: %s", type(cleanup_error).__name__)
+        return False
+    return True
 
 
 def choose_push_endpoints(subs: list) -> list:

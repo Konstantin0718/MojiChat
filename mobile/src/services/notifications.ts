@@ -205,7 +205,6 @@ class NotificationService {
   // Listen for notification received while app is foregrounded
   addNotificationReceivedListener(callback: (notification: Notifications.Notification) => void) {
     return Notifications.addNotificationReceivedListener((notification) => {
-      console.log('📬 Notification received in foreground:', notification);
       callback(notification);
     });
   }
@@ -213,15 +212,12 @@ class NotificationService {
   // Listen for notification tapped
   addNotificationResponseListener(callback: (response: Notifications.NotificationResponse) => void) {
     return Notifications.addNotificationResponseReceivedListener((response) => {
-      console.log('👆 Notification tapped:', response);
       callback(response);
     });
   }
 
   // Schedule local notification (for testing)
   async scheduleLocalNotification(title: string, body: string, data?: any) {
-    console.log('📤 Scheduling local notification:', { title, body, data });
-    
     await Notifications.scheduleNotificationAsync({
       content: {
         title,
