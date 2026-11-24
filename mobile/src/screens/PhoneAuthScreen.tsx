@@ -40,11 +40,7 @@ export const PhoneAuthScreen: React.FC<Props> = ({ navigation }) => {
 
     setLoading(true);
     try {
-      const result = await api.sendPhoneCode(phoneNumber);
-      // In dev mode, show the code
-      if (result.verification_code) {
-        Alert.alert('Dev Mode', `Verification code: ${result.verification_code}`);
-      }
+      await api.sendPhoneCode(phoneNumber);
       setStep('code');
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to send verification code');

@@ -3,22 +3,30 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, BellOff, X, Check } from 'lucide-react';
 import { Button } from '../ui/button';
 
+function browserNotification() {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return null;
+  }
+  return window.Notification;
+}
+
 export const NotificationManager = ({ api, user }) => {
-  const [permission, setPermission] = useState(Notification.permission);
+  const [permission, setPermission] = useState(() => browserNotification()?.permission || 'unsupported');
   const [showPrompt, setShowPrompt] = useState(false);
   const [subscription, setSubscription] = useState(null);
 
   useEffect(() => {
-    // Check if notifications are supported
-    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    const NotificationAPI = browserNotification();
+    // iOS Safari has no Notification API. Touching it throws and crashes the chat.
+    if (!NotificationAPI || !('serviceWorker' in navigator)) {
       return;
     }
 
     // Check current permission
-    setPermission(Notification.permission);
+    setPermission(NotificationAPI.permission);
 
     // Show prompt if not decided and user is logged in
-    if (Notification.permission === 'default' && user) {
+    if (NotificationAPI.permission === 'default' && user) {
       const dismissed = localStorage.getItem('notification-prompt-dismissed');
       if (!dismissed) {
         setTimeout(() => setShowPrompt(true), 5000);
@@ -40,8 +48,10 @@ export const NotificationManager = ({ api, user }) => {
   };
 
   const requestPermission = async () => {
+    const NotificationAPI = browserNotification();
+    if (!NotificationAPI) return;
     try {
-      const result = await Notification.requestPermission();
+      const result = await NotificationAPI.requestPermission();
       setPermission(result);
 
       if (result === 'granted') {
@@ -101,8 +111,9 @@ export const NotificationManager = ({ api, user }) => {
   };
 
   const showLocalNotification = (title, body) => {
-    if (permission === 'granted') {
-      new Notification(title, {
+    const NotificationAPI = browserNotification();
+    if (permission === 'granted' && NotificationAPI) {
+      new NotificationAPI(title, {
         body,
         icon: '/icons/icon-192x192.png',
         badge: '/icons/icon-72x72.png'
@@ -193,14 +204,15 @@ export const NotificationManager = ({ api, user }) => {
 
 // Notification settings component for settings page
 export const NotificationSettings = ({ api }) => {
-  const [permission, setPermission] = useState(Notification.permission);
+  const [permission, setPermission] = useState(() => browserNotification()?.permission || 'unsupported');
   const [loading, setLoading] = useState(false);
 
   const toggleNotifications = async () => {
     setLoading(true);
     try {
-      if (permission !== 'granted') {
-        const result = await Notification.requestPermission();
+      const NotificationAPI = browserNotification();
+      if (permission !== 'granted' && NotificationAPI) {
+        const result = await NotificationAPI.requestPermission();
         setPermission(result);
       }
     } catch (error) {

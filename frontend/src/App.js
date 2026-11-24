@@ -11,6 +11,7 @@ import RegisterPage from "./pages/RegisterPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import AuthCallback from "./pages/AuthCallback";
 import ChatLayout from "./components/chat/ChatLayout";
+import { ChatErrorBoundary } from "./components/ChatErrorBoundary";
 
 // Invite join page — handles /join/:inviteCode
 const JoinPage = () => {
@@ -70,17 +71,21 @@ const AppRouter = () => {
       <Route 
         path="/chat" 
         element={
-          <ProtectedRoute>
-            <ChatLayout />
-          </ProtectedRoute>
+          <ChatErrorBoundary>
+            <ProtectedRoute>
+              <ChatLayout />
+            </ProtectedRoute>
+          </ChatErrorBoundary>
         } 
       />
       <Route 
         path="/chat/:conversationId" 
         element={
-          <ProtectedRoute>
-            <ChatLayout />
-          </ProtectedRoute>
+          <ChatErrorBoundary>
+            <ProtectedRoute>
+              <ChatLayout />
+            </ProtectedRoute>
+          </ChatErrorBoundary>
         } 
       />
       <Route path="/join/:inviteCode" element={<JoinPage />} />

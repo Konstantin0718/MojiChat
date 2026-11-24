@@ -12,7 +12,7 @@ Set these on the service that needs them. Do not commit secret values.
 |---|---|---|
 | `MONGO_URL` | yes | MongoDB connection string |
 | `DB_NAME` | no | Database name, default `mojichat_db` |
-| `JWT_SECRET` | yes | Signs login tokens |
+| `JWT_SECRET` | yes | Signs login tokens. The API refuses to start if this is missing, `default_secret`, or shorter than 32 characters |
 | `CORS_ORIGINS` | no | Comma-separated web origins, or `*` |
 | `FRONTEND_URL` | for reset email | Public web origin used to build `/forgot-password?token=` links |
 | `BREVO_API_KEY` | for reset email on Render | Brevo HTTPS API key. When set, reset mail uses Brevo only |
@@ -27,6 +27,7 @@ Set these on the service that needs them. Do not commit secret values.
 | `GIPHY_API_KEY` | no | GIF search. Routes still require a logged-in user |
 | `EMERGENT_LLM_KEY` | no | Real translation. Without it, translation reports unavailable |
 | `EXPOSE_RESET_TOKEN` | no | Leave unset. Dev-only token echo |
+| `PHONE_AUTH_ENABLED` | no | Set to `true` to turn on `/auth/phone/*`. Off by default, and those routes then return 404. The SMS code is never returned or logged |
 
 Render free web services block outbound SMTP. Use `BREVO_API_KEY` there.
 
@@ -35,6 +36,7 @@ Render free web services block outbound SMTP. Use `BREVO_API_KEY` there.
 | Variable | Purpose |
 |---|---|
 | `REACT_APP_BACKEND_URL` | Backend origin, without `/api` |
+| `REACT_APP_PHONE_AUTH_ENABLED` | Show a phone-login button when `true`. Default off. The web app has no phone button today |
 | `REACT_APP_TURN_URL` | Optional TURN server |
 | `REACT_APP_TURN_USERNAME` | TURN username |
 | `REACT_APP_TURN_CREDENTIAL` | TURN credential |
@@ -44,5 +46,6 @@ Render free web services block outbound SMTP. Use `BREVO_API_KEY` there.
 | Variable | Purpose |
 |---|---|
 | `EXPO_PUBLIC_TURN_URL` | Optional TURN server |
+| `EXPO_PUBLIC_PHONE_AUTH_ENABLED` | Show "Continue with Phone" on the login screen when `true`. Default off |
 | `EXPO_PUBLIC_TURN_USERNAME` | TURN username |
 | `EXPO_PUBLIC_TURN_CREDENTIAL` | TURN credential |

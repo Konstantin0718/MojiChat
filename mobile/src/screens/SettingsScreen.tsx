@@ -35,7 +35,6 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const { t, language, setAppLanguage, availableLanguages } = useLanguage();
   
   const [registeringNotifications, setRegisteringNotifications] = useState(false);
-  const [sendingCloudNotification, setSendingCloudNotification] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [emojiModeEnabled, setEmojiModeEnabled] = useState(true);
@@ -99,34 +98,6 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleTestNotification = async () => {
     await notificationService.sendTestNotification();
-  };
-
-  const handleSendCloudNotification = async () => {
-    const expoToken = notificationService.getExpoPushToken();
-    
-    if (!expoToken) {
-      Alert.alert(t('error'), 'No Expo Push Token found. Please tap "Register for Push" first.');
-      return;
-    }
-
-    setSendingCloudNotification(true);
-    try {
-      const result = await api.sendCloudNotification(
-        expoToken,
-        '🔔 Cloud Test',
-        'This notification was sent via Expo Push API!'
-      );
-      
-      if (result.success) {
-        Alert.alert(t('success'), result.message);
-      } else {
-        Alert.alert(t('error'), result.message);
-      }
-    } catch (error: any) {
-      Alert.alert(t('error'), error.message || 'Failed to send cloud notification');
-    } finally {
-      setSendingCloudNotification(false);
-    }
   };
 
   const handleLanguageChange = async (langCode: string) => {
@@ -343,23 +314,6 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
             </TouchableOpacity>
             
-            <View style={styles.divider} />
-            
-            <TouchableOpacity 
-              style={styles.settingItem}
-              onPress={handleSendCloudNotification}
-              disabled={sendingCloudNotification}
-            >
-              <View style={styles.settingIcon}>
-                <Ionicons name="cloud-upload" size={22} color="#FF6B6B" />
-              </View>
-              <Text style={styles.settingText}>Cloud Notification</Text>
-              {sendingCloudNotification ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Ionicons name="send" size={22} color={colors.primary} />
-              )}
-            </TouchableOpacity>
           </View>
         </View>
 

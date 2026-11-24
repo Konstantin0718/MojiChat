@@ -36,12 +36,20 @@ jobs:
           JWT_SECRET: ci_test_secret_long_enough_value
           CORS_ORIGINS: "*"
         run: ./venv/bin/python -m pytest tests/test_reset_email.py -q
+      - name: Stage 0 security tests
+        working-directory: backend
+        env:
+          MONGO_URL: mongodb://127.0.0.1:27017
+          DB_NAME: mojichat_stage0_tests
+          JWT_SECRET: ci_test_secret_long_enough_value
+          CORS_ORIGINS: "*"
+        run: ./venv/bin/python -m pytest tests/test_stage0_hotfix.py -q
       - name: Start API
         working-directory: backend
         env:
           MONGO_URL: mongodb://127.0.0.1:27017
           DB_NAME: mojichat_ci
-          JWT_SECRET: ci_test_secret
+          JWT_SECRET: ci_test_secret_long_enough_value
           CORS_ORIGINS: "*"
         run: |
           ./venv/bin/uvicorn server:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn.log 2>&1 &
