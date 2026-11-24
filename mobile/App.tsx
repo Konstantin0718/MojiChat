@@ -37,7 +37,6 @@ const releasePrefixes = [
 const navigationRef = createNavigationContainerRef();
 let pendingChatId: string | null = null;
 let handledNotificationId: string | null = null;
-let openedChatId: string | null = null;
 
 function conversationIdFromNotification(response: any) {
   if (!response) return null;
@@ -55,8 +54,8 @@ function openNotificationChat(conversationId: string) {
   const names = navigationRef.getRootState()?.routeNames || [];
   if (!names.includes('Chat')) return;
   pendingChatId = null;
-  if (openedChatId === conversationId) return;
-  openedChatId = conversationId;
+  const current = navigationRef.getCurrentRoute();
+  if (current?.name === 'Chat' && (current.params as { conversationId?: string } | undefined)?.conversationId === conversationId) return;
   (navigationRef.navigate as (name: string, params?: object) => void)('Chat', { conversationId });
 }
 
