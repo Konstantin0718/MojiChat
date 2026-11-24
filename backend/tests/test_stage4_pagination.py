@@ -212,6 +212,34 @@ def test_a_new_message_brings_the_older_chat_to_the_top(client):
     assert listed.json()[1]["conversation_id"] == newer.json()["conversation_id"]
 
 
+def test_deleting_the_last_message_clears_the_list_snapshot(client):
+    owner = _register(client, "Deleter")
+    friend = _register(client, "Reader")
+    headers = _auth(owner)
+    created = client.post(
+        "/api/conversations",
+        headers=headers,
+        json={"participant_ids": [friend["user_id"]]},
+    )
+    assert created.status_code == 200, created.text
+    conversation_id = created.json()["conversation_id"]
+    sent = client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={"content": "secret text", "message_type": "text"},
+    )
+    assert sent.status_code == 200, sent.text
+    removed = client.delete(f"/api/messages/{sent.json()['message_id']}", headers=headers)
+    assert removed.status_code == 200, removed.text
+    listed = client.get("/api/conversations", headers=headers)
+    assert listed.status_code == 200, listed.text
+    last = listed.json()[0]["last_message"]
+    assert last["content"] == ""
+    assert last["emoji_content"] == ""
+    assert last["file_url"] is None
+    assert last["deleted"] is True
+
+
 def test_page_size_is_capped():
     assert server.bounded_limit(1000, 50) == 100
     assert server.bounded_limit(0, 50) == 1

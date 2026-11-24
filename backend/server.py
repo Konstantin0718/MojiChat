@@ -1480,7 +1480,14 @@ def message_snapshot(msg: dict) -> dict:
 async def record_last_message(conversation_id: str, msg: dict) -> None:
     stamp = msg.get("created_at") or datetime.now(timezone.utc).isoformat()
     await db.conversations.update_one(
-        {"conversation_id": conversation_id},
+        {
+            "conversation_id": conversation_id,
+            "$or": [
+                {"last_message_at": {"$lt": stamp}},
+                {"last_message_at": {"$exists": False}},
+                {"last_message_at": None},
+            ],
+        },
         {"$set": {"last_message_at": stamp, "last_message": message_snapshot(msg)}},
     )
 
@@ -2642,6 +2649,15 @@ async def delete_message(message_id: str, request: Request):
             "file_url": None,
             "deleted_at": datetime.now(timezone.utc).isoformat()
         }}
+    )
+    await db.conversations.update_one(
+        {"conversation_id": message["conversation_id"], "last_message.message_id": message_id},
+        {"$set": {
+            "last_message.content": "",
+            "last_message.emoji_content": "",
+            "last_message.file_url": None,
+            "last_message.deleted": True,
+        }},
     )
 
     # Notify conversation participants via WebSocket
