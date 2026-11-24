@@ -2262,8 +2262,15 @@ def _checked_upload(content: bytes, *, images_only: bool = False, voice: bool = 
     if images_only and media_class != "image":
         raise HTTPException(status_code=400, detail="Only image files are allowed for profile picture.")
     if voice:
-        if media_class == "audio" or content_type == "video/webm":
+        if media_class == "audio":
+            pass
+        elif content_type in ("video/webm", "video/mp4", "video/3gpp"):
             media_class = "audio"
+            content_type = {
+                "video/webm": "audio/webm",
+                "video/mp4": "audio/mp4",
+                "video/3gpp": "audio/3gpp",
+            }[content_type]
         else:
             raise HTTPException(status_code=400, detail="Unsupported audio type")
     if len(content) > max_bytes_for(media_class):

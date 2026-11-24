@@ -186,23 +186,30 @@ class ApiService {
     const name = fileName || uri.split('/').pop() || 'file';
     const type = mimeType || 'application/octet-stream';
     let uploadUri = uri;
-    if (!uri.startsWith('file://')) {
-      const safeName = name.replace(/[^\w.\-]+/g, '_').slice(-80) || 'upload';
-      const dest = `${FileSystem.cacheDirectory}upload-${Date.now()}-${safeName}`;
-      await FileSystem.copyAsync({ from: uri, to: dest });
-      uploadUri = dest;
-    }
-    const formData = new FormData();
-    formData.append('file', {
-      uri: uploadUri,
-      name,
-      type,
-    } as any);
+    let copiedTo: string | null = null;
+    try {
+      if (!uri.startsWith('file://')) {
+        const safeName = name.replace(/[^\w.\-]+/g, '_').slice(-80) || 'upload';
+        copiedTo = `${FileSystem.cacheDirectory}upload-${Date.now()}-${safeName}`;
+        await FileSystem.copyAsync({ from: uri, to: copiedTo });
+        uploadUri = copiedTo;
+      }
+      const formData = new FormData();
+      formData.append('file', {
+        uri: uploadUri,
+        name,
+        type,
+      } as any);
 
-    const response = await this.api.post('/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return response.data;
+      const response = await this.api.post('/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    } finally {
+      if (copiedTo) {
+        await FileSystem.deleteAsync(copiedTo, { idempotent: true }).catch(() => undefined);
+      }
+    }
   }
 
   async uploadVoice(base64Data: string, duration: number) {

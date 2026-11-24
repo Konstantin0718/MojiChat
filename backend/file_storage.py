@@ -41,6 +41,7 @@ ALLOWED_TYPES = {
     "audio/wav": "audio",
     "audio/x-wav": "audio",
     "audio/webm": "audio",
+    "audio/3gpp": "audio",
     "application/pdf": "file",
     "text/plain": "file",
     "application/zip": "file",

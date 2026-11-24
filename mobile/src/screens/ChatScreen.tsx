@@ -83,6 +83,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const insets = useSafeAreaInsets();
   
   const [messages, setMessages] = useState<Message[]>([]);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -209,10 +211,14 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images', 'videos'],
       quality: 0.8,
-      videoMaxDuration: 30,
+      videoMaxDuration: 15,
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
+      if (asset.type === 'video' && (asset.fileSize || 0) > 25 * 1024 * 1024) {
+        Alert.alert('Video is too large', 'This video is larger than 25 MB. Record a shorter clip.');
+        return;
+      }
       const isVideo = asset.type === 'video';
       const mimeType = asset.mimeType || (isVideo ? 'video/mp4' : 'image/jpeg');
       const name = isVideo ? (asset.fileName || 'video.mp4') : (asset.fileName || undefined);
@@ -245,10 +251,14 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     }
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ['videos'],
-      videoMaxDuration: 30,
+      videoMaxDuration: 15,
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
+      if ((asset.fileSize || 0) > 25 * 1024 * 1024) {
+        Alert.alert('Video is too large', 'This video is larger than 25 MB. Record a shorter clip.');
+        return;
+      }
       await uploadAndSendFile(
         asset.uri,
         'video',
@@ -298,7 +308,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   };
 
   const handleReact = useCallback(async (messageId: string, emoji: string) => {
-    const current = messages.find((item) => item.message_id === messageId);
+    const current = messagesRef.current.find((item) => item.message_id === messageId);
     const already = !!user?.user_id && (current?.reactions?.[emoji] || []).includes(user.user_id);
     try {
       const result = already
@@ -313,7 +323,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
       const detail = e?.response?.data?.detail;
       Alert.alert('Error', typeof detail === 'string' ? detail : 'Could not update reaction');
     }
-  }, [messages, user?.user_id]);
+  }, [user?.user_id]);
 
   const handleDeleteMessage = useCallback(async (messageId: string) => {
     try {
