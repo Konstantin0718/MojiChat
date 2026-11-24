@@ -1,10 +1,10 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationContainer, DefaultTheme, DarkTheme, createNavigationContainerRef, getStateFromPath } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, DarkTheme, getStateFromPath } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ActivityIndicator, Linking, View, Text, TouchableOpacity } from 'react-native';
+import { ActivityIndicator, View, Text, TouchableOpacity } from 'react-native';
 
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
@@ -25,7 +25,6 @@ import { VideoCallScreen } from './src/screens/VideoCallScreen';
 import { BlockedUsersScreen } from './src/screens/BlockedUsersScreen';
 import { NotificationSettingsScreen } from './src/screens/NotificationSettingsScreen';
 import { StatusScreen } from './src/screens/StatusScreen';
-import { resetLinkTarget } from './src/navigation/resetLink';
 
 const Stack = createNativeStackNavigator();
 
@@ -48,28 +47,10 @@ const linking = {
   },
 };
 
-const navigationRef = createNavigationContainerRef();
-
-function openResetLink(url: string | null) {
-  const target = resetLinkTarget(url);
-  if (!target || !navigationRef.isReady()) return;
-  (navigationRef.navigate as (name: string, params?: object) => void)(
-    'ForgotPassword',
-    { token: target.token },
-  );
-}
-
 // Root Navigator
 const RootNavigator = () => {
   const { isAuthenticated, isLoading, offline, retryAuth } = useAuth();
   const { colors, isDark } = useTheme();
-
-  useEffect(() => {
-    if (isLoading) return undefined;
-    Linking.getInitialURL().then(openResetLink);
-    const subscription = Linking.addEventListener('url', (event) => openResetLink(event.url));
-    return () => subscription.remove();
-  }, [isLoading, isAuthenticated]);
 
   // Handle notification received while app is open
   useEffect(() => {
@@ -134,14 +115,7 @@ const RootNavigator = () => {
   };
 
   return (
-    <NavigationContainer
-      ref={navigationRef}
-      theme={navTheme}
-      linking={linking}
-      onReady={() => {
-        Linking.getInitialURL().then(openResetLink);
-      }}
-    >
+    <NavigationContainer theme={navTheme} linking={linking}>
       <Stack.Navigator
         screenOptions={{
           headerShown: false,

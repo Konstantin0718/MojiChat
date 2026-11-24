@@ -17,11 +17,12 @@ import { rememberRedirect, safeRedirect } from "./lib/safeRedirect.mjs";
 // Invite join page — handles /join/:inviteCode
 const JoinPage = () => {
   const { inviteCode } = useParams();
-  const { isAuthenticated, api } = useAuth();
+  const { isAuthenticated, api, loading } = useAuth();
   const navigate = useNavigate();
   const [status, setStatus] = useState('joining');
 
   useEffect(() => {
+    if (loading) return;
     if (!isAuthenticated) {
       const target = safeRedirect(`/join/${encodeURIComponent(inviteCode || '')}`);
       if (target) rememberRedirect(target);
@@ -35,7 +36,7 @@ const JoinPage = () => {
       .catch(() => {
         setStatus('error');
       });
-  }, [isAuthenticated, inviteCode, api, navigate]);
+  }, [loading, isAuthenticated, inviteCode, api, navigate]);
 
   if (status === 'error') {
     return (

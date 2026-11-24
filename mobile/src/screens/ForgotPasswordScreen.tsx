@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { api } from '../services/api';
 
 interface Props {
@@ -25,6 +27,8 @@ interface Props {
 // does not send that email yet.
 export const ForgotPasswordScreen: React.FC<Props> = ({ navigation, route }) => {
   const { colors } = useTheme();
+  const { isAuthenticated, logout } = useAuth();
+  const { t } = useLanguage();
   const linkToken = typeof route?.params?.token === 'string' ? route.params.token : '';
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -67,14 +71,13 @@ export const ForgotPasswordScreen: React.FC<Props> = ({ navigation, route }) => 
     setLoading(true);
     try {
       await api.resetPassword(linkToken.trim(), newPassword);
+      if (isAuthenticated) {
+        await logout();
+        Alert.alert(t('success'), t('password_changed_sign_in'));
+        return;
+      }
       Alert.alert('Success', 'Password has been reset successfully', [
-        {
-          text: 'OK',
-          onPress: () => {
-            const names = navigation.getState?.()?.routeNames || [];
-            navigation.navigate(names.includes('Login') ? 'Login' : 'Conversations');
-          },
-        },
+        { text: 'OK', onPress: () => navigation.navigate('Login') },
       ]);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to reset password');
