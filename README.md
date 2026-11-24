@@ -13,7 +13,7 @@ Set these on the service that needs them. Do not commit secret values.
 | `MONGO_URL` | yes | MongoDB connection string |
 | `DB_NAME` | no | Database name, default `mojichat_db` |
 | `JWT_SECRET` | yes | Signs login tokens. The API refuses to start if this is missing, `default_secret`, or shorter than 32 characters |
-| `CORS_ORIGINS` | no | Comma-separated web origins, or `*` |
+| `CORS_ORIGINS` | no | Comma-separated web origins. Defaults to `https://moji-chat-gamma.vercel.app`. A `*` entry is ignored |
 | `FRONTEND_URL` | for reset email | Public web origin used to build `/forgot-password?token=` links |
 | `BREVO_API_KEY` | for reset email on Render | Brevo HTTPS API key. When set, reset mail uses Brevo only |
 | `EMAIL_FROM` | with Brevo | Sender address. Falls back to `SMTP_FROM` |
@@ -28,6 +28,7 @@ Set these on the service that needs them. Do not commit secret values.
 | `EMERGENT_LLM_KEY` | no | Real translation. Without it, translation reports unavailable |
 | `EXPOSE_RESET_TOKEN` | no | Leave unset. Dev-only token echo |
 | `PHONE_AUTH_ENABLED` | no | Set to `true` to turn on `/auth/phone/*`. Off by default, and those routes then return 404. The SMS code is never returned or logged |
+| `CORS_ALLOW_DEV_ORIGINS` | no | Set to `true` to also allow `http://localhost:3000` and `http://127.0.0.1:3000` |
 
 Render free web services block outbound SMTP. Use `BREVO_API_KEY` there.
 

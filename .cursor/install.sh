@@ -40,7 +40,8 @@ if [ ! -f .env ]; then
 MONGO_URL=mongodb://127.0.0.1:27017
 DB_NAME=mojichat_db
 JWT_SECRET=${JWT_SECRET}
-CORS_ORIGINS=*
+CORS_ORIGINS=https://moji-chat-gamma.vercel.app
+CORS_ALLOW_DEV_ORIGINS=true
 GIPHY_API_KEY=
 EMERGENT_LLM_KEY=
 FRONTEND_URL=http://localhost:3000
