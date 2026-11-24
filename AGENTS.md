@@ -16,7 +16,7 @@ Nothing here is started automatically — the update script only refreshes depen
 - Frontend: from `frontend/`, `BROWSER=none yarn start` (serves on port 3000; `craco start`).
 
 ### Environment files (gitignored — live only in the VM/snapshot)
-- `backend/.env`: `MONGO_URL=mongodb://127.0.0.1:27017`, `DB_NAME=mojichat_db`, plus `JWT_SECRET` (at least 32 characters; the API refuses to start if it is missing or shorter), `CORS_ORIGINS=*`. The backend raises at startup if `MONGO_URL`/`MONGODB_URI` is unset, so this file (or the env vars) must exist before starting. `.cursor/install.sh` writes a random `JWT_SECRET` only when that variable is not already set.
+- `backend/.env`: `MONGO_URL=mongodb://127.0.0.1:27017`, `DB_NAME=mojichat_db`, plus `JWT_SECRET` (at least 32 characters; the API refuses to start if it is missing or shorter), `CORS_ORIGINS` (defaults to the production web origin; set `CORS_ALLOW_DEV_ORIGINS=true` for localhost). The backend raises at startup if `MONGO_URL`/`MONGODB_URI` is unset, so this file (or the env vars) must exist before starting. `.cursor/install.sh` writes a random `JWT_SECRET` only when that variable is not already set.
 - `frontend/.env`: `REACT_APP_BACKEND_URL=http://localhost:8000` (frontend calls `${REACT_APP_BACKEND_URL}/api`). CRA only reads this at dev-server start, so restart `yarn start` after changing it.
 
 ### Non-obvious gotchas

@@ -50,16 +50,32 @@ JWT_EXPIRATION_DAYS = 7
 app = FastAPI(title="MojiChat API")
 
 # ==================== CORS ====================
-# Browsers block `allow_credentials=true` when `allow_origins` is wildcard (`*`),
-# so we adapt based on the configured `CORS_ORIGINS`.
-_cors_origins_raw = os.environ.get('CORS_ORIGINS', '*')
-_cors_origins = [o.strip() for o in _cors_origins_raw.split(',') if o.strip()]
-_allow_credentials = _cors_origins_raw.strip() != '*' and len(_cors_origins) > 0
+# Auth is Bearer-only, so credentials stay off and a wildcard origin is never used.
+_DEFAULT_WEB_ORIGIN = "https://moji-chat-gamma.vercel.app"
+_DEV_WEB_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000")
+
+
+def configured_cors_origins() -> List[str]:
+    raw = (os.environ.get("CORS_ORIGINS") or "").strip()
+    origins = []
+    for item in raw.split(",") if raw else []:
+        origin = item.strip().rstrip("/")
+        if origin and origin != "*":
+            origins.append(origin)
+    if not origins:
+        origins = [_DEFAULT_WEB_ORIGIN]
+    dev_flag = (os.environ.get("CORS_ALLOW_DEV_ORIGINS") or "").strip().lower()
+    if dev_flag in ("1", "true", "yes"):
+        for origin in _DEV_WEB_ORIGINS:
+            if origin not in origins:
+                origins.append(origin)
+    return origins
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins if _cors_origins else ['*'],
-    allow_credentials=_allow_credentials,
+    allow_origins=configured_cors_origins(),
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -493,45 +509,59 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
 
-def create_token(user_id: str) -> str:
+def token_version_of(value) -> int:
+    """Missing or unreadable versions are 0 so older JWTs still match backfilled users."""
+    if value is None or isinstance(value, bool):
+        return 0
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return number if number >= 0 else 0
+
+
+def create_token(user_id: str, token_version: int = 0) -> str:
     payload = {
         "user_id": user_id,
+        "token_version": token_version_of(token_version),
         "exp": datetime.now(timezone.utc) + timedelta(days=JWT_EXPIRATION_DAYS)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-async def get_current_user(request: Request) -> dict:
-    # Check cookie first
-    session_token = request.cookies.get("session_token")
-    
-    # Then check Authorization header
-    if not session_token:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            session_token = auth_header.split(" ")[1]
-    
-    if not session_token:
+
+def _bearer_token(request: Request) -> str:
+    auth_header = request.headers.get("Authorization") or ""
+    if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Not authenticated")
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return token
+
+
+async def get_current_user(request: Request) -> dict:
+    session_token = _bearer_token(request)
     
-    # Try JWT token first
     try:
         payload = jwt.decode(session_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = payload.get("user_id")
         if user_id:
             user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-            if user:
-                # Update online status
-                await db.users.update_one(
-                    {"user_id": user_id},
-                    {"$set": {"is_online": True, "last_seen": datetime.now(timezone.utc).isoformat()}}
-                )
-                return user
+            if not user:
+                raise HTTPException(status_code=401, detail="Not authenticated")
+            if token_version_of(payload.get("token_version")) != token_version_of(user.get("token_version")):
+                raise HTTPException(status_code=401, detail="Token revoked")
+            await db.users.update_one(
+                {"user_id": user_id},
+                {"$set": {"is_online": True, "last_seen": datetime.now(timezone.utc).isoformat()}}
+            )
+            return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
         pass
     
-    # Try session token (Google OAuth)
+    # Opaque session rows from older Google logins, sent as Bearer tokens.
     session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
     if session:
         expires_at = session.get("expires_at")
@@ -643,7 +673,7 @@ def fallback_emoji_convert(text: str) -> str:
 # ==================== AUTH ENDPOINTS ====================
 
 @api_router.post("/auth/register")
-async def register(user_data: UserCreate, response: Response):
+async def register(user_data: UserCreate):
     email = normalize_email(str(user_data.email))
     existing = await db.users.find_one({"email": email})
     if existing:
@@ -665,21 +695,13 @@ async def register(user_data: UserCreate, response: Response):
         "country_code": None,
         "email_verified": False,
         "phone_number": None,
-        "phone_verified": False
+        "phone_verified": False,
+        "token_version": 0,
     }
     
     await db.users.insert_one(user_doc)
     
-    token = create_token(user_id)
-    response.set_cookie(
-        key="session_token",
-        value=token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-        max_age=JWT_EXPIRATION_DAYS * 24 * 60 * 60
-    )
+    token = create_token(user_id, 0)
     
     return {
         "user_id": user_id,
@@ -690,7 +712,7 @@ async def register(user_data: UserCreate, response: Response):
     }
 
 @api_router.post("/auth/login")
-async def login(request: Request, user_data: UserLogin, response: Response):
+async def login(request: Request, user_data: UserLogin):
     # Rate limit to reduce brute-force attempts.
     await enforce_rate_limit(request, bucket="auth_login", limit=10, window_seconds=600)
     email = normalize_email(str(user_data.email))
@@ -704,21 +726,11 @@ async def login(request: Request, user_data: UserLogin, response: Response):
     if not verify_password(user_data.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    token = create_token(user["user_id"])
+    token = create_token(user["user_id"], token_version_of(user.get("token_version")))
     
     await db.users.update_one(
         {"user_id": user["user_id"]},
         {"$set": {"is_online": True, "last_seen": datetime.now(timezone.utc).isoformat()}}
-    )
-    
-    response.set_cookie(
-        key="session_token",
-        value=token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-        max_age=JWT_EXPIRATION_DAYS * 24 * 60 * 60
     )
     
     return {
@@ -730,7 +742,7 @@ async def login(request: Request, user_data: UserLogin, response: Response):
     }
 
 @api_router.post("/auth/session")
-async def process_google_session(request: Request, response: Response):
+async def process_google_session(request: Request):
     """Process Google OAuth session_id from Emergent Auth"""
     body = await request.json()
     session_id = body.get("session_id")
@@ -786,11 +798,12 @@ async def process_google_session(request: Request, response: Response):
             "last_seen": datetime.now(timezone.utc).isoformat(),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "preferred_language": "en",
-            "country_code": None
+            "country_code": None,
+            "token_version": 0,
         }
         await db.users.insert_one(user_doc)
     
-    # Store session
+    # Store session. The client sends this opaque token as a Bearer header.
     await db.user_sessions.delete_many({"user_id": user_id})
     await db.user_sessions.insert_one({
         "user_id": user_id,
@@ -798,16 +811,6 @@ async def process_google_session(request: Request, response: Response):
         "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat()
     })
-    
-    response.set_cookie(
-        key="session_token",
-        value=emergent_session_token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-        max_age=7 * 24 * 60 * 60
-    )
     
     return {
         "user_id": user_id,
@@ -823,7 +826,7 @@ async def get_me(request: Request):
     return own_profile(user)
 
 @api_router.post("/auth/logout")
-async def logout(request: Request, response: Response):
+async def logout(request: Request):
     try:
         user = await get_current_user(request)
         await db.users.update_one(
@@ -831,11 +834,21 @@ async def logout(request: Request, response: Response):
             {"$set": {"is_online": False, "last_seen": datetime.now(timezone.utc).isoformat()}}
         )
         await db.user_sessions.delete_many({"user_id": user["user_id"]})
-    except:
+    except Exception:
         pass
-    
-    response.delete_cookie(key="session_token", path="/")
     return {"message": "Logged out"}
+
+
+@api_router.post("/auth/logout-all")
+async def logout_all(request: Request):
+    """Invalidate every JWT and opaque session for the signed-in user."""
+    user = await get_current_user(request)
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$inc": {"token_version": 1}},
+    )
+    await db.user_sessions.delete_many({"user_id": user["user_id"]})
+    return {"message": "All sessions revoked"}
 
 # ==================== PASSWORD RESET ====================
 
@@ -1074,8 +1087,10 @@ async def reset_password(data: PasswordResetConfirm):
     hashed_pwd = hash_password(data.new_password)
     await db.users.update_one(
         {"email": reset_request["email"]},
-        {"$set": {"password": hashed_pwd}}
+        {"$set": {"password": hashed_pwd}, "$inc": {"token_version": 1}},
     )
+    if reset_request.get("user_id"):
+        await db.user_sessions.delete_many({"user_id": reset_request["user_id"]})
     return {"message": "Password has been reset successfully"}
 
 # ==================== EMAIL VERIFICATION ====================
@@ -1162,7 +1177,7 @@ async def send_phone_verification_code(data: PhoneVerificationRequest):
     }
 
 @api_router.post("/auth/phone/verify")
-async def verify_phone_and_register(data: PhoneVerificationConfirm, response: Response):
+async def verify_phone_and_register(data: PhoneVerificationConfirm):
     """Verify phone code and register/login user"""
     _require_phone_auth()
     phone = data.phone_number.strip()
@@ -1227,22 +1242,15 @@ async def verify_phone_and_register(data: PhoneVerificationConfirm, response: Re
             "created_at": datetime.now(timezone.utc).isoformat(),
             "preferred_language": "bg",
             "country_code": "BG",
-            "phone_verified": True
+            "phone_verified": True,
+            "token_version": 0,
         }
         await db.users.insert_one(user_doc)
     
-    # Create session token
-    token = create_token(user_id)
-    
-    response.set_cookie(
-        key="session_token",
-        value=token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-        max_age=JWT_EXPIRATION_DAYS * 24 * 60 * 60
-    )
+    version = 0
+    if existing_user:
+        version = token_version_of(existing_user.get("token_version"))
+    token = create_token(user_id, version)
     
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0})
     
@@ -2974,6 +2982,10 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         if token_user_id != user_id:
             await websocket.close(code=4003)
             return
+        account = await db.users.find_one({"user_id": token_user_id}, {"_id": 0, "token_version": 1})
+        if not account or token_version_of(payload.get("token_version")) != token_version_of(account.get("token_version")):
+            await websocket.close(code=4003)
+            return
     except jwt.ExpiredSignatureError:
         await websocket.close(code=4002)
         return
@@ -3078,6 +3090,16 @@ async def _safe_index(label: str, awaitable):
         logger.warning("index %s not created: %s", label, type(exc).__name__)
 
 
+def backfill_token_versions() -> int:
+    from pymongo import MongoClient
+    with MongoClient(mongo_url) as client:
+        result = client[db.name].users.update_many(
+            {"$or": [{"token_version": {"$exists": False}}, {"token_version": None}]},
+            {"$set": {"token_version": 0}},
+        )
+        return result.modified_count
+
+
 def dedupe_push_subscriptions() -> int:
     """Keep the newest push row per user. The app stores one token per user."""
     removed = 0
@@ -3139,6 +3161,10 @@ async def create_db_indexes():
     A failure on one index does not skip the others.
     """
     _warn_email_from_missing()
+    try:
+        await asyncio.to_thread(backfill_token_versions)
+    except Exception as exc:
+        logger.warning("token_version backfill skipped: %s", type(exc).__name__)
     try:
         removed = await asyncio.to_thread(dedupe_push_subscriptions)
         if removed:

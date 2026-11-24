@@ -37,7 +37,7 @@
    | `JWT_SECRET` | at least 32 characters. The API will not start with a shorter value |
    | `GIPHY_API_KEY` | `<your-giphy-api-key>` |
    | `EMERGENT_LLM_KEY` | `<your-emergent-llm-key>` |
-   | `CORS_ORIGINS` | `*` |
+   | `CORS_ORIGINS` | `https://moji-chat-gamma.vercel.app` (comma-separated if you add more; do not use `*`) |
    | `FRONTEND_URL` | публичният адрес на уеба, без `/api` |
    | `BREVO_API_KEY` | ключ от Brevo (HTTPS). На безплатния Render SMTP портовете са блокирани |
    | `EMAIL_FROM` | адрес на подателя. Ако липсва, ползва се `SMTP_FROM` |

@@ -15,4 +15,4 @@ services:
       - key: EMERGENT_LLM_KEY
         sync: false
       - key: CORS_ORIGINS
-        value: "*"
+        value: "https://moji-chat-gamma.vercel.app"
