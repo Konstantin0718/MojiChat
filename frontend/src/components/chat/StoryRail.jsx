@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { mediaUrl } from '../../lib/mediaUrl';
+import { mediaUrl, profileUrl } from '../../lib/mediaUrl';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { cn } from '../../lib/utils';
@@ -159,7 +159,7 @@ export const StoryRail = ({ api, currentUser }) => {
         <button type="button" onClick={openMine} className="flex flex-col items-center gap-1 shrink-0 w-16" data-testid="my-story-btn">
           <span className={cn('rounded-full p-0.5', mine.length ? 'bg-primary' : 'bg-muted')}>
             <Avatar className="w-12 h-12 border-2 border-card">
-              <AvatarImage src={mediaUrl(currentUser?.picture)} />
+              <AvatarImage src={profileUrl(currentUser?.picture)} />
               <AvatarFallback>{currentUser?.name?.[0]?.toUpperCase() || 'Y'}</AvatarFallback>
             </Avatar>
           </span>
@@ -186,7 +186,7 @@ export const StoryRail = ({ api, currentUser }) => {
           >
             <span className={cn('rounded-full p-0.5', group.unseen ? 'bg-primary' : 'bg-muted-foreground/40')}>
               <Avatar className="w-12 h-12 border-2 border-card">
-                <AvatarImage src={mediaUrl(group.picture)} />
+                <AvatarImage src={profileUrl(group.picture)} />
                 <AvatarFallback>{group.name?.[0]?.toUpperCase()}</AvatarFallback>
               </Avatar>
             </span>

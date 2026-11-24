@@ -165,6 +165,68 @@ def test_logout_all_removes_every_subscription_for_that_user(client):
     assert [row["endpoint"] for row in _rows(other["user_id"])] == [other_phone]
 
 
+def test_message_push_skips_web_subscriptions(client):
+    user = _register(client)
+    headers = _auth(user)
+    phone = f"ExponentPushToken[{uuid.uuid4().hex}]"
+    web = f"https://push.example/{uuid.uuid4().hex}"
+    assert client.post(
+        "/api/notifications/subscribe",
+        headers=headers,
+        json={"endpoint": phone, "keys": {"expo": True}, "device_id": "phone-1"},
+    ).status_code == 200
+    assert client.post(
+        "/api/notifications/subscribe",
+        headers=headers,
+        json={"endpoint": web, "keys": {"p256dh": "k", "auth": "a"}},
+    ).status_code == 200
+    rows = list(_db().push_subscriptions.find(
+        {"user_id": user["user_id"], "token_type": {"$ne": "web"}},
+    ))
+    assert [row["endpoint"] for row in rows] == [phone]
+    assert _db().push_subscriptions.find_one({"endpoint": web})["token_type"] == "web"
+
+
+def test_unregistered_push_errors_delete_the_row(client):
+    class UnregisteredError(Exception):
+        pass
+
+    assert server.push_failure_is_unregistered(
+        ticket={"status": "error", "details": {"error": "DeviceNotRegistered"}},
+    )
+    assert not server.push_failure_is_unregistered(
+        ticket={"status": "error", "details": {"error": "MessageRateExceeded"}},
+    )
+    assert server.push_failure_is_unregistered(exc=UnregisteredError("gone"))
+    assert server.push_failure_is_unregistered(exc=Exception("registration-token-not-registered"))
+    assert not server.push_failure_is_unregistered(exc=Exception("unavailable"))
+
+    token = f"ExponentPushToken[{uuid.uuid4().hex}]"
+    user_id = f"user_{uuid.uuid4().hex[:8]}"
+    _db().push_subscriptions.insert_one({
+        "user_id": user_id,
+        "endpoint": token,
+        "token_type": "expo",
+        "device_id": "phone-1",
+    })
+    assert client.portal.call(
+        server.drop_unregistered_push_token,
+        token,
+        {"status": "error", "details": {"error": "DeviceNotRegistered"}},
+    ) is True
+    assert _db().push_subscriptions.find_one({"endpoint": token}) is None
+
+    kept = f"fcm-{uuid.uuid4().hex}"
+    _db().push_subscriptions.insert_one({"user_id": user_id, "endpoint": kept, "token_type": "fcm"})
+    assert client.portal.call(
+        server.drop_unregistered_push_token,
+        kept,
+        None,
+        Exception("unavailable"),
+    ) is False
+    assert _db().push_subscriptions.find_one({"endpoint": kept})["token_type"] == "fcm"
+
+
 def test_startup_drops_the_unique_user_push_index():
     coll = _db().push_subscriptions
     coll.delete_many({})

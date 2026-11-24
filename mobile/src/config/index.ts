@@ -4,12 +4,41 @@ export const API_URL = 'https://mojichat.onrender.com';
 
 export const MAX_MEDIA_BYTES = 40 * 1024 * 1024;
 
+const ALLOWED_MEDIA_HOSTS = /^media\d*\.giphy\.com$|^i\.giphy\.com$/;
+
 export function mediaUrl(path?: string | null): string {
   if (!path || typeof path !== 'string') return '';
-  const pathOnly = path.split('?')[0];
+  const trimmed = path.trim();
+  if (!trimmed) return '';
+  const pathOnly = trimmed.split('?')[0];
   if (pathOnly.startsWith('/uploads') || pathOnly.includes('/uploads/')) return '';
-  if (/^https?:\/\//i.test(path)) return path;
-  return `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
+    if (!/^https:\/\//i.test(trimmed)) return '';
+    try {
+      const url = new URL(trimmed);
+      if (url.protocol !== 'https:' || !ALLOWED_MEDIA_HOSTS.test(url.hostname || '')) return '';
+      return url.href;
+    } catch {
+      return '';
+    }
+  }
+  if (trimmed.startsWith('//') || trimmed.startsWith('\\')) return '';
+  return `${API_URL}${trimmed.startsWith('/') ? trimmed : `/${trimmed}`}`;
+}
+
+export function profileUrl(path?: string | null): string {
+  if (!path || typeof path !== 'string') return '';
+  const trimmed = path.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+      return url.href;
+    } catch {
+      return '';
+    }
+  }
+  return mediaUrl(trimmed);
 }
 
 type IceServer = { urls: string; username?: string; credential?: string };

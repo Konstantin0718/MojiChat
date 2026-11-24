@@ -49,7 +49,8 @@ import { StoryRail } from './StoryRail';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { mediaUrl } from '../../lib/mediaUrl';
+import { mediaUrl, openMediaUrl, profileUrl } from '../../lib/mediaUrl';
+import { messageViewChanged } from '../../lib/messageSync';
 import { ScrollArea } from '../ui/scroll-area';
 import { Sheet, SheetContent } from '../ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
@@ -60,6 +61,7 @@ import { cn } from '../../lib/utils';
 import { Toaster, toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 export const ChatLayout = () => {
   const { user, logout, api, token } = useAuth();
@@ -69,6 +71,7 @@ export const ChatLayout = () => {
   const [conversations, setConversations] = useState([]);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [reactionMenuId, setReactionMenuId] = useState(null);
   const [newMessage, setNewMessage] = useState('');
   const [typingUsers, setTypingUsers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -128,10 +131,7 @@ export const ChatLayout = () => {
       const newMsgs = Array.isArray(response.data) ? response.data : [];
       setMessages(prev => {
         if (prev.length !== newMsgs.length) return newMsgs;
-        const changed = prev.some((msg, index) => {
-          const next = newMsgs[index];
-          return msg?.message_id !== next?.message_id || msg?.file_url !== next?.file_url;
-        });
+        const changed = prev.some((msg, index) => messageViewChanged(msg, newMsgs[index]));
         return changed ? newMsgs : prev;
       });
     } catch (error) {
@@ -405,8 +405,16 @@ export const ChatLayout = () => {
   // Add reaction to message
   const addReaction = async (messageId, emoji) => {
     try {
-      await api.post(`/messages/${messageId}/reactions`, { emoji });
-      await fetchMessages();
+      const response = await api.post(`/messages/${messageId}/reactions`, { emoji });
+      const reactions = response?.data?.reactions;
+      if (reactions && typeof reactions === 'object') {
+        setMessages((prev) => prev.map((item) => (
+          item.message_id === messageId ? { ...item, reactions } : item
+        )));
+        setReactionMenuId(null);
+      } else {
+        await fetchMessages();
+      }
     } catch (error) {
       console.error('Failed to add reaction:', error);
     }
@@ -706,7 +714,7 @@ export const ChatLayout = () => {
   // Seen receipt tick for own messages
   const renderSeenTick = (msg) => {
     if (msg.sender_id !== user?.user_id) return null;
-    const readers = seenMap[msg.message_id] || msg.read_by || [];
+    const readers = [...new Set([...(msg.read_by || []), ...(seenMap[msg.message_id] || [])])];
     const otherReaders = readers.filter((id) => id !== user?.user_id);
     if (otherReaders.length > 0) {
       return <CheckCheck className="w-3.5 h-3.5 text-blue-400 inline-block ml-1" />;
@@ -734,155 +742,174 @@ export const ChatLayout = () => {
       );
     }
     
+    const renderReactionExtras = (message) => (
+      <>
+        {message.reactions && Object.keys(message.reactions).length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {Object.entries(message.reactions).map(([emoji, users]) => (
+              <span key={emoji} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-sm bg-background/80 border border-border">
+                {emoji}<span className="text-xs">{Array.isArray(users) ? users.length : 0}</span>
+              </span>
+            ))}
+          </div>
+        )}
+        {reactionMenuId === message.message_id && (
+          <div className="flex gap-1 flex-wrap mt-1">
+            {QUICK_REACTIONS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                data-testid={`react-${emoji}`}
+                onClick={() => addReaction(message.message_id, emoji)}
+                className="text-base leading-none hover:scale-125 transition-transform"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+      </>
+    );
+
+    const renderMediaShell = (message, own, body) => (
+      <motion.div
+        key={message.message_id}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className={cn('group relative flex', own ? 'justify-end' : 'justify-start')}
+      >
+        <div className={cn(
+          'absolute top-1 hidden group-hover:flex items-center gap-1 z-10',
+          own ? 'right-full mr-2' : 'left-full ml-2'
+        )}>
+          <button
+            type="button"
+            onClick={() => openForward(message)}
+            className="p-1 rounded-full bg-card border border-border"
+            title="Forward"
+          >
+            <Forward className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setReactionMenuId((id) => id === message.message_id ? null : message.message_id)}
+            className="p-1 rounded-full bg-card border border-border"
+            title="React"
+            data-testid={`react-toggle-${message.message_id}`}
+          >
+            <Smile className="w-3.5 h-3.5" />
+          </button>
+          {own && (
+            <button
+              type="button"
+              onClick={() => deleteMessage(message.message_id)}
+              className="p-1 rounded-full bg-destructive/10 hover:bg-destructive/20 text-destructive"
+              title="Delete message"
+              data-testid={`delete-message-${message.message_id}`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <div className="max-w-[80%]">
+          {body}
+          {renderReactionExtras(message)}
+          {own && (
+            <div className="flex justify-end mt-0.5 pr-1">
+              {renderSeenTick(message)}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    );
+
+    const mediaSrc = mediaUrl(msg.file_url);
+    if (['image', 'gif', 'video', 'audio', 'file'].includes(msg.message_type) && msg.file_url && !mediaSrc) {
+      return renderMediaShell(
+        msg,
+        isOwn,
+        <span className="italic text-xs text-muted-foreground px-3 py-1.5 bg-muted rounded-2xl">Attachment unavailable</span>
+      );
+    }
+
     // For file/media messages
-    if (msg.message_type === 'image' && msg.file_url) {
-      return (
-        <motion.div
-          key={msg.message_id}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={cn("group relative flex", isOwn ? "justify-end" : "justify-start")}
-        >
-          <button
-            type="button"
-            onClick={() => openForward(msg)}
-            className={cn('absolute top-1 hidden group-hover:flex p-1 rounded-full bg-card border border-border', isOwn ? 'right-full mr-2' : 'left-full ml-2')}
-            title="Forward"
-          >
-            <Forward className="w-3.5 h-3.5" />
-          </button>
-          <div className={cn(
-            "max-w-[80%] rounded-2xl overflow-hidden",
-            isOwn ? "rounded-br-sm" : "rounded-bl-sm"
-          )}>
-            <img 
-              src={mediaUrl(msg.file_url) || undefined}
-              alt="Shared image" 
-              className="max-w-full max-h-64 object-cover cursor-pointer hover:opacity-90 transition-opacity"
-              onError={() => handleMediaError(msg.file_url)}
-              onClick={() => {
-                const src = mediaUrl(msg.file_url);
-                if (src) window.open(src, '_blank');
-              }}
-            />
-            <div className={cn(
-              "px-3 py-1 text-xs",
-              isOwn ? "bg-primary text-primary-foreground" : "bg-muted"
-            )}>
-              {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
-            </div>
-          </div>
-        </motion.div>
-      );
-    }
-
-    if (msg.message_type === 'video' && msg.file_url) {
-      return (
-        <motion.div
-          key={msg.message_id}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={cn("group relative flex", isOwn ? "justify-end" : "justify-start")}
-        >
-          <button
-            type="button"
-            onClick={() => openForward(msg)}
-            className={cn('absolute top-1 hidden group-hover:flex p-1 rounded-full bg-card border border-border', isOwn ? 'right-full mr-2' : 'left-full ml-2')}
-            title="Forward"
-          >
-            <Forward className="w-3.5 h-3.5" />
-          </button>
-          <div className={cn(
-            "max-w-[80%] rounded-2xl overflow-hidden",
-            isOwn ? "rounded-br-sm bg-primary" : "rounded-bl-sm bg-muted"
-          )}>
-            <video 
-              src={mediaUrl(msg.file_url) || undefined}
-              controls 
-              className="max-w-full max-h-64"
-              onError={() => handleMediaError(msg.file_url)}
-            />
-          </div>
-        </motion.div>
-      );
-    }
-
-    if (msg.message_type === 'audio' && msg.file_url) {
-      return (
-        <motion.div
-          key={msg.message_id}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={cn("group relative flex", isOwn ? "justify-end" : "justify-start")}
-        >
-          <button
-            type="button"
-            onClick={() => openForward(msg)}
-            className={cn('absolute top-1 hidden group-hover:flex p-1 rounded-full bg-card border border-border', isOwn ? 'right-full mr-2' : 'left-full ml-2')}
-            title="Forward"
-          >
-            <Forward className="w-3.5 h-3.5" />
-          </button>
-          <div className={cn(
-            "max-w-[80%] p-3 rounded-2xl",
-            isOwn ? "rounded-br-sm bg-primary text-primary-foreground" : "rounded-bl-sm bg-muted"
-          )}>
-            <div className="flex items-center gap-3">
-              <Mic className="w-5 h-5" />
-              <audio
-                src={mediaUrl(msg.file_url) || undefined}
-                controls
-                className="h-8"
-                onError={() => handleMediaError(msg.file_url)}
-              />
-              {Number(msg.duration) > 0 && (
-                <span className="text-xs opacity-70">
-                  {Math.floor(msg.duration / 60)}:{(msg.duration % 60).toString().padStart(2, '0')}
-                </span>
-              )}
-            </div>
-          </div>
-        </motion.div>
-      );
-    }
-
-    if (msg.message_type === 'file' && msg.file_url) {
-      return (
-        <motion.div
-          key={msg.message_id}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={cn("group relative flex", isOwn ? "justify-end" : "justify-start")}
-        >
-          <button
-            type="button"
-            onClick={() => openForward(msg)}
-            className={cn('absolute top-1 hidden group-hover:flex p-1 rounded-full bg-card border border-border', isOwn ? 'right-full mr-2' : 'left-full ml-2')}
-            title="Forward"
-          >
-            <Forward className="w-3.5 h-3.5" />
-          </button>
-          <a
-            href={mediaUrl(msg.file_url) || undefined}
-            target="_blank"
-            rel="noopener noreferrer"
+    if ((msg.message_type === 'image' || msg.message_type === 'gif') && mediaSrc) {
+      return renderMediaShell(msg, isOwn, (
+        <div className={cn('rounded-2xl overflow-hidden', isOwn ? 'rounded-br-sm' : 'rounded-bl-sm')}>
+          <img
+            src={mediaSrc}
+            alt={msg.message_type === 'gif' ? 'GIF' : 'Shared image'}
             className={cn(
-              "max-w-[80%] p-4 rounded-2xl flex items-center gap-3 hover:opacity-90 transition-opacity",
-              isOwn ? "rounded-br-sm bg-primary text-primary-foreground" : "rounded-bl-sm bg-muted"
+              'max-w-full max-h-64 cursor-pointer hover:opacity-90 transition-opacity',
+              msg.message_type === 'gif' ? 'object-contain bg-muted' : 'object-cover'
             )}
-          >
-            <FileText className="w-8 h-8" />
-            <div className="min-w-0">
-              <p className="font-medium truncate">{msg.file_name || 'File'}</p>
-              {Number(msg.file_size) > 0 && (
-                <p className="text-xs opacity-70">
-                  {(msg.file_size / 1024).toFixed(1)} KB
-                </p>
-              )}
-            </div>
-          </a>
-        </motion.div>
-      );
+            onError={() => handleMediaError(msg.file_url)}
+            onClick={() => openMediaUrl(msg.file_url)}
+          />
+          <div className={cn('px-3 py-1 text-xs', isOwn ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
+            {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
+          </div>
+        </div>
+      ));
+    }
+
+    if (msg.message_type === 'video' && mediaSrc) {
+      return renderMediaShell(msg, isOwn, (
+        <div className={cn('rounded-2xl overflow-hidden', isOwn ? 'rounded-br-sm bg-primary' : 'rounded-bl-sm bg-muted')}>
+          <video
+            src={mediaSrc}
+            controls
+            className="max-w-full max-h-64"
+            onError={() => handleMediaError(msg.file_url)}
+          />
+        </div>
+      ));
+    }
+
+    if (msg.message_type === 'audio' && mediaSrc) {
+      return renderMediaShell(msg, isOwn, (
+        <div className={cn(
+          'p-3 rounded-2xl',
+          isOwn ? 'rounded-br-sm bg-primary text-primary-foreground' : 'rounded-bl-sm bg-muted'
+        )}>
+          <div className="flex items-center gap-3">
+            <Mic className="w-5 h-5" />
+            <audio
+              src={mediaSrc}
+              controls
+              className="h-8"
+              onError={() => handleMediaError(msg.file_url)}
+            />
+            {Number(msg.duration) > 0 && (
+              <span className="text-xs opacity-70">
+                {Math.floor(msg.duration / 60)}:{(msg.duration % 60).toString().padStart(2, '0')}
+              </span>
+            )}
+          </div>
+        </div>
+      ));
+    }
+
+    if (msg.message_type === 'file' && mediaSrc) {
+      return renderMediaShell(msg, isOwn, (
+        <a
+          href={mediaSrc}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(
+            'p-4 rounded-2xl flex items-center gap-3 hover:opacity-90 transition-opacity',
+            isOwn ? 'rounded-br-sm bg-primary text-primary-foreground' : 'rounded-bl-sm bg-muted'
+          )}
+        >
+          <FileText className="w-8 h-8" />
+          <div className="min-w-0">
+            <p className="font-medium truncate">{msg.file_name || 'File'}</p>
+            {Number(msg.file_size) > 0 && (
+              <p className="text-xs opacity-70">{(msg.file_size / 1024).toFixed(1)} KB</p>
+            )}
+          </div>
+        </a>
+      ));
     }
 
     // Default: text message with emoji reveal + delete + seen
@@ -946,7 +973,7 @@ export const ChatLayout = () => {
         {/* User info */}
         <div className="flex items-center gap-3">
           <Avatar className="w-10 h-10 border-2 border-primary">
-            <AvatarImage src={mediaUrl(user?.picture)} />
+            <AvatarImage src={profileUrl(user?.picture)} />
             <AvatarFallback className="bg-primary text-primary-foreground font-bold">
               {user?.name?.[0]?.toUpperCase()}
             </AvatarFallback>
@@ -975,7 +1002,7 @@ export const ChatLayout = () => {
                   </h4>
                   <div className="flex items-center gap-4">
                     <Avatar className="w-16 h-16">
-                      <AvatarImage src={mediaUrl(user?.picture)} />
+                      <AvatarImage src={profileUrl(user?.picture)} />
                       <AvatarFallback className="text-xl bg-primary text-primary-foreground font-bold">
                         {user?.name?.[0]?.toUpperCase()}
                       </AvatarFallback>
@@ -1116,7 +1143,7 @@ export const ChatLayout = () => {
                     data-testid={`user-result-${u.user_id}`}
                   >
                     <Avatar>
-                      <AvatarImage src={mediaUrl(u.picture)} />
+                      <AvatarImage src={profileUrl(u.picture)} />
                       <AvatarFallback className="bg-secondary text-secondary-foreground">
                         {u.name?.[0]?.toUpperCase()}
                       </AvatarFallback>
@@ -1197,7 +1224,7 @@ export const ChatLayout = () => {
                       className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors"
                     >
                       <Avatar className="w-8 h-8">
-                        <AvatarImage src={mediaUrl(u.picture)} />
+                        <AvatarImage src={profileUrl(u.picture)} />
                         <AvatarFallback>{u.name?.[0]?.toUpperCase()}</AvatarFallback>
                       </Avatar>
                       <span className="text-sm">{u.name}</span>
@@ -1245,7 +1272,7 @@ export const ChatLayout = () => {
                       </AvatarFallback>
                     ) : (
                       <>
-                        <AvatarImage src={mediaUrl(otherParticipant?.picture)} />
+                        <AvatarImage src={profileUrl(otherParticipant?.picture)} />
                         <AvatarFallback className="bg-accent text-accent-foreground">
                           {otherParticipant?.name?.[0]?.toUpperCase()}
                         </AvatarFallback>
@@ -1475,7 +1502,7 @@ export const ChatLayout = () => {
                   </AvatarFallback>
                 ) : (
                   <>
-                    <AvatarImage src={mediaUrl(getOtherParticipant(currentConversation)?.picture)} />
+                    <AvatarImage src={profileUrl(getOtherParticipant(currentConversation)?.picture)} />
                     <AvatarFallback className="bg-accent text-accent-foreground">
                       {getOtherParticipant(currentConversation)?.name?.[0]?.toUpperCase()}
                     </AvatarFallback>

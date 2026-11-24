@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { mediaUrl } from '../../lib/mediaUrl';
+import { profileUrl } from '../../lib/mediaUrl';
 import { cn } from '../../lib/utils';
 
 function buildIceServers() {
@@ -431,7 +431,7 @@ export const VideoCall = ({
             {!isVideoEnabled && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
                 <Avatar className="w-24 h-24">
-                  <AvatarImage src={mediaUrl(currentUser?.picture)} />
+                  <AvatarImage src={profileUrl(currentUser?.picture)} />
                   <AvatarFallback className="text-3xl bg-primary text-white">
                     {currentUser?.name?.[0]?.toUpperCase()}
                   </AvatarFallback>
@@ -464,7 +464,7 @@ export const VideoCall = ({
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
                     <Avatar className="w-24 h-24">
-                      <AvatarImage src={mediaUrl(participant.picture)} />
+                      <AvatarImage src={profileUrl(participant.picture)} />
                       <AvatarFallback className="text-3xl bg-secondary text-white">
                         {participant.name?.[0]?.toUpperCase()}
                       </AvatarFallback>

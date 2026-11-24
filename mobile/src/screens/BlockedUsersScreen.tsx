@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { api } from '../services/api';
-import { mediaUrl } from '../config';
+import { profileUrl } from '../config';
 
 interface Props {
   navigation: any;
@@ -75,7 +75,7 @@ export const BlockedUsersScreen: React.FC<Props> = ({ navigation }) => {
   const renderUser = ({ item }: { item: BlockedUser }) => (
     <View style={styles.userItem}>
       {item.picture ? (
-        <Image source={{ uri: mediaUrl(item.picture) }} style={styles.avatar} />
+        <Image source={{ uri: profileUrl(item.picture) }} style={styles.avatar} />
       ) : (
         <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
           <Text style={styles.avatarText}>{item.name?.[0]?.toUpperCase()}</Text>

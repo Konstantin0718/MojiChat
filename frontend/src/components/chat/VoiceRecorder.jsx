@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, Square, Send, Trash2, Play, Pause } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
+import { preferredVoiceMime } from '../../lib/voiceMime';
 
 export const VoiceRecorder = ({ onSend, onCancel }) => {
   const [isRecording, setIsRecording] = useState(false);
@@ -13,6 +14,7 @@ export const VoiceRecorder = ({ onSend, onCancel }) => {
   const [micError, setMicError] = useState('');
   
   const mediaRecorderRef = useRef(null);
+  const mimeTypeRef = useRef('');
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
   const audioRef = useRef(null);
@@ -33,7 +35,15 @@ export const VoiceRecorder = ({ onSend, onCancel }) => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const mimeType = preferredVoiceMime(
+        typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function'
+          ? (type) => MediaRecorder.isTypeSupported(type)
+          : null
+      );
+      mimeTypeRef.current = mimeType;
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -44,7 +54,9 @@ export const VoiceRecorder = ({ onSend, onCancel }) => {
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const recordedType = mediaRecorder.mimeType || mimeTypeRef.current || 'audio/mp4';
+        mimeTypeRef.current = recordedType;
+        const audioBlob = new Blob(audioChunksRef.current, { type: recordedType });
         const url = URL.createObjectURL(audioBlob);
         setAudioUrl(url);
       };
@@ -91,7 +103,7 @@ export const VoiceRecorder = ({ onSend, onCancel }) => {
   const sendVoiceMessage = async () => {
     if (!audioChunksRef.current.length) return;
     
-    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+    const audioBlob = new Blob(audioChunksRef.current, { type: mimeTypeRef.current || 'audio/mp4' });
     
     // Convert to base64
     const reader = new FileReader();
