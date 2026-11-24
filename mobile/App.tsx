@@ -42,50 +42,6 @@ const linking = {
   },
 };
 
-// Auth Stack (Login/Register)
-const AuthStack = () => {
-  const { colors } = useTheme();
-  
-  return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
-    >
-      <Stack.Screen name="Login" component={LoginScreen} />
-      <Stack.Screen name="Register" component={RegisterScreen} />
-      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-      <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} />
-    </Stack.Navigator>
-  );
-};
-
-// Main App Stack (Authenticated)
-const AppStack = () => {
-  const { colors } = useTheme();
-  
-  return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
-    >
-      <Stack.Screen name="Conversations" component={ConversationsScreen} />
-      <Stack.Screen name="Chat" component={ChatScreen} />
-      <Stack.Screen name="Settings" component={SettingsScreen} />
-      <Stack.Screen name="NewChat" component={NewChatScreen} />
-      <Stack.Screen name="NewGroup" component={NewGroupScreen} />
-      <Stack.Screen name="VideoCall" component={VideoCallScreen} />
-      <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
-      <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
-      <Stack.Screen name="Status" component={StatusScreen} />
-      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-    </Stack.Navigator>
-  );
-};
-
 // Root Navigator
 const RootNavigator = () => {
   const { isAuthenticated, isLoading, offline, retryAuth } = useAuth();
@@ -163,7 +119,35 @@ const RootNavigator = () => {
 
   return (
     <NavigationContainer theme={navTheme} linking={linking}>
-      {isAuthenticated ? <AppStack /> : <AuthStack />}
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+          gestureEnabled: true,
+        }}
+      >
+        {isAuthenticated ? (
+          <>
+            <Stack.Screen name="Conversations" component={ConversationsScreen} />
+            <Stack.Screen name="Chat" component={ChatScreen} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="NewChat" component={NewChatScreen} />
+            <Stack.Screen name="NewGroup" component={NewGroupScreen} />
+            <Stack.Screen name="VideoCall" component={VideoCallScreen} />
+            <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
+            <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+            <Stack.Screen name="Status" component={StatusScreen} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+          </>
+        ) : (
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+            <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} />
+          </>
+        )}
+      </Stack.Navigator>
     </NavigationContainer>
   );
 };

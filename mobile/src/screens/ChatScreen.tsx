@@ -22,6 +22,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { api } from '../services/api';
+import { MAX_MEDIA_BYTES } from '../config';
 import { MessageBubble } from '../components/MessageBubble';
 import { VoiceRecorder } from '../components/VoiceRecorder';
 import { GiphyPicker } from '../components/GiphyPicker';
@@ -207,16 +208,25 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     } finally { setSending(false); }
   };
 
+  const videoTooLargeMessage = (fileSize?: number | null) => {
+    if (typeof fileSize !== 'number' || fileSize <= MAX_MEDIA_BYTES) return null;
+    const actual = (fileSize / (1024 * 1024)).toFixed(1);
+    return `This video is ${actual} MB. The limit is 40 MB. Choose a shorter clip.`;
+  };
+
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images', 'videos'],
       quality: 0.8,
       videoMaxDuration: 15,
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+      videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      if (asset.type === 'video' && (asset.fileSize || 0) > 25 * 1024 * 1024) {
-        Alert.alert('Video is too large', 'This video is larger than 25 MB. Record a shorter clip.');
+      const tooLarge = videoTooLargeMessage(asset.fileSize);
+      if (asset.type === 'video' && tooLarge) {
+        Alert.alert('Video is too large', tooLarge);
         return;
       }
       const isVideo = asset.type === 'video';
@@ -255,8 +265,9 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      if ((asset.fileSize || 0) > 25 * 1024 * 1024) {
-        Alert.alert('Video is too large', 'This video is larger than 25 MB. Record a shorter clip.');
+      const tooLarge = videoTooLargeMessage(asset.fileSize);
+      if (tooLarge) {
+        Alert.alert('Video is too large', tooLarge);
         return;
       }
       await uploadAndSendFile(
