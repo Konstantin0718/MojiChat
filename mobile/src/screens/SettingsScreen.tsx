@@ -78,6 +78,28 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     );
   };
 
+  const handleLogoutAll = () => {
+    Alert.alert(
+      t('logout_all'),
+      t('logout_all_confirm'),
+      [
+        { text: t('cancel'), style: 'cancel' },
+        {
+          text: t('logout'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.logoutAll();
+              await logout();
+            } catch {
+              Alert.alert(t('error'), t('something_went_wrong'));
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleRegisterNotifications = async () => {
     setRegisteringNotifications(true);
     try {
@@ -342,6 +364,10 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         </View>
 
         {/* Logout Button */}
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogoutAll}>
+          <Ionicons name="phone-portrait-outline" size={22} color={colors.error} />
+          <Text style={styles.logoutText}>{t('logout_all')}</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Ionicons name="log-out" size={22} color={colors.error} />
           <Text style={styles.logoutText}>{t('logout')}</Text>

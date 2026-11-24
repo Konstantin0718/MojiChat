@@ -1,5 +1,5 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../config';
+import { getAuthToken } from './tokenStore';
 
 type MessageHandler = (data: any) => void;
 
@@ -26,7 +26,7 @@ class WebSocketService {
     this.isConnecting = true;
     this.userId = userId;
 
-    const token = await AsyncStorage.getItem('auth_token');
+    const token = await getAuthToken();
     if (!token) {
       this.isConnecting = false;
       console.error('No auth token for WebSocket');

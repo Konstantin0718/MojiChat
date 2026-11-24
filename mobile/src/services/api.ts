@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from '../config';
+import { clearAuthToken, getAuthToken, setAuthToken } from './tokenStore';
 
 class ApiService {
   private api: AxiosInstance;
@@ -21,7 +21,7 @@ class ApiService {
     this.api.interceptors.request.use(
       async (config) => {
         if (!this.token) {
-          this.token = await AsyncStorage.getItem('auth_token');
+          this.token = await getAuthToken();
         }
         if (this.token) {
           config.headers.Authorization = `Bearer ${this.token}`;
@@ -52,14 +52,16 @@ class ApiService {
 
   async setToken(token: string) {
     this.token = token;
-    await AsyncStorage.setItem('auth_token', token);
-    console.log('Token saved successfully');
+    await setAuthToken(token);
   }
 
   async logout() {
     this.token = null;
-    await AsyncStorage.removeItem('auth_token');
-    console.log('Token removed');
+    await clearAuthToken();
+  }
+
+  async logoutAll() {
+    await this.api.post('/auth/logout-all');
   }
 
   // Auth

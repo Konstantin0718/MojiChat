@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../services/api';
+import { getAuthToken } from '../services/tokenStore';
 import { notificationService } from '../services/notifications';
 import { User } from '../types';
 
@@ -44,7 +44,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const checkAuth = async () => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await getAuthToken();
       if (token) {
         const userData = await api.getMe();
         setUser(userData);
