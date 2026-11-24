@@ -165,10 +165,6 @@ def test_logout_all_removes_every_subscription_for_that_user(client):
     assert [row["endpoint"] for row in _rows(other["user_id"])] == [other_phone]
 
 
-def _run(coro):
-    return _LOOP.run_until_complete(coro)
-
-
 def test_message_push_skips_web_subscriptions(client):
     user = _register(client)
     headers = _auth(user)
@@ -213,15 +209,21 @@ def test_unregistered_push_errors_delete_the_row(client):
         "token_type": "expo",
         "device_id": "phone-1",
     })
-    assert _run(server.drop_unregistered_push_token(
+    assert client.portal.call(
+        server.drop_unregistered_push_token,
         token,
-        ticket={"status": "error", "details": {"error": "DeviceNotRegistered"}},
-    )) is True
+        {"status": "error", "details": {"error": "DeviceNotRegistered"}},
+    ) is True
     assert _db().push_subscriptions.find_one({"endpoint": token}) is None
 
     kept = f"fcm-{uuid.uuid4().hex}"
     _db().push_subscriptions.insert_one({"user_id": user_id, "endpoint": kept, "token_type": "fcm"})
-    assert _run(server.drop_unregistered_push_token(kept, exc=Exception("unavailable"))) is False
+    assert client.portal.call(
+        server.drop_unregistered_push_token,
+        kept,
+        None,
+        Exception("unavailable"),
+    ) is False
     assert _db().push_subscriptions.find_one({"endpoint": kept})["token_type"] == "fcm"
 
 

@@ -14,7 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { api } from '../services/api';
 import { Conversation } from '../types';
-import { mediaUrl } from '../config';
+import { profileUrl } from '../config';
 
 interface Props {
   navigation: any;
@@ -98,7 +98,7 @@ export const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
               <Ionicons name="people" size={24} color="#fff" />
             </View>
           ) : other?.picture ? (
-            <Image source={{ uri: mediaUrl(other.picture) }} style={styles.avatar} />
+            <Image source={{ uri: profileUrl(other.picture) }} style={styles.avatar} />
           ) : (
             <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
               <Text style={styles.avatarText}>

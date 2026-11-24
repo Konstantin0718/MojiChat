@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { APP_CONFIG, API_URL, mediaUrl } from '../config';
+import { APP_CONFIG, API_URL, profileUrl } from '../config';
 import { notificationService } from '../services/notifications';
 import { api } from '../services/api';
 
@@ -175,7 +175,7 @@ export const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.profileSection}>
           <TouchableOpacity onPress={handlePickAvatar} disabled={avatarUploading} style={{ position: 'relative' }}>
             {user?.picture ? (
-              <Image source={{ uri: mediaUrl(user.picture) }} style={styles.profileImage} />
+              <Image source={{ uri: profileUrl(user.picture) }} style={styles.profileImage} />
             ) : (
               <View style={[styles.profileImage, { backgroundColor: colors.primary }]}>
                 <Text style={styles.profileInitial}>{user?.name?.[0]?.toUpperCase()}</Text>

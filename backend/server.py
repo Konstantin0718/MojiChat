@@ -14,6 +14,7 @@ from typing import List, Optional, Dict
 import uuid
 import hashlib
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlparse
 import bcrypt
 import jwt
 import httpx
@@ -1570,13 +1571,33 @@ async def get_statuses(request: Request):
         "viewed": viewed
     }
 
+ALLOWED_MEDIA_HOSTS = re.compile(r"^media\d*\.giphy\.com$|^i\.giphy\.com$")
+
+
+def checked_external_media_url(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    if parse_file_id(url):
+        return url
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid file_url")
+    if parsed.scheme != "https" or not ALLOWED_MEDIA_HOSTS.match(parsed.hostname or ""):
+        raise HTTPException(status_code=422, detail="Invalid file_url")
+    return url
+
+
 @api_router.post("/statuses")
 async def create_status(request: Request):
     """Create a new status update"""
     current_user = await get_current_user(request)
     body = await request.json()
-    
-    content_url = body.get("file_url")
+
+    raw_url = body.get("file_url")
+    if raw_url is not None and not isinstance(raw_url, str):
+        raise HTTPException(status_code=422, detail="Invalid file_url")
+    content_url = checked_external_media_url(raw_url)
     status_file_id = parse_file_id(content_url)
     if status_file_id:
         await attach_owned_file(status_file_id, current_user, kind="status")
@@ -1827,7 +1848,7 @@ async def send_message(conversation_id: str, msg_data: MessageCreate, request: R
     if (msg_data.message_type or "text") == "text" and not (msg_data.content or "").strip():
         raise HTTPException(status_code=422, detail="Message is empty")
 
-    file_url = msg_data.file_url
+    file_url = checked_external_media_url(msg_data.file_url)
     file_id = parse_file_id(file_url)
     if file_id:
         await attach_owned_file(file_id, current_user, conversation_id=conversation_id)
@@ -3134,18 +3155,11 @@ def push_failure_is_unregistered(ticket=None, exc=None) -> bool:
     return False
 
 
-def _delete_push_endpoint_sync(token: str) -> int:
-    from pymongo import MongoClient
-    with MongoClient(mongo_url) as client:
-        result = client[db.name].push_subscriptions.delete_many({"endpoint": token})
-        return result.deleted_count
-
-
 async def drop_unregistered_push_token(token: str, ticket=None, exc=None) -> bool:
     if not token or not push_failure_is_unregistered(ticket=ticket, exc=exc):
         return False
     try:
-        await asyncio.to_thread(_delete_push_endpoint_sync, token)
+        await db.push_subscriptions.delete_many({"endpoint": token})
     except Exception as cleanup_error:
         logger.warning("dead push token cleanup failed: %s", type(cleanup_error).__name__)
         return False

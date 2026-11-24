@@ -1,13 +1,20 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-const { mediaUrl } = require('./mediaUrl');
-const { messageViewChanged } = require('./messageSync');
-const { preferredVoiceMime } = require('./voiceMime');
+import { mediaUrl } from './mediaUrl.mjs';
+import { messageViewChanged } from './messageSync.mjs';
+import { preferredVoiceMime } from './voiceMime.mjs';
 
-test('mediaUrl accepts http(s) and app paths and rejects other schemes', () => {
+test('mediaUrl allows Giphy and app paths, and rejects other hosts', () => {
   process.env.REACT_APP_BACKEND_URL = 'https://api.example';
-  assert.equal(mediaUrl('https://cdn.example/gif.gif'), 'https://cdn.example/gif.gif');
+  assert.equal(
+    mediaUrl('https://media.giphy.com/media/abc/giphy.gif'),
+    'https://media.giphy.com/media/abc/giphy.gif',
+  );
+  assert.equal(mediaUrl('https://i.giphy.com/x.gif'), 'https://i.giphy.com/x.gif');
+  assert.equal(mediaUrl('https://media2.giphy.com/a.gif'), 'https://media2.giphy.com/a.gif');
+  assert.equal(mediaUrl('https://attacker.example/pixel.gif'), '');
+  assert.equal(mediaUrl('http://media.giphy.com/a.gif'), '');
   assert.equal(mediaUrl('/api/files/abc?sig=1'), 'https://api.example/api/files/abc?sig=1');
   assert.equal(mediaUrl('javascript:alert(1)'), '');
   assert.equal(mediaUrl('data:text/html,hi'), '');

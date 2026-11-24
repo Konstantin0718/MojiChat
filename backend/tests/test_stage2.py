@@ -58,6 +58,45 @@ def _message(client, owner, friend):
     return sent.json()["message_id"]
 
 
+def test_giphy_file_url_is_stored_and_other_hosts_are_rejected(client):
+    owner = _register(client)
+    friend = _register(client)
+    created = client.post(
+        "/api/conversations",
+        headers=_auth(owner),
+        json={"participant_ids": [friend["user_id"]]},
+    )
+    assert created.status_code == 200, created.text
+    conversation_id = created.json()["conversation_id"]
+    headers = _auth(owner)
+    giphy = "https://media.giphy.com/media/abc/giphy.gif"
+    sent = client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={"content": "GIF", "message_type": "gif", "file_url": giphy},
+    )
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["file_url"] == giphy
+    rejected = client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={"content": "GIF", "message_type": "gif", "file_url": "https://attacker.example/pixel.gif"},
+    )
+    assert rejected.status_code == 422
+    status_ok = client.post(
+        "/api/statuses",
+        headers=headers,
+        json={"content_type": "image", "file_url": "https://i.giphy.com/media/x.gif"},
+    )
+    assert status_ok.status_code == 200, status_ok.text
+    status_bad = client.post(
+        "/api/statuses",
+        headers=headers,
+        json={"content_type": "image", "file_url": "https://attacker.example/pixel.gif"},
+    )
+    assert status_bad.status_code == 422
+
+
 def test_reactions_are_atomic_and_reject_bad_keys(client):
     owner = _register(client)
     friend = _register(client)

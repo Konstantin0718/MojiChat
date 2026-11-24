@@ -49,7 +49,7 @@ import { StoryRail } from './StoryRail';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { mediaUrl, openMediaUrl } from '../../lib/mediaUrl';
+import { mediaUrl, openMediaUrl, profileUrl } from '../../lib/mediaUrl';
 import { messageViewChanged } from '../../lib/messageSync';
 import { ScrollArea } from '../ui/scroll-area';
 import { Sheet, SheetContent } from '../ui/sheet';
@@ -973,7 +973,7 @@ export const ChatLayout = () => {
         {/* User info */}
         <div className="flex items-center gap-3">
           <Avatar className="w-10 h-10 border-2 border-primary">
-            <AvatarImage src={mediaUrl(user?.picture)} />
+            <AvatarImage src={profileUrl(user?.picture)} />
             <AvatarFallback className="bg-primary text-primary-foreground font-bold">
               {user?.name?.[0]?.toUpperCase()}
             </AvatarFallback>
@@ -1002,7 +1002,7 @@ export const ChatLayout = () => {
                   </h4>
                   <div className="flex items-center gap-4">
                     <Avatar className="w-16 h-16">
-                      <AvatarImage src={mediaUrl(user?.picture)} />
+                      <AvatarImage src={profileUrl(user?.picture)} />
                       <AvatarFallback className="text-xl bg-primary text-primary-foreground font-bold">
                         {user?.name?.[0]?.toUpperCase()}
                       </AvatarFallback>
@@ -1143,7 +1143,7 @@ export const ChatLayout = () => {
                     data-testid={`user-result-${u.user_id}`}
                   >
                     <Avatar>
-                      <AvatarImage src={mediaUrl(u.picture)} />
+                      <AvatarImage src={profileUrl(u.picture)} />
                       <AvatarFallback className="bg-secondary text-secondary-foreground">
                         {u.name?.[0]?.toUpperCase()}
                       </AvatarFallback>
@@ -1224,7 +1224,7 @@ export const ChatLayout = () => {
                       className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors"
                     >
                       <Avatar className="w-8 h-8">
-                        <AvatarImage src={mediaUrl(u.picture)} />
+                        <AvatarImage src={profileUrl(u.picture)} />
                         <AvatarFallback>{u.name?.[0]?.toUpperCase()}</AvatarFallback>
                       </Avatar>
                       <span className="text-sm">{u.name}</span>
@@ -1272,7 +1272,7 @@ export const ChatLayout = () => {
                       </AvatarFallback>
                     ) : (
                       <>
-                        <AvatarImage src={mediaUrl(otherParticipant?.picture)} />
+                        <AvatarImage src={profileUrl(otherParticipant?.picture)} />
                         <AvatarFallback className="bg-accent text-accent-foreground">
                           {otherParticipant?.name?.[0]?.toUpperCase()}
                         </AvatarFallback>
@@ -1502,7 +1502,7 @@ export const ChatLayout = () => {
                   </AvatarFallback>
                 ) : (
                   <>
-                    <AvatarImage src={mediaUrl(getOtherParticipant(currentConversation)?.picture)} />
+                    <AvatarImage src={profileUrl(getOtherParticipant(currentConversation)?.picture)} />
                     <AvatarFallback className="bg-accent text-accent-foreground">
                       {getOtherParticipant(currentConversation)?.name?.[0]?.toUpperCase()}
                     </AvatarFallback>
