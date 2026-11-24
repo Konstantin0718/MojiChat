@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 interface VoiceRecorderProps {
   colors: any;
@@ -109,7 +109,7 @@ const stopRecording = async () => {
       }
 
       const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: 'base64',
+        encoding: FileSystem.EncodingType.Base64,
       });
       
       onSend(`data:audio/m4a;base64,${base64}`, duration);

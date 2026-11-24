@@ -1,7 +1,10 @@
 """Atomic reactions and capped voice bodies."""
 import asyncio
+import base64
 import os
 import uuid
+
+from pymongo import MongoClient
 
 os.environ.setdefault("MONGO_URL", "mongodb://127.0.0.1:27017")
 os.environ.setdefault("DB_NAME", "mojichat_stage2_tests")
@@ -92,6 +95,14 @@ def test_reactions_are_atomic_and_reject_bad_keys(client):
     )
     assert removed.status_code == 200, removed.text
     assert "👍" not in removed.json()["reactions"]
+    heart = "\u2764\ufe0f"
+    loved = client.post(
+        f"/api/messages/{message_id}/reactions",
+        headers=headers,
+        json={"emoji": heart},
+    )
+    assert loved.status_code == 200, loved.text
+    assert heart in loved.json()["reactions"]
 
 
 class _StreamRequest:
@@ -107,6 +118,34 @@ class _StreamRequest:
     async def stream(self):
         for chunk in self._chunks:
             yield chunk
+
+
+def test_android_m4a_voice_is_stored_as_audio(client):
+    user = _register(client)
+    payload = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 24
+    response = client.post(
+        "/api/voice/upload",
+        headers=_auth(user),
+        json={"audio_data": base64.b64encode(payload).decode(), "duration": 1},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["file_url"].startswith("/api/files/")
+    with MongoClient(os.environ["MONGO_URL"]) as mongo:
+        stored = mongo[os.environ["DB_NAME"]].stored_files.find_one({"file_id": body["file_id"]})
+        assert stored is not None
+        assert stored["media_class"] == "audio"
+        assert stored["content_type"] == "audio/mp4"
+        assert mongo[os.environ["DB_NAME"]]["uploads.files"].find_one({"_id": stored["gridfs_id"]})
+
+
+def test_phone_video_containers_are_accepted():
+    from file_storage import detect_upload
+
+    hevc = b"\x00\x00\x00\x18ftyphvc1" + b"\x00" * 24
+    phone = b"\x00\x00\x00\x18ftyp3gp4" + b"\x00" * 24
+    assert detect_upload(hevc) == ("video/mp4", "video")
+    assert detect_upload(phone) == ("video/3gpp", "video")
 
 
 def test_voice_body_without_content_length_stops_at_the_cap():

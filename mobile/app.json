@@ -3,7 +3,7 @@
     "name": "MojiChat",
     "slug": "mijichat",
     "owner": "konstantin0",
-    "version": "2.3.5",
+    "version": "2.3.6",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "mojichat",
@@ -33,7 +33,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.mojichat.app",
-      "versionCode": 20305,
+      "versionCode": 20306,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",

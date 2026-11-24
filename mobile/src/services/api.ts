@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from '../config';
 
 class ApiService {
@@ -184,17 +185,31 @@ class ApiService {
   async uploadFile(uri: string, fileName?: string, mimeType?: string) {
     const name = fileName || uri.split('/').pop() || 'file';
     const type = mimeType || 'application/octet-stream';
-    const formData = new FormData();
-    formData.append('file', {
-      uri,
-      name,
-      type,
-    } as any);
+    let uploadUri = uri;
+    let copiedTo: string | null = null;
+    try {
+      if (!uri.startsWith('file://')) {
+        const safeName = name.replace(/[^\w.\-]+/g, '_').slice(-80) || 'upload';
+        copiedTo = `${FileSystem.cacheDirectory}upload-${Date.now()}-${safeName}`;
+        await FileSystem.copyAsync({ from: uri, to: copiedTo });
+        uploadUri = copiedTo;
+      }
+      const formData = new FormData();
+      formData.append('file', {
+        uri: uploadUri,
+        name,
+        type,
+      } as any);
 
-    const response = await this.api.post('/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return response.data;
+      const response = await this.api.post('/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    } finally {
+      if (copiedTo) {
+        await FileSystem.deleteAsync(copiedTo, { idempotent: true }).catch(() => undefined);
+      }
+    }
   }
 
   async uploadVoice(base64Data: string, duration: number) {
@@ -208,6 +223,13 @@ class ApiService {
   // Reactions
   async addReaction(messageId: string, emoji: string) {
     const response = await this.api.post(`/messages/${messageId}/reactions`, { emoji });
+    return response.data;
+  }
+
+  async removeReaction(messageId: string, emoji: string) {
+    const response = await this.api.delete(
+      `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`
+    );
     return response.data;
   }
 

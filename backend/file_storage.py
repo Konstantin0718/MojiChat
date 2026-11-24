@@ -30,6 +30,7 @@ ALLOWED_TYPES = {
     "image/heic": "image",
     "image/heif": "image",
     "video/mp4": "video",
+    "video/3gpp": "video",
     "video/webm": "video",
     "audio/mpeg": "audio",
     "audio/mp4": "audio",
@@ -40,6 +41,7 @@ ALLOWED_TYPES = {
     "audio/wav": "audio",
     "audio/x-wav": "audio",
     "audio/webm": "audio",
+    "audio/3gpp": "audio",
     "application/pdf": "file",
     "text/plain": "file",
     "application/zip": "file",
@@ -119,8 +121,10 @@ def _manual_mime(data: bytes) -> Optional[str]:
         brand = head[head.find(b"ftyp") + 4:head.find(b"ftyp") + 8]
         if brand in (b"M4A ", b"M4A\x00", b"m4a "):
             return "audio/mp4"
-        if brand in (b"isom", b"mp41", b"mp42", b"avc1", b"dash", b"iso2"):
+        if brand in (b"isom", b"mp41", b"mp42", b"avc1", b"avc3", b"hvc1", b"hev1", b"dash", b"iso2", b"mp4v"):
             return "video/mp4"
+        if brand in (b"3gp4", b"3gp5", b"3gp6", b"3gp7"):
+            return "video/3gpp"
     return None
 
 

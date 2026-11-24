@@ -151,3 +151,8 @@ jobs:
           node-version: "22"
       - name: Firebase key injection script
         run: node --test mobile/scripts/inject-google-services.test.js
+      - name: Typecheck
+        working-directory: mobile
+        run: |
+          npm ci
+          npx tsc --noEmit
