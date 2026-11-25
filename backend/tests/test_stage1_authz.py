@@ -248,7 +248,21 @@ def test_search_stays_inside_member_conversations(client):
     assert hidden.json() == []
 
 
-def test_call_routes_require_membership(client):
+def test_call_routes_are_hidden_unless_enabled(client):
+    assert server.CALLS_ENABLED is False
+    hidden = [
+        client.post("/api/calls/initiate", json={"conversation_id": "conv_hidden", "is_video": False}),
+        client.post("/api/calls/call_hidden/join"),
+        client.post("/api/calls/call_hidden/signal", json={"type": "offer", "data": {"sdp": "v=0"}}),
+        client.get("/api/calls/call_hidden/signals"),
+        client.post("/api/calls/call_hidden/end"),
+        client.get("/api/calls/active"),
+    ]
+    assert [response.status_code for response in hidden] == [404, 404, 404, 404, 404, 404]
+
+
+def test_call_routes_require_membership(client, monkeypatch):
+    monkeypatch.setattr(server, "CALLS_ENABLED", True)
     world = _world(client)
     cid = world["conversation_id"]
     assert client.post(

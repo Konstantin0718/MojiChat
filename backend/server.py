@@ -3067,9 +3067,18 @@ class CallSignal(BaseModel):
             raise ValueError("invalid target")
         return value
 
+CALLS_ENABLED = os.environ.get("CALLS_ENABLED", "").strip().lower() == "true"
+
+
+def require_calls_enabled():
+    if not CALLS_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 @api_router.post("/calls/initiate")
 async def initiate_call(body: CallInitiateBody, request: Request):
     """Initiate a video call"""
+    require_calls_enabled()
     current_user = await get_current_user(request)
     conv = await get_conversation_for_user(body.conversation_id, current_user)
     conversation_id = body.conversation_id
@@ -3118,6 +3127,7 @@ async def initiate_call(body: CallInitiateBody, request: Request):
 @api_router.post("/calls/{call_id}/join")
 async def join_call(call_id: str, request: Request):
     """Join an existing call"""
+    require_calls_enabled()
     current_user = await get_current_user(request)
     call = await get_call_for_user(call_id, current_user)
     
@@ -3138,6 +3148,7 @@ async def join_call(call_id: str, request: Request):
 @api_router.post("/calls/{call_id}/signal")
 async def send_signal(call_id: str, signal: CallSignal, request: Request):
     """Send WebRTC signaling data"""
+    require_calls_enabled()
     current_user = await get_current_user(request)
     await get_call_for_user(call_id, current_user)
     
@@ -3160,6 +3171,7 @@ async def send_signal(call_id: str, signal: CallSignal, request: Request):
 @api_router.get("/calls/{call_id}/signals")
 async def get_signals(call_id: str, request: Request):
     """Get pending WebRTC signals for current user"""
+    require_calls_enabled()
     current_user = await get_current_user(request)
     await get_call_for_user(call_id, current_user)
     
@@ -3189,6 +3201,7 @@ async def get_signals(call_id: str, request: Request):
 @api_router.post("/calls/{call_id}/end")
 async def end_call(call_id: str, request: Request):
     """End a call"""
+    require_calls_enabled()
     current_user = await get_current_user(request)
     await get_call_for_user(call_id, current_user)
     
@@ -3208,6 +3221,7 @@ async def end_call(call_id: str, request: Request):
 @api_router.get("/calls/active")
 async def get_active_calls(request: Request):
     """Get active calls for current user"""
+    require_calls_enabled()
     current_user = await get_current_user(request)
     
     # Get user's conversations
