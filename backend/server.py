@@ -8,6 +8,7 @@ import logging
 import json
 import asyncio
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import List, Optional, Dict
@@ -65,7 +66,14 @@ JWT_SECRET = _require_jwt_secret()
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
 
-app = FastAPI(title="MojiChat API")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await create_db_indexes()
+    yield
+    client.close()
+
+
+app = FastAPI(title="MojiChat API", lifespan=lifespan)
 
 # ==================== CORS ====================
 # Auth is Bearer-only, so credentials stay off and a wildcard origin is never used.
@@ -3728,7 +3736,6 @@ def _normalize_stored_emails(sync, grouped) -> dict:
     return {"updated": updated, "collisions": collisions}
 
 
-@app.on_event("startup")
 async def create_db_indexes():
     """
     Create MongoDB indexes on startup.
@@ -3848,8 +3855,3 @@ async def create_db_indexes():
     await _safe_index("invite_links.user_id", db.invite_links.create_index("user_id", unique=True, background=True))
     await _safe_index("invite_links.invite_code", db.invite_links.create_index("invite_code", unique=True, background=True))
     logger.info("MongoDB index setup finished")
-
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()

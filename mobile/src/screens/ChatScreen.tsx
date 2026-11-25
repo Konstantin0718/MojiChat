@@ -14,7 +14,9 @@ import {
   Modal,
   ScrollView,
   Keyboard,
+  AppState,
 } from 'react-native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -101,6 +103,11 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const flatListRef = useRef<FlatList>(null);
   const failedMediaRef = useRef(new Set<string>());
   const [conversationData, setConversationData] = useState<any>(null);
+  const isFocused = useIsFocused();
+  const isFocusedRef = useRef(isFocused);
+  isFocusedRef.current = isFocused;
+  const appActive = useRef(AppState.currentState === 'active');
+  const lastMarkedRef = useRef<string | null>(null);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -144,8 +151,6 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     } catch (_) {}
   };
 
-  const lastMarkedRef = useRef<string | null>(null);
-
   const loadMessages = useCallback(async () => {
     if (!conversationId) return;
     try {
@@ -155,7 +160,12 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
         const newest = sorted[0];
-        if (newest?.message_id && lastMarkedRef.current !== newest.message_id) {
+        if (
+          isFocusedRef.current &&
+          appActive.current &&
+          newest?.message_id &&
+          lastMarkedRef.current !== newest.message_id
+        ) {
           lastMarkedRef.current = newest.message_id;
           api.markConversationRead(conversationId, newest.message_id).catch(() => {
             lastMarkedRef.current = null;
@@ -174,6 +184,22 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     } catch (_) {}
     finally { setLoading(false); }
   }, [conversationId]);
+
+  useFocusEffect(useCallback(() => {
+    lastMarkedRef.current = null;
+    loadMessages();
+  }, [loadMessages]));
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      appActive.current = state === 'active';
+      if (state === 'active' && isFocusedRef.current) {
+        lastMarkedRef.current = null;
+        loadMessages();
+      }
+    });
+    return () => sub.remove();
+  }, [loadMessages]);
 
   // ============ SEND FUNCTIONS ============
 
