@@ -8,6 +8,7 @@ import logging
 import json
 import asyncio
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import List, Optional, Dict
@@ -65,7 +66,14 @@ JWT_SECRET = _require_jwt_secret()
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
 
-app = FastAPI(title="MojiChat API")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await create_db_indexes()
+    yield
+    client.close()
+
+
+app = FastAPI(title="MojiChat API", lifespan=lifespan)
 
 # ==================== CORS ====================
 # Auth is Bearer-only, so credentials stay off and a wildcard origin is never used.
@@ -2092,17 +2100,41 @@ async def get_messages(
         oldest = messages[-1]
         response.headers["X-Next-Cursor"] = encode_cursor(oldest.get("created_at") or "", oldest["_id"])
 
-    # Mark as read
-    await db.messages.update_many(
-        {
-            "conversation_id": conversation_id,
-            "sender_id": {"$ne": current_user["user_id"]},
-            "read_by": {"$nin": [current_user["user_id"]]}
-        },
-        {"$addToSet": {"read_by": current_user["user_id"]}}
-    )
-
     return [present_message(message, current_user["user_id"]) for message in reversed(messages)]
+
+
+@api_router.post("/conversations/{conversation_id}/read")
+async def mark_conversation_read(conversation_id: str, request: Request):
+    """Mark messages read up to the one the client has seen. Loading history does not do this."""
+    current_user = await get_current_user(request)
+    await get_conversation_for_user(conversation_id, current_user)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    message_id = payload.get("message_id")
+    up_to = payload.get("up_to")
+    criteria = {
+        "conversation_id": conversation_id,
+        "sender_id": {"$ne": current_user["user_id"]},
+        "read_by": {"$nin": [current_user["user_id"]]},
+    }
+    if isinstance(message_id, str) and message_id:
+        seen = await db.messages.find_one(
+            {"message_id": message_id, "conversation_id": conversation_id},
+            {"_id": 0, "created_at": 1},
+        )
+        if not seen or not isinstance(seen.get("created_at"), str):
+            raise HTTPException(status_code=404, detail="Not found")
+        criteria["created_at"] = {"$lte": seen["created_at"]}
+    elif isinstance(up_to, str) and up_to:
+        criteria["created_at"] = {"$lte": up_to}
+    else:
+        return {"marked": 0}
+    result = await db.messages.update_many(criteria, {"$addToSet": {"read_by": current_user["user_id"]}})
+    return {"marked": result.modified_count}
 
 # ==================== TYPING & STATUS ====================
 
@@ -3704,7 +3736,6 @@ def _normalize_stored_emails(sync, grouped) -> dict:
     return {"updated": updated, "collisions": collisions}
 
 
-@app.on_event("startup")
 async def create_db_indexes():
     """
     Create MongoDB indexes on startup.
@@ -3824,8 +3855,3 @@ async def create_db_indexes():
     await _safe_index("invite_links.user_id", db.invite_links.create_index("user_id", unique=True, background=True))
     await _safe_index("invite_links.invite_code", db.invite_links.create_index("invite_code", unique=True, background=True))
     logger.info("MongoDB index setup finished")
-
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()

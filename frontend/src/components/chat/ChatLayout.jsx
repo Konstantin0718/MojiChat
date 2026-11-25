@@ -108,6 +108,7 @@ export const ChatLayout = () => {
   const [seenMap, setSeenMap] = useState({});
 
   const messagesEndRef = useRef(null);
+  const lastMarkedRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const inputRef = useRef(null);
   const conversationIdRef = useRef(conversationId);
@@ -123,12 +124,23 @@ export const ChatLayout = () => {
     }
   }, [api]);
 
+  const canMarkRead = () => document.visibilityState === 'visible' && document.hasFocus();
+
   // Fetch messages for current conversation
   const fetchMessages = useCallback(async () => {
     if (!conversationId) return;
     try {
       const response = await api.get(`/conversations/${conversationId}/messages`);
       const newMsgs = Array.isArray(response.data) ? response.data : [];
+      const newest = newMsgs.reduce((latest, msg) => (
+        !latest || String(msg?.created_at || '') > String(latest.created_at || '') ? msg : latest
+      ), null);
+      if (canMarkRead() && newest?.message_id && lastMarkedRef.current !== newest.message_id) {
+        lastMarkedRef.current = newest.message_id;
+        api.post(`/conversations/${conversationId}/read`, { message_id: newest.message_id }).catch(() => {
+          lastMarkedRef.current = null;
+        });
+      }
       setMessages(prev => {
         if (prev.length !== newMsgs.length) return newMsgs;
         const changed = prev.some((msg, index) => messageViewChanged(msg, newMsgs[index]));
@@ -248,6 +260,7 @@ export const ChatLayout = () => {
 
   // Load conversation data when conversationId changes
   useEffect(() => {
+    lastMarkedRef.current = null;
     if (conversationId) {
       fetchConversationDetails();
       fetchMessages();
@@ -265,6 +278,21 @@ export const ChatLayout = () => {
     }, 15000);
     return () => clearInterval(interval);
   }, [conversationId, fetchConversations, fetchMessages]);
+
+  // A background tab keeps polling, but receipts are written only once it is visible again.
+  useEffect(() => {
+    const markWhenVisible = () => {
+      if (!canMarkRead()) return;
+      lastMarkedRef.current = null;
+      fetchMessages();
+    };
+    document.addEventListener('visibilitychange', markWhenVisible);
+    window.addEventListener('focus', markWhenVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', markWhenVisible);
+      window.removeEventListener('focus', markWhenVisible);
+    };
+  }, [fetchMessages]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
