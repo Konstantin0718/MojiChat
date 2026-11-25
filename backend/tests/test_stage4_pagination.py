@@ -240,6 +240,69 @@ def test_deleting_the_last_message_clears_the_list_snapshot(client):
     assert last["deleted"] is True
 
 
+def test_loading_messages_does_not_mark_them_read(client):
+    owner = _register(client, "Sender")
+    friend = _register(client, "Viewer")
+    created = client.post(
+        "/api/conversations",
+        headers=_auth(owner),
+        json={"participant_ids": [friend["user_id"]]},
+    )
+    assert created.status_code == 200, created.text
+    conversation_id = created.json()["conversation_id"]
+    first = client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=_auth(owner),
+        json={"content": "one", "message_type": "text"},
+    )
+    second = client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=_auth(owner),
+        json={"content": "two", "message_type": "text"},
+    )
+    assert first.status_code == 200 and second.status_code == 200
+    loaded = client.get(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=_auth(friend),
+    )
+    assert loaded.status_code == 200, loaded.text
+    stored = list(_db().messages.find({"conversation_id": conversation_id}))
+    assert all(friend["user_id"] not in (doc.get("read_by") or []) for doc in stored)
+
+    early = client.post(
+        f"/api/conversations/{conversation_id}/read",
+        headers=_auth(friend),
+        json={"message_id": first.json()["message_id"]},
+    )
+    assert early.status_code == 200, early.text
+    assert early.json()["marked"] == 1
+    after = {
+        doc["message_id"]: doc.get("read_by") or []
+        for doc in _db().messages.find({"conversation_id": conversation_id})
+    }
+    assert friend["user_id"] in after[first.json()["message_id"]]
+    assert friend["user_id"] not in after[second.json()["message_id"]]
+    listed = client.get("/api/conversations", headers=_auth(friend))
+    row = next(item for item in listed.json() if item["conversation_id"] == conversation_id)
+    assert row["unread_count"] == 1
+
+    done = client.post(
+        f"/api/conversations/{conversation_id}/read",
+        headers=_auth(friend),
+        json={"up_to": second.json()["created_at"]},
+    )
+    assert done.status_code == 200, done.text
+    assert done.json()["marked"] == 1
+    listed = client.get("/api/conversations", headers=_auth(friend))
+    row = next(item for item in listed.json() if item["conversation_id"] == conversation_id)
+    assert row["unread_count"] == 0
+    assert client.post(
+        f"/api/conversations/{conversation_id}/read",
+        headers=_auth(owner),
+        json={},
+    ).json()["marked"] == 0
+
+
 def test_page_size_is_capped():
     assert server.bounded_limit(1000, 50) == 100
     assert server.bounded_limit(0, 50) == 1

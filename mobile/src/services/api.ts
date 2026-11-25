@@ -164,6 +164,13 @@ class ApiService {
     return response.data;
   }
 
+  async markConversationRead(conversationId: string, messageId: string) {
+    const response = await this.api.post(`/conversations/${conversationId}/read`, {
+      message_id: messageId,
+    });
+    return response.data;
+  }
+
   async sendMessage(conversationId: string, content: string, messageType: string = 'text', fileUrlOrData?: any) {
     const fileData = typeof fileUrlOrData === 'string' ? { file_url: fileUrlOrData } : (fileUrlOrData || {});
     const response = await this.api.post(`/conversations/${conversationId}/messages`, {

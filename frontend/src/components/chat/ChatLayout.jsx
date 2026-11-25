@@ -108,6 +108,7 @@ export const ChatLayout = () => {
   const [seenMap, setSeenMap] = useState({});
 
   const messagesEndRef = useRef(null);
+  const lastMarkedRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const inputRef = useRef(null);
   const conversationIdRef = useRef(conversationId);
@@ -129,6 +130,15 @@ export const ChatLayout = () => {
     try {
       const response = await api.get(`/conversations/${conversationId}/messages`);
       const newMsgs = Array.isArray(response.data) ? response.data : [];
+      const newest = newMsgs.reduce((latest, msg) => (
+        !latest || String(msg?.created_at || '') > String(latest.created_at || '') ? msg : latest
+      ), null);
+      if (newest?.message_id && lastMarkedRef.current !== newest.message_id) {
+        lastMarkedRef.current = newest.message_id;
+        api.post(`/conversations/${conversationId}/read`, { message_id: newest.message_id }).catch(() => {
+          lastMarkedRef.current = null;
+        });
+      }
       setMessages(prev => {
         if (prev.length !== newMsgs.length) return newMsgs;
         const changed = prev.some((msg, index) => messageViewChanged(msg, newMsgs[index]));
@@ -248,6 +258,7 @@ export const ChatLayout = () => {
 
   // Load conversation data when conversationId changes
   useEffect(() => {
+    lastMarkedRef.current = null;
     if (conversationId) {
       fetchConversationDetails();
       fetchMessages();

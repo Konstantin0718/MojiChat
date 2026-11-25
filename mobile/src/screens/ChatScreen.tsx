@@ -118,6 +118,7 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   }, []);
 
   useEffect(() => {
+    lastMarkedRef.current = null;
     if (!conversationId) {
       Alert.alert('Error', 'No conversation ID provided');
       setLoading(false);
@@ -143,6 +144,8 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     } catch (_) {}
   };
 
+  const lastMarkedRef = useRef<string | null>(null);
+
   const loadMessages = useCallback(async () => {
     if (!conversationId) return;
     try {
@@ -151,6 +154,13 @@ export const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
         const sorted = [...data].sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
+        const newest = sorted[0];
+        if (newest?.message_id && lastMarkedRef.current !== newest.message_id) {
+          lastMarkedRef.current = newest.message_id;
+          api.markConversationRead(conversationId, newest.message_id).catch(() => {
+            lastMarkedRef.current = null;
+          });
+        }
         setMessages(prev => {
           if (prev.length !== sorted.length) return sorted;
           const changed = prev.some((msg, index) =>
