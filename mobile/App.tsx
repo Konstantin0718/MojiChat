@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { LanguageProvider, useLanguage } from './src/contexts/LanguageContext';
 import { notificationService } from './src/services/notifications';
+import { CALLS_ENABLED } from './src/config';
 
 // Screens
 import { LoginScreen } from './src/screens/LoginScreen';
@@ -158,7 +159,7 @@ const RootNavigator = () => {
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="NewChat" component={NewChatScreen} />
             <Stack.Screen name="NewGroup" component={NewGroupScreen} />
-            <Stack.Screen name="VideoCall" component={VideoCallScreen} />
+            {CALLS_ENABLED ? <Stack.Screen name="VideoCall" component={VideoCallScreen} /> : null}
             <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
             <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
             <Stack.Screen name="Status" component={StatusScreen} />

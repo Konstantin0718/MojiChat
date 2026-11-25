@@ -162,7 +162,7 @@ jobs:
           cache-dependency-path: frontend/yarn.lock
       - name: Chat guard tests
         working-directory: frontend
-        run: node --test src/lib/chatGuards.test.mjs
+        run: node --test src/lib/chatGuards.test.mjs src/lib/calls.test.mjs
       - name: Install and build
         working-directory: frontend
         run: |

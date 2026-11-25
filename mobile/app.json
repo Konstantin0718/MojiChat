@@ -104,7 +104,8 @@
       "eas": {
         "projectId": "84867f60-7222-42a4-b8b6-32d381c81e14"
       },
-      "firebaseProjectId": "mojichat"
+      "firebaseProjectId": "mojichat",
+      "callsEnabled": false
     }
   }
 }
