@@ -324,7 +324,7 @@ export const ChatLayout = () => {
 
   // Search users
   const searchUsers = async (query) => {
-    if (!query.trim()) {
+    if (query.trim().length < 2) {
       setSearchResults([]);
       return;
     }
