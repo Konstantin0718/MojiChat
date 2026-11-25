@@ -40,6 +40,14 @@ jobs:
       - name: Critical flake8
         working-directory: backend
         run: ./venv/bin/flake8 server.py file_storage.py --select=E9,F63,F7,F82
+      - name: Firebase auth tests
+        working-directory: backend
+        env:
+          MONGO_URL: mongodb://127.0.0.1:27017
+          DB_NAME: mojichat_firebase_tests
+          JWT_SECRET: ci_test_secret_long_enough_value
+          CORS_ORIGINS: "*"
+        run: ./venv/bin/python -m pytest tests/test_firebase_auth.py -q
       - name: Reset email tests
         working-directory: backend
         env:
@@ -162,7 +170,7 @@ jobs:
           cache-dependency-path: frontend/yarn.lock
       - name: Chat guard tests
         working-directory: frontend
-        run: node --test src/lib/chatGuards.test.mjs src/lib/calls.test.mjs
+        run: node --test src/lib/chatGuards.test.mjs src/lib/calls.test.mjs src/lib/firebaseWebConfig.test.mjs
       - name: Install and build
         working-directory: frontend
         run: |

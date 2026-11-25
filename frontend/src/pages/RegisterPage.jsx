@@ -13,7 +13,7 @@ import { Toaster, toast } from 'sonner';
 export default function RegisterPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { register, loginWithGoogle, isAuthenticated } = useAuth();
+  const { register, loginWithGoogle, googleSignInReady, isAuthenticated } = useAuth();
   
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -49,6 +49,21 @@ export default function RegisterPage() {
       toast.success('Account created! Welcome to MojiChat!');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Registration failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogle = async () => {
+    setLoading(true);
+    try {
+      await loginWithGoogle();
+      toast.success('Account created! Welcome to MojiChat!');
+    } catch (error) {
+      const code = error?.code || '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return;
+      const detail = error.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Google sign-in failed');
     } finally {
       setLoading(false);
     }
@@ -126,7 +141,7 @@ export default function RegisterPage() {
             </p>
           </motion.div>
 
-          {/* Google Signup */}
+          {googleSignInReady && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -135,7 +150,8 @@ export default function RegisterPage() {
             <Button
               variant="outline"
               className="w-full rounded-xl py-6 text-base gap-3 mb-6"
-              onClick={loginWithGoogle}
+              onClick={handleGoogle}
+              disabled={loading}
               data-testid="google-signup-btn"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -159,8 +175,9 @@ export default function RegisterPage() {
               Sign up with Google
             </Button>
           </motion.div>
+          )}
 
-          {/* Divider */}
+          {googleSignInReady && (
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-border" />
@@ -169,6 +186,7 @@ export default function RegisterPage() {
               <span className="px-4 bg-background text-muted-foreground">or register with email</span>
             </div>
           </div>
+          )}
 
           {/* Register Form */}
           <motion.form

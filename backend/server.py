@@ -125,6 +125,7 @@ GIPHY_API_KEY = os.environ.get('GIPHY_API_KEY', '')
 
 # ==================== FIREBASE ADMIN SDK ====================
 import firebase_admin
+from firebase_admin import auth as firebase_auth
 from firebase_admin import credentials, messaging as fcm_messaging
 
 firebase_app = None
@@ -696,27 +697,8 @@ async def get_current_user(request: Request) -> dict:
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
-        pass
-    
-    # Opaque session rows from older Google logins, sent as Bearer tokens.
-    session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
-    if session:
-        expires_at = session.get("expires_at")
-        if isinstance(expires_at, str):
-            expires_at = datetime.fromisoformat(expires_at)
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if expires_at < datetime.now(timezone.utc):
-            raise HTTPException(status_code=401, detail="Session expired")
-        
-        user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
-        if user:
-            await db.users.update_one(
-                {"user_id": user["user_id"]},
-                {"$set": {"is_online": True, "last_seen": datetime.now(timezone.utc).isoformat()}}
-            )
-            return user
-    
+        raise HTTPException(status_code=401, detail="Invalid token")
+
     raise HTTPException(status_code=401, detail="Invalid token")
 
 
@@ -878,84 +860,101 @@ async def login(request: Request, user_data: UserLogin):
         "token": token
     }
 
-@api_router.post("/auth/session")
-async def process_google_session(request: Request):
-    """Process Google OAuth session_id from Emergent Auth"""
-    body = await request.json()
-    session_id = body.get("session_id")
-    
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id required")
-    
-    # Call Emergent Auth to get user data
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-                headers={"X-Session-ID": session_id}
-            )
-            if resp.status_code != 200:
-                raise HTTPException(status_code=401, detail="Invalid session")
-            
-            data = resp.json()
-        except Exception as e:
-            logger.error(f"Error calling Emergent Auth: {e}")
-            raise HTTPException(status_code=500, detail="Auth service error")
-    
-    email = normalize_email(data.get("email") or "")
-    name = data.get("name")
-    picture = data.get("picture")
-    emergent_session_token = data.get("session_token")
-    if not email:
-        raise HTTPException(status_code=401, detail="Invalid session")
-    
-    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
-    
-    if existing_user:
-        user_id = existing_user["user_id"]
-        # Update user info
-        await db.users.update_one(
-            {"user_id": user_id},
-            {"$set": {
-                "name": name,
-                "picture": picture,
-                "is_online": True,
-                "last_seen": datetime.now(timezone.utc).isoformat()
-            }}
-        )
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        user_doc = {
-            "user_id": user_id,
-            "email": email,
-            "name": name,
-            "picture": picture,
-            "password": None,
-            "is_online": True,
-            "last_seen": datetime.now(timezone.utc).isoformat(),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "preferred_language": "en",
-            "country_code": None,
-            "token_version": 0,
-        }
-        await db.users.insert_one(user_doc)
-    
-    # Store session. The client sends this opaque token as a Bearer header.
-    await db.user_sessions.delete_many({"user_id": user_id})
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": emergent_session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
+FIREBASE_PASSWORD_ACCOUNT_DETAIL = (
+    "Този имейл има акаунт с парола. Влез с паролата или я смени чрез "
+    "„Забравена парола\", след това можеш да ползваш и Google."
+)
+
+
+class FirebaseAuthRequest(BaseModel):
+    id_token: str = Field(min_length=1, max_length=8192)
+
+
+def _firebase_claims(decoded: dict) -> dict:
+    provider = (decoded.get("firebase") or {}).get("sign_in_provider")
+    email = normalize_email(decoded.get("email") or "")
+    uid = decoded.get("uid")
+    if provider != "google.com" or not email or decoded.get("email_verified") is not True:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if not isinstance(uid, str) or not uid.strip():
+        raise HTTPException(status_code=401, detail="Invalid token")
+    name = decoded.get("name") if isinstance(decoded.get("name"), str) else ""
+    name = name.strip() or email.split("@", 1)[0]
+    picture = decoded.get("picture") if isinstance(decoded.get("picture"), str) else None
+    if picture and not picture.startswith("https://"):
+        picture = None
+    return {"uid": uid.strip(), "email": email, "name": name[:80], "picture": picture}
+
+
+def _auth_token_response(user: dict) -> dict:
     return {
-        "user_id": user_id,
-        "email": email,
-        "name": name,
-        "picture": present_file_url(picture, user_id),
-        "token": emergent_session_token
+        "user_id": user["user_id"],
+        "email": user["email"],
+        "name": user["name"],
+        "picture": present_file_url(user.get("picture"), user["user_id"]),
+        "token": create_token(user["user_id"], token_version_of(user.get("token_version"))),
     }
+
+
+@api_router.post("/auth/firebase")
+async def login_with_firebase(request: Request, body: FirebaseAuthRequest):
+    """Exchange a Firebase Google ID token for this app's JWT."""
+    await enforce_rate_limit(request, bucket="auth_login", limit=10, window_seconds=600)
+    try:
+        decoded = await asyncio.to_thread(
+            firebase_auth.verify_id_token,
+            body.id_token,
+            check_revoked=True,
+        )
+    except Exception as exc:
+        logger.warning("firebase token rejected: %s", type(exc).__name__)
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if not isinstance(decoded, dict):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    claims = _firebase_claims(decoded)
+    now = datetime.now(timezone.utc).isoformat()
+    user = await db.users.find_one({"firebase_uid": claims["uid"]}, {"_id": 0})
+    if not user:
+        user = await db.users.find_one({"email": claims["email"]}, {"_id": 0})
+        if user:
+            if user.get("password") and user.get("email_verified") is not True:
+                raise HTTPException(status_code=409, detail=FIREBASE_PASSWORD_ACCOUNT_DETAIL)
+            await db.users.update_one(
+                {"user_id": user["user_id"]},
+                {"$set": {"firebase_uid": claims["uid"], "is_online": True, "last_seen": now}},
+            )
+            user["firebase_uid"] = claims["uid"]
+        else:
+            user_id = f"user_{uuid.uuid4().hex[:12]}"
+            user = {
+                "user_id": user_id,
+                "email": claims["email"],
+                "name": claims["name"],
+                "password": None,
+                "picture": claims["picture"],
+                "is_online": True,
+                "last_seen": now,
+                "created_at": now,
+                "preferred_language": "en",
+                "country_code": None,
+                "email_verified": True,
+                "phone_number": None,
+                "phone_verified": False,
+                "token_version": 0,
+                "firebase_uid": claims["uid"],
+            }
+            try:
+                await db.users.insert_one(dict(user))
+            except Exception as exc:
+                logger.warning("firebase user create skipped: %s", type(exc).__name__)
+                user = await db.users.find_one({"firebase_uid": claims["uid"]}, {"_id": 0})
+                if not user:
+                    raise HTTPException(status_code=401, detail="Invalid token")
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"is_online": True, "last_seen": now}},
+    )
+    return _auth_token_response(user)
 
 @api_router.get("/auth/me")
 async def get_me(request: Request):
@@ -970,7 +969,6 @@ async def logout(request: Request):
             {"user_id": user["user_id"]},
             {"$set": {"is_online": False, "last_seen": datetime.now(timezone.utc).isoformat()}}
         )
-        await db.user_sessions.delete_many({"user_id": user["user_id"]})
         # This device only. Other devices stay until logout-all.
         await delete_push_endpoints(user["user_id"], await push_endpoints_from_request(request))
     except Exception:
@@ -986,7 +984,6 @@ async def logout_all(request: Request):
         {"user_id": user["user_id"]},
         {"$inc": {"token_version": 1}},
     )
-    await db.user_sessions.delete_many({"user_id": user["user_id"]})
     await db.push_subscriptions.delete_many({"user_id": user["user_id"]})
     return {"message": "All sessions revoked"}
 
@@ -1227,10 +1224,8 @@ async def reset_password(data: PasswordResetConfirm):
     hashed_pwd = hash_password(data.new_password)
     await db.users.update_one(
         {"email": reset_request["email"]},
-        {"$set": {"password": hashed_pwd}, "$inc": {"token_version": 1}},
+        {"$set": {"password": hashed_pwd, "email_verified": True}, "$inc": {"token_version": 1}},
     )
-    if reset_request.get("user_id"):
-        await db.user_sessions.delete_many({"user_id": reset_request["user_id"]})
     return {"message": "Password has been reset successfully"}
 
 # ==================== EMAIL VERIFICATION ====================
@@ -3861,6 +3856,72 @@ def _normalize_stored_emails(sync, grouped) -> dict:
     return {"updated": updated, "collisions": collisions}
 
 
+FIREBASE_UID_PARTIAL = {"firebase_uid": {"$type": "string", "$gt": ""}}
+
+
+def _firebase_uid_index_is_ready(spec: dict) -> bool:
+    key = list(spec.get("key") or [])
+    if key != [("firebase_uid", 1)] or not spec.get("unique"):
+        return False
+    partial = spec.get("partialFilterExpression") or {}
+    uid_filter = partial.get("firebase_uid") or {}
+    return uid_filter.get("$type") == "string" and uid_filter.get("$gt") == ""
+
+
+def ensure_unique_firebase_uid_index() -> str:
+    """Partial unique index on firebase_uid. Duplicates are logged and the index is skipped."""
+    from pymongo import MongoClient
+
+    try:
+        with MongoClient(mongo_url) as client:
+            sync = client[db.name]
+            collisions = list(sync.users.aggregate([
+                {"$match": {"firebase_uid": {"$type": "string", "$gt": ""}}},
+                {"$group": {"_id": "$firebase_uid", "ids": {"$push": "$user_id"}, "count": {"$sum": 1}}},
+                {"$match": {"count": {"$gt": 1}}},
+                {"$limit": 20},
+            ]))
+            if collisions:
+                logger.warning(
+                    "firebase uid index skipped collisions=%s user_ids=%s",
+                    len(collisions),
+                    [row.get("ids") for row in collisions],
+                )
+                return "skipped"
+            ready = False
+            for name, spec in list(sync.users.index_information().items()):
+                if list(spec.get("key") or []) != [("firebase_uid", 1)]:
+                    continue
+                if _firebase_uid_index_is_ready(spec):
+                    ready = True
+                    continue
+                sync.users.drop_index(name)
+            if ready:
+                return "exists"
+            sync.users.create_index(
+                "firebase_uid",
+                unique=True,
+                name="users_firebase_uid_unique",
+                partialFilterExpression=FIREBASE_UID_PARTIAL,
+                background=True,
+            )
+            return "created"
+    except Exception as exc:
+        logger.warning("firebase uid index skipped: %s", type(exc).__name__)
+        return "error"
+
+
+def drop_legacy_user_sessions() -> None:
+    """Opaque Emergent sessions are no longer accepted. Drop the collection if it is still there."""
+    from pymongo import MongoClient
+
+    try:
+        with MongoClient(mongo_url) as client:
+            client[db.name].drop_collection("user_sessions")
+    except Exception as exc:
+        logger.warning("user_sessions drop skipped: %s", type(exc).__name__)
+
+
 async def create_db_indexes():
     """
     Create MongoDB indexes on startup.
@@ -3915,6 +3976,16 @@ async def create_db_indexes():
             logger.info("email unique index %s", email_index)
     except Exception as exc:
         logger.warning("email unique index skipped: %s", type(exc).__name__)
+    try:
+        uid_index = await asyncio.to_thread(ensure_unique_firebase_uid_index)
+        if uid_index != "exists":
+            logger.info("firebase uid index %s", uid_index)
+    except Exception as exc:
+        logger.warning("firebase uid index skipped: %s", type(exc).__name__)
+    try:
+        await asyncio.to_thread(drop_legacy_user_sessions)
+    except Exception as exc:
+        logger.warning("user_sessions drop skipped: %s", type(exc).__name__)
     await _safe_index("users.phone_number", db.users.create_index("phone_number", sparse=True, background=True))
     await _safe_index("conversations.conversation_id", db.conversations.create_index("conversation_id", unique=True, background=True))
     await _safe_index("conversations.participant_ids", db.conversations.create_index("participant_ids", background=True))
@@ -3970,11 +4041,6 @@ async def create_db_indexes():
             background=True,
         ),
     )
-    await _safe_index(
-        "user_sessions.session_token",
-        db.user_sessions.create_index("session_token", unique=True, background=True),
-    )
-    await _safe_index("user_sessions.user_id", db.user_sessions.create_index("user_id", background=True))
     await _safe_index("password_resets.token", db.password_resets.create_index("token", unique=True, background=True))
     await _safe_index("password_resets.email", db.password_resets.create_index("email", background=True))
     await _safe_index("statuses.user_id", db.statuses.create_index("user_id", background=True))

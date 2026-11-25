@@ -317,6 +317,8 @@ def test_stored_token_is_only_the_hash_and_single_use(client, monkeypatch):
     assert old.status_code == 400
     ok = client.post("/api/auth/reset-password", json={"token": newer, "new_password": "Newpass1!"})
     assert ok.status_code == 200
+    reset_user = MongoClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]].users.find_one({"email": email})
+    assert reset_user["email_verified"] is True
     used = client.post("/api/auth/reset-password", json={"token": newer, "new_password": "Newpass2!"})
     assert used.status_code == 400
 
