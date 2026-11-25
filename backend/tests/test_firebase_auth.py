@@ -105,7 +105,9 @@ def test_email_link_is_allowed_without_a_password_or_when_verified(client, monke
     linked = _post(client, _google(uid, open_account["email"], name="Open"), monkeypatch=monkeypatch)
     assert linked.status_code == 200, linked.text
     assert linked.json()["user_id"] == open_account["user_id"]
-    assert _db().users.find_one({"user_id": open_account["user_id"]})["firebase_uid"] == uid
+    stored_open = _db().users.find_one({"user_id": open_account["user_id"]})
+    assert stored_open["firebase_uid"] == uid
+    assert stored_open["email_verified"] is True
 
     verified = _register(client, "Verified")
     _db().users.update_one({"user_id": verified["user_id"]}, {"$set": {"email_verified": True}})

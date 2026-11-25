@@ -860,10 +860,7 @@ async def login(request: Request, user_data: UserLogin):
         "token": token
     }
 
-FIREBASE_PASSWORD_ACCOUNT_DETAIL = (
-    "Този имейл има акаунт с парола. Влез с паролата или я смени чрез "
-    "„Забравена парола\", след това можеш да ползваш и Google."
-)
+FIREBASE_PASSWORD_ACCOUNT_DETAIL = "password_account"
 
 
 class FirebaseAuthRequest(BaseModel):
@@ -919,10 +916,11 @@ async def login_with_firebase(request: Request, body: FirebaseAuthRequest):
         if user:
             if user.get("password") and user.get("email_verified") is not True:
                 raise HTTPException(status_code=409, detail=FIREBASE_PASSWORD_ACCOUNT_DETAIL)
-            await db.users.update_one(
-                {"user_id": user["user_id"]},
-                {"$set": {"firebase_uid": claims["uid"], "is_online": True, "last_seen": now}},
-            )
+            linked = {"firebase_uid": claims["uid"], "is_online": True, "last_seen": now}
+            if not user.get("password"):
+                linked["email_verified"] = True
+                user["email_verified"] = True
+            await db.users.update_one({"user_id": user["user_id"]}, {"$set": linked})
             user["firebase_uid"] = claims["uid"]
         else:
             user_id = f"user_{uuid.uuid4().hex[:12]}"

@@ -7,6 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { useAuth } from '../contexts/AuthContext';
+import { googleSignInErrorText } from '../lib/firebaseWebConfig.mjs';
 import { consumeRedirect, peekRedirect, rememberRedirect, safeRedirect } from '../lib/safeRedirect.mjs';
 import { Toaster, toast } from 'sonner';
 
@@ -60,10 +61,8 @@ export default function RegisterPage() {
       await loginWithGoogle();
       toast.success('Account created! Welcome to MojiChat!');
     } catch (error) {
-      const code = error?.code || '';
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return;
-      const detail = error.response?.data?.detail;
-      toast.error(typeof detail === 'string' ? detail : 'Google sign-in failed');
+      const text = googleSignInErrorText(error);
+      if (text) toast.error(text);
     } finally {
       setLoading(false);
     }

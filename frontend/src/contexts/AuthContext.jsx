@@ -101,15 +101,34 @@ export const AuthProvider = ({ children }) => {
     return userData;
   };
 
+  const googleSignInReady = Boolean(firebaseWebConfig());
+  const googleAuthRef = useRef(null);
+
+  useEffect(() => {
+    if (!googleSignInReady) return undefined;
+    let cancelled = false;
+    (async () => {
+      const config = firebaseWebConfig();
+      if (!config) return;
+      const appMod = await import('firebase/app');
+      const authMod = await import('firebase/auth');
+      if (cancelled) return;
+      const app = appMod.getApps().length ? appMod.getApps()[0] : appMod.initializeApp(config);
+      googleAuthRef.current = { auth: authMod.getAuth(app), authMod };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [googleSignInReady]);
+
   const loginWithGoogle = async () => {
-    const config = firebaseWebConfig();
-    if (!config) {
-      throw new Error('Google sign-in is not configured');
+    const loaded = googleAuthRef.current;
+    if (!loaded) {
+      throw new Error('Google sign-in is loading, try again');
     }
-    const { initializeApp, getApps } = await import('firebase/app');
-    const { getAuth, GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
-    const app = getApps().length ? getApps()[0] : initializeApp(config);
-    const result = await signInWithPopup(getAuth(app), new GoogleAuthProvider());
+    const provider = new loaded.authMod.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const result = await loaded.authMod.signInWithPopup(loaded.auth, provider);
     const idToken = await result.user.getIdToken();
     const response = await api.post('/auth/firebase', { id_token: idToken });
     const { token: newToken, ...userData } = response.data;
@@ -147,6 +166,14 @@ export const AuthProvider = ({ children }) => {
     } catch (e) {
       // Ignore logout errors
     }
+    const loaded = googleAuthRef.current;
+    if (loaded?.auth) {
+      try {
+        await loaded.authMod.signOut(loaded.auth);
+      } catch (e) {
+        // Local logout still finishes when Firebase is unreachable.
+      }
+    }
     setUser(null);
     setToken(null);
     localStorage.removeItem('mojichat_token');
@@ -164,7 +191,7 @@ export const AuthProvider = ({ children }) => {
         register,
         logout,
         loginWithGoogle,
-        googleSignInReady: Boolean(firebaseWebConfig()),
+        googleSignInReady,
         api,
         isAuthenticated: !!user,
       }}
