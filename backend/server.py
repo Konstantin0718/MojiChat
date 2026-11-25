@@ -296,6 +296,13 @@ ws_manager = ConnectionManager()
 # If you later scale horizontally, consider Redis-based rate limiting.
 _rate_lock = asyncio.Lock()
 _rate_state: Dict[str, List[float]] = {}
+_rate_windows: Dict[str, int] = {}
+_last_rate_purge = 0.0
+_RATE_PURGE_SECONDS = 60
+# Installed 2.3.x apps search on every keystroke. Lower this to 30 after the next APK.
+USER_SEARCH_LIMIT = 60
+USER_SEARCH_WINDOW = 60
+USER_SEARCH_MIN_CHARS = 2
 
 
 def _get_client_ip(request: Request) -> Optional[str]:
@@ -319,10 +326,35 @@ def _rate_limit_ip(request: Request) -> str:
     return "unknown"
 
 
+def purge_rate_state(now: Optional[float] = None) -> int:
+    """Drop buckets whose hits are all outside the window they were recorded with."""
+    global _last_rate_purge
+    current = time.time() if now is None else now
+    removed = 0
+    for key, timestamps in list(_rate_state.items()):
+        window = _rate_windows.get(key) or 86400
+        fresh = [stamp for stamp in timestamps if current - stamp < window]
+        if fresh:
+            _rate_state[key] = fresh
+            continue
+        _rate_state.pop(key, None)
+        _rate_windows.pop(key, None)
+        removed += 1
+    _last_rate_purge = current
+    return removed
+
+
+def _maybe_purge_rate_state(now: float) -> None:
+    if now - _last_rate_purge < _RATE_PURGE_SECONDS:
+        return
+    purge_rate_state(now)
+
+
 async def enforce_named_rate_limits(checks):
     """Apply every bucket, and record the hit only when all of them still have room."""
     now = time.time()
     async with _rate_lock:
+        _maybe_purge_rate_state(now)
         prepared = []
         for key, limit, window_seconds in checks:
             timestamps = [t for t in _rate_state.get(key, []) if now - t < window_seconds]
@@ -334,10 +366,11 @@ async def enforce_named_rate_limits(checks):
                     detail="Too many requests. Please try again later.",
                     headers={"Retry-After": str(retry_after)},
                 )
-            prepared.append((key, timestamps))
-        for key, timestamps in prepared:
+            prepared.append((key, timestamps, window_seconds))
+        for key, timestamps, window_seconds in prepared:
             timestamps.append(now)
             _rate_state[key] = timestamps
+            _rate_windows[key] = max(_rate_windows.get(key, 0), window_seconds)
 
 
 async def enforce_named_rate_limit(key: str, limit: int, window_seconds: int):
@@ -1544,8 +1577,13 @@ async def unread_counts_for(conversation_ids: List[str], user_id: str) -> dict:
 @api_router.get("/users/search")
 async def search_users(q: str, request: Request):
     current_user = await get_current_user(request)
+    await enforce_named_rate_limit(
+        f"user_search:{current_user['user_id']}",
+        USER_SEARCH_LIMIT,
+        USER_SEARCH_WINDOW,
+    )
     query = (q or "").strip()[:100]
-    if not query:
+    if len(query) < USER_SEARCH_MIN_CHARS:
         return []
     safe_q = re.escape(query)
     clauses = [
@@ -3656,6 +3694,79 @@ async def _safe_index(label: str, awaitable):
         logger.warning("index %s not created: %s", label, type(exc).__name__)
 
 
+EMAIL_UNIQUE_PARTIAL = {"email": {"$type": "string", "$gt": ""}}
+
+
+def _email_index_is_ready(spec: dict) -> bool:
+    key = list(spec.get("key") or [])
+    if key != [("email", 1)] or not spec.get("unique"):
+        return False
+    partial = spec.get("partialFilterExpression") or {}
+    email_filter = partial.get("email") or {}
+    if email_filter.get("$type") != "string" or email_filter.get("$gt") != "":
+        return False
+    # A collation stops plain find_one({email}) from using this index.
+    collation = spec.get("collation") or {}
+    return not collation.get("locale") and not collation.get("strength")
+
+
+def ensure_unique_email_index() -> str:
+    """Partial unique index on a non-empty email. Stored addresses are already lowercase.
+
+    Existing duplicates are logged and the index is left unchanged so startup still boots.
+    An older collated index is dropped only when its spec differs and there are no duplicates.
+    """
+    from pymongo import MongoClient
+
+    try:
+        with MongoClient(mongo_url) as client:
+            sync = client[db.name]
+            collisions = list(sync.users.aggregate([
+                {"$match": {"email": {"$type": "string"}}},
+                {"$project": {
+                    "user_id": 1,
+                    "norm": {"$toLower": {"$trim": {"input": "$email"}}},
+                }},
+                {"$match": {"norm": {"$gt": ""}}},
+                {"$group": {
+                    "_id": "$norm",
+                    "ids": {"$push": "$user_id"},
+                    "count": {"$sum": 1},
+                }},
+                {"$match": {"count": {"$gt": 1}}},
+                {"$limit": 20},
+            ]))
+            if collisions:
+                logger.warning(
+                    "email unique index skipped collisions=%s user_ids=%s",
+                    len(collisions),
+                    [row.get("ids") for row in collisions],
+                )
+                return "skipped"
+            info = sync.users.index_information()
+            ready = False
+            for name, spec in list(info.items()):
+                if list(spec.get("key") or []) != [("email", 1)]:
+                    continue
+                if _email_index_is_ready(spec):
+                    ready = True
+                    continue
+                sync.users.drop_index(name)
+            if ready:
+                return "exists"
+            sync.users.create_index(
+                "email",
+                unique=True,
+                name="users_email_unique",
+                partialFilterExpression=EMAIL_UNIQUE_PARTIAL,
+                background=True,
+            )
+            return "created"
+    except Exception as exc:
+        logger.warning("email unique index skipped: %s", type(exc).__name__)
+        return "error"
+
+
 def backfill_token_versions() -> int:
     from pymongo import MongoClient
     with MongoClient(mongo_url) as client:
@@ -3784,7 +3895,12 @@ async def create_db_indexes():
     except Exception as exc:
         logger.warning("stored upload size log skipped: %s", type(exc).__name__)
     await _safe_index("users.user_id", db.users.create_index("user_id", unique=True, background=True))
-    await _safe_index("users.email", db.users.create_index("email", unique=True, background=True))
+    try:
+        email_index = await asyncio.to_thread(ensure_unique_email_index)
+        if email_index != "exists":
+            logger.info("email unique index %s", email_index)
+    except Exception as exc:
+        logger.warning("email unique index skipped: %s", type(exc).__name__)
     await _safe_index("users.phone_number", db.users.create_index("phone_number", sparse=True, background=True))
     await _safe_index("conversations.conversation_id", db.conversations.create_index("conversation_id", unique=True, background=True))
     await _safe_index("conversations.participant_ids", db.conversations.create_index("participant_ids", background=True))

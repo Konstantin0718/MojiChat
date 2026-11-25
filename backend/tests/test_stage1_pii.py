@@ -192,16 +192,27 @@ def test_email_normalize_reports_collisions_without_merging():
     first = f"user_{uuid.uuid4().hex[:8]}"
     second = f"user_{uuid.uuid4().hex[:8]}"
     alone = f"user_{uuid.uuid4().hex[:8]}"
-    _db().users.insert_many([
-        {"user_id": first, "email": f"Case.{suffix}@Example.com", "name": "A"},
-        {"user_id": second, "email": f"case.{suffix}@example.com", "name": "B"},
-        {"user_id": alone, "email": f"Solo.{suffix}@Example.com", "name": "C"},
-    ])
-    result = server.normalize_stored_emails()
-    assert result["collisions"] >= 1
-    assert _db().users.find_one({"user_id": first})["email"] == f"Case.{suffix}@Example.com"
-    assert _db().users.find_one({"user_id": second})["email"] == f"case.{suffix}@example.com"
-    assert _db().users.find_one({"user_id": alone})["email"] == f"solo.{suffix}@example.com"
+    users = _db().users
+    # Case variants cannot be inserted while the partial unique index is in place.
+    # This is the older rows that startup finds before it decides to skip that index.
+    for name, spec in list(users.index_information().items()):
+        if list(spec.get("key") or []) == [("email", 1)]:
+            users.drop_index(name)
+    try:
+        users.insert_many([
+            {"user_id": first, "email": f"Case.{suffix}@Example.com", "name": "A"},
+            {"user_id": second, "email": f"case.{suffix}@example.com", "name": "B"},
+            {"user_id": alone, "email": f"Solo.{suffix}@Example.com", "name": "C"},
+        ])
+        result = server.normalize_stored_emails()
+        assert result["collisions"] >= 1
+        assert users.find_one({"user_id": first})["email"] == f"Case.{suffix}@Example.com"
+        assert users.find_one({"user_id": second})["email"] == f"case.{suffix}@example.com"
+        assert users.find_one({"user_id": alone})["email"] == f"solo.{suffix}@example.com"
+        assert server.ensure_unique_email_index() == "skipped"
+    finally:
+        users.delete_many({"user_id": {"$in": [first, second, alone]}})
+        server.ensure_unique_email_index()
 
 
 def test_push_dedupe_keeps_distinct_devices_and_the_newest_duplicate():

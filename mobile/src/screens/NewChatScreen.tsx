@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -25,20 +25,32 @@ export const NewChatScreen: React.FC<Props> = ({ navigation }) => {
   const { colors } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<User[]>([]);
+  const [searchNotice, setSearchNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+  }, []);
 
   const searchUsers = useCallback(async (query: string) => {
     if (query.length < 2) {
       setSearchResults([]);
+      setSearchNotice('');
       return;
     }
 
     setLoading(true);
     try {
       const results = await api.searchUsers(query);
+      setSearchNotice('');
       setSearchResults(Array.isArray(results) ? results : []);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.response?.status === 429) {
+        setSearchNotice('Опитай след малко');
+        return;
+      }
       console.error('Search error:', error);
     } finally {
       setLoading(false);
@@ -47,7 +59,15 @@ export const NewChatScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleSearch = (text: string) => {
     setSearchQuery(text);
-    searchUsers(text);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (text.trim().length < 2) {
+      setSearchResults([]);
+      setSearchNotice('');
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => {
+      searchUsers(text);
+    }, 300);
   };
 
   const startConversation = async (otherUser: User) => {
@@ -112,6 +132,7 @@ export const NewChatScreen: React.FC<Props> = ({ navigation }) => {
         />
         {loading && <ActivityIndicator size="small" color={colors.primary} />}
       </View>
+      {searchNotice ? <Text style={styles.searchNotice}>{searchNotice}</Text> : null}
 
       {/* Results */}
       <FlatList
@@ -124,11 +145,13 @@ export const NewChatScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyEmoji}>🔍</Text>
               <Text style={styles.emptyText}>
-                {loading ? 'Searching...' : 'No users found'}
+                {searchNotice || (loading ? 'Searching...' : 'No users found')}
               </Text>
-              <Text style={styles.emptySubtext}>
-                Try searching with a different name
-              </Text>
+              {searchNotice ? null : (
+                <Text style={styles.emptySubtext}>
+                  Try searching with a different name
+                </Text>
+              )}
             </View>
           ) : (
             <View style={styles.emptyContainer}>
@@ -190,6 +213,13 @@ const createStyles = (colors: any) =>
       marginLeft: 8,
       fontSize: 16,
       color: colors.text,
+    },
+    searchNotice: {
+      textAlign: 'center',
+      color: colors.textSecondary,
+      fontSize: 13,
+      marginHorizontal: 16,
+      marginBottom: 8,
     },
     listContent: {
       paddingHorizontal: 16,
