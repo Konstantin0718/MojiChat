@@ -136,7 +136,23 @@ def test_duplicate_emails_skip_the_unique_index_and_a_clean_set_creates_it(clien
         assert server.ensure_unique_email_index() == "exists"
         spec = next(iter(_email_indexes().values()))
         assert server._email_index_is_ready(spec)
+        assert not spec.get("collation")
         assert users.count_documents({"user_id": {"$in": blank_ids}}) == 2
+
+        from pymongo.collation import Collation
+        users.drop_index(next(iter(_email_indexes())))
+        users.create_index(
+            "email",
+            unique=True,
+            name="users_email_unique",
+            partialFilterExpression=server.EMAIL_UNIQUE_PARTIAL,
+            collation=Collation(locale="en", strength=2),
+        )
+        assert server.ensure_unique_email_index() == "created"
+        replaced = next(iter(_email_indexes().values()))
+        assert server._email_index_is_ready(replaced)
+        assert not replaced.get("collation")
+        assert server.ensure_unique_email_index() == "exists"
     finally:
         users.delete_many({"user_id": {"$in": duplicate_ids + blank_ids}})
         server.ensure_unique_email_index()

@@ -76,6 +76,7 @@ export const ChatLayout = () => {
   const [typingUsers, setTypingUsers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  const [searchNotice, setSearchNotice] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [isNewGroupOpen, setIsNewGroupOpen] = useState(false);
@@ -108,6 +109,7 @@ export const ChatLayout = () => {
   const [seenMap, setSeenMap] = useState({});
 
   const messagesEndRef = useRef(null);
+  const searchTimerRef = useRef(null);
   const lastMarkedRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const inputRef = useRef(null);
@@ -322,18 +324,38 @@ export const ChatLayout = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  useEffect(() => () => clearTimeout(searchTimerRef.current), []);
+
   // Search users
   const searchUsers = async (query) => {
     if (query.trim().length < 2) {
       setSearchResults([]);
+      setSearchNotice('');
       return;
     }
     try {
       const response = await api.get(`/users/search?q=${encodeURIComponent(query)}`);
+      setSearchNotice('');
       setSearchResults(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
+      if (error?.response?.status === 429) {
+        setSearchNotice('Опитай след малко');
+        return;
+      }
       console.error('Error searching users:', error);
     }
+  };
+
+  const scheduleUserSearch = (query) => {
+    clearTimeout(searchTimerRef.current);
+    if (query.trim().length < 2) {
+      setSearchResults([]);
+      setSearchNotice('');
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => {
+      searchUsers(query);
+    }, 300);
   };
 
   // Handle typing indicator
@@ -1170,10 +1192,13 @@ export const ChatLayout = () => {
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
-                  searchUsers(e.target.value);
+                  scheduleUserSearch(e.target.value);
                 }}
                 data-testid="user-search-input"
               />
+              {searchNotice ? (
+                <p className="text-center text-sm text-muted-foreground">{searchNotice}</p>
+              ) : null}
               <ScrollArea className="h-64">
                 {searchResults.map((u) => (
                   <div
@@ -1199,7 +1224,7 @@ export const ChatLayout = () => {
                     )}
                   </div>
                 ))}
-                {searchQuery && searchResults.length === 0 && (
+                {!searchNotice && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
                   <p className="text-center text-muted-foreground py-8">No users found</p>
                 )}
               </ScrollArea>
@@ -1235,9 +1260,12 @@ export const ChatLayout = () => {
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
-                  searchUsers(e.target.value);
+                  scheduleUserSearch(e.target.value);
                 }}
               />
+              {searchNotice ? (
+                <p className="text-center text-sm text-muted-foreground">{searchNotice}</p>
+              ) : null}
               {selectedUsers.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {selectedUsers.map((u) => (

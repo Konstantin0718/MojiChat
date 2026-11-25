@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -27,14 +27,21 @@ export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
   const [step, setStep] = useState<'members' | 'name'>('members');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<User[]>([]);
+  const [searchNotice, setSearchNotice] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<User[]>([]);
   const [groupName, setGroupName] = useState('');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+  }, []);
 
   const searchUsers = useCallback(async (query: string) => {
     if (query.length < 2) {
       setSearchResults([]);
+      setSearchNotice('');
       return;
     }
 
@@ -42,10 +49,15 @@ export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
     try {
       const results = await api.searchUsers(query);
       const list = Array.isArray(results) ? results : [];
+      setSearchNotice('');
       setSearchResults(list.filter(
         (u: User) => !selectedUsers.find(s => s.user_id === u.user_id)
       ));
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.response?.status === 429) {
+        setSearchNotice('Опитай след малко');
+        return;
+      }
       console.error('Search error:', error);
     } finally {
       setLoading(false);
@@ -54,7 +66,15 @@ export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleSearch = (text: string) => {
     setSearchQuery(text);
-    searchUsers(text);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (text.trim().length < 2) {
+      setSearchResults([]);
+      setSearchNotice('');
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => {
+      searchUsers(text);
+    }, 300);
   };
 
   const toggleUser = (toggledUser: User) => {
@@ -243,6 +263,7 @@ export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
         />
         {loading && <ActivityIndicator size="small" color={colors.primary} />}
       </View>
+      {searchNotice ? <Text style={styles.searchNotice}>{searchNotice}</Text> : null}
 
       {/* Results */}
       <FlatList
@@ -254,8 +275,8 @@ export const NewGroupScreen: React.FC<Props> = ({ navigation }) => {
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyEmoji}>👥</Text>
             <Text style={styles.emptyText}>
-              {searchQuery.length >= 2 
-                ? (loading ? 'Searching...' : 'No users found')
+              {searchQuery.length >= 2
+                ? (searchNotice || (loading ? 'Searching...' : 'No users found'))
                 : 'Search to add members'
               }
             </Text>
@@ -348,6 +369,13 @@ const createStyles = (colors: any) =>
       marginLeft: 8,
       fontSize: 16,
       color: colors.text,
+    },
+    searchNotice: {
+      textAlign: 'center',
+      color: colors.textSecondary,
+      fontSize: 13,
+      marginHorizontal: 16,
+      marginBottom: 8,
     },
     listContent: {
       paddingHorizontal: 16,

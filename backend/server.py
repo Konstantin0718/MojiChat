@@ -299,7 +299,8 @@ _rate_state: Dict[str, List[float]] = {}
 _rate_windows: Dict[str, int] = {}
 _last_rate_purge = 0.0
 _RATE_PURGE_SECONDS = 60
-USER_SEARCH_LIMIT = 30
+# Installed 2.3.x apps search on every keystroke. Lower this to 30 after the next APK.
+USER_SEARCH_LIMIT = 60
 USER_SEARCH_WINDOW = 60
 USER_SEARCH_MIN_CHARS = 2
 
@@ -3704,17 +3705,18 @@ def _email_index_is_ready(spec: dict) -> bool:
     email_filter = partial.get("email") or {}
     if email_filter.get("$type") != "string" or email_filter.get("$gt") != "":
         return False
+    # A collation stops plain find_one({email}) from using this index.
     collation = spec.get("collation") or {}
-    return collation.get("locale") == "en" and collation.get("strength") == 2
+    return not collation.get("locale") and not collation.get("strength")
 
 
 def ensure_unique_email_index() -> str:
-    """Partial unique index on a non-empty email. Case variants count as one address.
+    """Partial unique index on a non-empty email. Stored addresses are already lowercase.
 
     Existing duplicates are logged and the index is left unchanged so startup still boots.
+    An older collated index is dropped only when its spec differs and there are no duplicates.
     """
     from pymongo import MongoClient
-    from pymongo.collation import Collation
 
     try:
         with MongoClient(mongo_url) as client:
@@ -3742,18 +3744,21 @@ def ensure_unique_email_index() -> str:
                 )
                 return "skipped"
             info = sync.users.index_information()
+            ready = False
             for name, spec in list(info.items()):
                 if list(spec.get("key") or []) != [("email", 1)]:
                     continue
                 if _email_index_is_ready(spec):
-                    return "exists"
+                    ready = True
+                    continue
                 sync.users.drop_index(name)
+            if ready:
+                return "exists"
             sync.users.create_index(
                 "email",
                 unique=True,
                 name="users_email_unique",
                 partialFilterExpression=EMAIL_UNIQUE_PARTIAL,
-                collation=Collation(locale="en", strength=2),
                 background=True,
             )
             return "created"
