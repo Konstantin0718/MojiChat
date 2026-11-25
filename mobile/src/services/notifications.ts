@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { api } from './api';
+import { CALLS_ENABLED } from '../config';
 import { getAuthToken } from './tokenStore';
 
 const PUSH_DEVICE_KEY = 'push_device_id';
@@ -246,6 +247,7 @@ class NotificationService {
 
   // Show incoming call notification
   async showIncomingCallNotification(callerName: string, isVideo: boolean, callId: string) {
+    if (!CALLS_ENABLED) return;
     await Notifications.scheduleNotificationAsync({
       content: {
         title: `${isVideo ? '📹 Video' : '📞 Voice'} Call`,

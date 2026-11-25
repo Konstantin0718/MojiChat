@@ -1,3 +1,8 @@
+import Constants from 'expo-constants';
+
+/** Voice and video calls stay off unless app.json extra.callsEnabled is true. */
+export const CALLS_ENABLED = Constants.expoConfig?.extra?.callsEnabled === true;
+
 // API Configuration
 // Replace with your actual backend URL
 export const API_URL = 'https://mojichat.onrender.com';

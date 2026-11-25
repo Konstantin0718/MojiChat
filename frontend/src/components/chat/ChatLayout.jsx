@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { CALLS_ENABLED } from '../../lib/calls.mjs';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -216,6 +217,7 @@ export const ChatLayout = () => {
       );
     },
     onIncomingCall: (data) => {
+      if (!CALLS_ENABLED) return;
       if (data.initiator_id !== user?.user_id && data.status === 'ringing') {
         setIncomingCall(data);
       }
@@ -552,6 +554,7 @@ export const ChatLayout = () => {
 
   // Start video/audio call
   const startCall = async (isVideo = true) => {
+    if (!CALLS_ENABLED) return;
     if (!conversationId) return;
     
     try {
@@ -1493,7 +1496,7 @@ export const ChatLayout = () => {
 
       {/* Video Call */}
       <AnimatePresence>
-        {activeCall && (
+        {CALLS_ENABLED && activeCall && (
           <VideoCall
             callId={activeCall.call_id}
             conversationId={activeCall.conversation_id}
@@ -1509,7 +1512,7 @@ export const ChatLayout = () => {
 
       {/* Incoming Call Notification */}
       <AnimatePresence>
-        {incomingCall && !activeCall && (
+        {CALLS_ENABLED && incomingCall && !activeCall && (
           <motion.div
             initial={{ opacity: 0, y: -100 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1598,7 +1601,7 @@ export const ChatLayout = () => {
                 )}
               </div>
               
-              {/* Call buttons */}
+              {CALLS_ENABLED && (
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
@@ -1619,6 +1622,7 @@ export const ChatLayout = () => {
                   <Video className="w-5 h-5" />
                 </Button>
               </div>
+              )}
               
               {!currentConversation.is_group && (() => {
                 const other = getOtherParticipant(currentConversation);
