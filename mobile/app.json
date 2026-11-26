@@ -29,7 +29,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
+        "backgroundColor": "#01072C",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.mojichat.app",
@@ -77,8 +77,8 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
-          "color": "#8B5CF6",
+          "icon": "./assets/notification-icon.png",
+          "color": "#22D3EE",
           "androidMode": "default",
           "androidCollapsedTitle": "New messages"
         }
@@ -98,7 +98,15 @@
       ],
       "expo-font",
       "expo-localization",
-      "expo-updates"
+      "expo-updates",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "backgroundColor": "#01072C",
+          "imageWidth": 200
+        }
+      ]
     ],
     "extra": {
       "eas": {

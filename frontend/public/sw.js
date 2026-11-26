@@ -1,7 +1,7 @@
-// MojiChat Service Worker v2.0.0
-const CACHE_NAME = 'mojichat-v2';
-const STATIC_CACHE = 'mojichat-static-v2';
-const DYNAMIC_CACHE = 'mojichat-dynamic-v2';
+// MojiChat Service Worker v3.0.0
+const CACHE_NAME = 'mojichat-v3';
+const STATIC_CACHE = 'mojichat-static-v3';
+const DYNAMIC_CACHE = 'mojichat-dynamic-v3';
 
 // Files to cache immediately
 const STATIC_FILES = [
@@ -115,7 +115,7 @@ self.addEventListener('push', (event) => {
     title: 'MojiChat',
     body: 'You have a new message!',
     icon: '/icons/icon-192x192.png',
-    badge: '/icons/icon-72x72.png',
+    badge: '/icons/badge-72.png',
     data: {}
   };
 
@@ -131,7 +131,7 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body,
     icon: data.icon || '/icons/icon-192x192.png',
-    badge: data.badge || '/icons/icon-72x72.png',
+    badge: data.badge || '/icons/badge-72.png',
     vibrate: [100, 50, 100],
     data: data.data || {},
     actions: [
