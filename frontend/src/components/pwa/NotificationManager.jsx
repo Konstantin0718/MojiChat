@@ -116,7 +116,7 @@ export const NotificationManager = ({ api, user }) => {
       new NotificationAPI(title, {
         body,
         icon: '/icons/icon-192x192.png',
-        badge: '/icons/icon-72x72.png'
+        badge: '/icons/badge-72.png'
       });
     }
   };
