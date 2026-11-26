@@ -1,5 +1,5 @@
 import "@/App.css";
-import { BrowserRouter, Routes, Route, useLocation, useNavigate, useParams } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -9,7 +9,6 @@ import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-import AuthCallback from "./pages/AuthCallback";
 import ChatLayout from "./components/chat/ChatLayout";
 import { ChatErrorBoundary } from "./components/ChatErrorBoundary";
 import { rememberRedirect, safeRedirect } from "./lib/safeRedirect.mjs";
@@ -57,15 +56,7 @@ const JoinPage = () => {
   );
 };
 
-// Router wrapper to handle OAuth callback
 const AppRouter = () => {
-  const location = useLocation();
-  
-  // Check URL fragment for session_id (OAuth callback)
-  if (location.hash?.includes('session_id=')) {
-    return <AuthCallback />;
-  }
-  
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />

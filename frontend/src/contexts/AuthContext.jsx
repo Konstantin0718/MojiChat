@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
+import { firebaseWebConfig } from '../lib/firebaseWebConfig.mjs';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -45,13 +46,6 @@ export const AuthProvider = ({ children }) => {
   }, [token]);
 
   const checkAuth = useCallback(async () => {
-    // CRITICAL: If returning from OAuth callback, skip the /me check.
-    // AuthCallback will exchange the session_id and establish the session first.
-    if (window.location.hash?.includes('session_id=')) {
-      setLoading(false);
-      return;
-    }
-
     try {
       const response = await api.get('/auth/me');
       setUser(response.data);
@@ -107,8 +101,36 @@ export const AuthProvider = ({ children }) => {
     return userData;
   };
 
-  const processGoogleAuth = async (sessionId) => {
-    const response = await api.post('/auth/session', { session_id: sessionId });
+  const googleSignInReady = Boolean(firebaseWebConfig());
+  const googleAuthRef = useRef(null);
+
+  useEffect(() => {
+    if (!googleSignInReady) return undefined;
+    let cancelled = false;
+    (async () => {
+      const config = firebaseWebConfig();
+      if (!config) return;
+      const appMod = await import('firebase/app');
+      const authMod = await import('firebase/auth');
+      if (cancelled) return;
+      const app = appMod.getApps().length ? appMod.getApps()[0] : appMod.initializeApp(config);
+      googleAuthRef.current = { auth: authMod.getAuth(app), authMod };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [googleSignInReady]);
+
+  const loginWithGoogle = async () => {
+    const loaded = googleAuthRef.current;
+    if (!loaded) {
+      throw new Error('Google sign-in is loading, try again');
+    }
+    const provider = new loaded.authMod.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const result = await loaded.authMod.signInWithPopup(loaded.auth, provider);
+    const idToken = await result.user.getIdToken();
+    const response = await api.post('/auth/firebase', { id_token: idToken });
     const { token: newToken, ...userData } = response.data;
     setToken(newToken);
     localStorage.setItem('mojichat_token', newToken);
@@ -144,15 +166,17 @@ export const AuthProvider = ({ children }) => {
     } catch (e) {
       // Ignore logout errors
     }
+    const loaded = googleAuthRef.current;
+    if (loaded?.auth) {
+      try {
+        await loaded.authMod.signOut(loaded.auth);
+      } catch (e) {
+        // Local logout still finishes when Firebase is unreachable.
+      }
+    }
     setUser(null);
     setToken(null);
     localStorage.removeItem('mojichat_token');
-  };
-
-  const loginWithGoogle = () => {
-    // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-    const redirectUrl = window.location.origin + '/chat';
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
   };
 
   return (
@@ -167,7 +191,7 @@ export const AuthProvider = ({ children }) => {
         register,
         logout,
         loginWithGoogle,
-        processGoogleAuth,
+        googleSignInReady,
         api,
         isAuthenticated: !!user,
       }}

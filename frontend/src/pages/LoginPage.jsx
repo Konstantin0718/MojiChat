@@ -7,13 +7,14 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { useAuth } from '../contexts/AuthContext';
+import { googleSignInErrorText } from '../lib/firebaseWebConfig.mjs';
 import { consumeRedirect, peekRedirect, rememberRedirect, safeRedirect } from '../lib/safeRedirect.mjs';
 import { Toaster, toast } from 'sonner';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { login, loginWithGoogle, isAuthenticated } = useAuth();
+  const { login, loginWithGoogle, googleSignInReady, isAuthenticated } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -49,6 +50,19 @@ export default function LoginPage() {
     }
   };
 
+  const handleGoogle = async () => {
+    setLoading(true);
+    try {
+      await loginWithGoogle();
+      toast.success('Welcome back!');
+    } catch (error) {
+      const text = googleSignInErrorText(error);
+      if (text) toast.error(text);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background flex" data-testid="login-page">
       <Toaster position="top-center" richColors />
@@ -75,7 +89,7 @@ export default function LoginPage() {
             </p>
           </motion.div>
 
-          {/* Google Login */}
+          {googleSignInReady && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -84,7 +98,8 @@ export default function LoginPage() {
             <Button
               variant="outline"
               className="w-full rounded-xl py-6 text-base gap-3 mb-6"
-              onClick={loginWithGoogle}
+              onClick={handleGoogle}
+              disabled={loading}
               data-testid="google-login-btn"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -108,8 +123,9 @@ export default function LoginPage() {
               Continue with Google
             </Button>
           </motion.div>
+          )}
 
-          {/* Divider */}
+          {googleSignInReady && (
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-border" />
@@ -118,6 +134,7 @@ export default function LoginPage() {
               <span className="px-4 bg-background text-muted-foreground">or continue with email</span>
             </div>
           </div>
+          )}
 
           {/* Login Form */}
           <motion.form
